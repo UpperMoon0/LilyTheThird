@@ -2,7 +2,7 @@ import sys
 import threading
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QTextEdit, QVBoxLayout, QWidget
-from command import command_handler
+from action import action_handler
 
 from response import get_response
 from tts import synthesize_speech
