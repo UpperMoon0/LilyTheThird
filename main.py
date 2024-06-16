@@ -2,8 +2,8 @@ import sys
 import threading
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QTextEdit, QVBoxLayout, QWidget
-from action import action_handler
 
+from action import action_handler
 from response import get_response
 from tts import synthesize_speech
 
@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
         try:
             response, action = get_response(self.prompt_input.text())
 
-            command_handler.execute_command(action)
+            action_handler.execute_command(action)
 
             # Run the speech synthesis in a separate thread
             threading.Thread(target=synthesize_speech, args=(response,)).start()

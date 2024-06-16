@@ -37,7 +37,7 @@ def get_response(user_message):
 
     chat_completion = client.chat.completions.create(
         messages=messages,
-        model="gpt-3.5-turbo",
+        model="gpt-4o",
         max_tokens=500,
         temperature=temperature,
     )
