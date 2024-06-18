@@ -37,8 +37,8 @@ def unsort_download():
     download_dir = os.path.expanduser('~/Downloads')  # Path to the Download directory
     file_types = ['image', 'video', 'doc', 'music', 'slide', 'spreadsheet', 'zip', 'other']
 
-    for type in file_types:
-        type_dir = os.path.join(download_dir, type)
+    for file_type in file_types:
+        type_dir = os.path.join(download_dir, file_type)
         if os.path.exists(type_dir):
             for filename in os.listdir(type_dir):
                 file_path = os.path.join(type_dir, filename)

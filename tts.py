@@ -17,7 +17,7 @@ def synthesize_speech(response):
     ssml_string = f"""
     <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
         <voice name="fr-FR-VivienneMultilingualNeural">
-            <prosody pitch="+20%">
+            <prosody pitch="+25%">
                 {response}
             </prosody>
         </voice>

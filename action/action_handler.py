@@ -15,7 +15,4 @@ def execute_command(action):
         elif 'browse' in action:
             keyword = action[action.find('browse') + len('browse'):]
             browser_action.browse(keyword)
-        elif 'add' in action:
-            if 'alarm' or 'reminder' in action:
-                # get time from string
-                time = action[action.find('add') + len('add'):]
+

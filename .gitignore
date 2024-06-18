@@ -1,2 +1,5 @@
 /.env
 /response.mp3
+/.idea
+/__pycache__
+/action/__pycache__
