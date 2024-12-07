@@ -16,8 +16,8 @@ speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
 def synthesize_speech(response):
     ssml_string = f"""
     <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
-        <voice name="fr-FR-VivienneMultilingualNeural">
-            <prosody pitch="+22%">
+        <voice name="en-GB-AdaMultilingualNeural">
+            <prosody pitch="+12%" rate="-8%">
                 {response}
             </prosody>
         </voice>
