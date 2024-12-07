@@ -1,7 +1,8 @@
 import sys
 import threading
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBox, \
+    QPushButton
 from PyQt5.QtGui import QFont
 
 from action import action_handler
@@ -17,6 +18,9 @@ class MainWindow(QMainWindow):
         self.response_box.setReadOnly(True)
         self.speech_synthesis_enabled = QCheckBox("Enable Speech Synthesis", self)
         self.speech_synthesis_enabled.setChecked(False)
+        self.clear_history_button = QPushButton("Clear History", self)
+        self.enable_kg_memory_checkbox = QCheckBox("Enable Knowledge Graph Memory", self)
+        self.enable_kg_memory_checkbox.setChecked(True)  # By default, the memory is enabled
 
         # Set the font size for the input box and response box
         font = QFont("Arial", 14)  # Set font family and size (14 points)
@@ -27,19 +31,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.prompt_input)
         layout.addWidget(self.response_box)
         layout.addWidget(self.speech_synthesis_enabled)
+        layout.addWidget(self.enable_kg_memory_checkbox)  # Add the checkbox to the layout
+        layout.addWidget(self.clear_history_button)
 
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
         self.prompt_input.returnPressed.connect(self.get_response)
+        self.clear_history_button.clicked.connect(self.clear_history)
 
     def get_response(self):
         threading.Thread(target=self._get_response_thread).start()
 
     def _get_response_thread(self):
         self.prompt_input.setDisabled(True)
-        message, action = get_response(self.prompt_input.text())
+        message, action = get_response(self.prompt_input.text(), not self.enable_kg_memory_checkbox.isChecked())
 
         action_handler.execute_command(action)
 
@@ -57,6 +64,11 @@ class MainWindow(QMainWindow):
         # Clear the prompt_input box
         self.prompt_input.clear()
         self.prompt_input.setDisabled(False)
+
+    def clear_history(self):
+        global message_history
+        message_history = []
+        self.response_box.append("History cleared.")
 
 app = QApplication(sys.argv)
 window = MainWindow()

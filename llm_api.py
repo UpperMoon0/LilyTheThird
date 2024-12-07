@@ -35,51 +35,58 @@ def update_history(user_message, assistant_message):
     if len(message_history) > 10:
         message_history.pop(0)
 
-def get_response(user_message):
+def get_response(user_message, disable_kg_memory=False):
     client = OpenAI(api_key=os.getenv('OPENAI_KEY'))
+    related_info_sentences = []
 
-    # Preflight request to ask for keywords related to the user message
-    preflight_messages = [
-        {'role': 'system', 'content': "Do not answer the user message! Provide an array of at most 5 keywords related to the user message."},
-        {'role': 'user', 'content': user_message},
-    ]
+    # If knowledge graph memory is disabled, skip the preflight request and related info search
+    if not disable_kg_memory:
+        # Preflight request to ask for keywords related to the user message
+        preflight_messages = [
+            {'role': 'system', 'content': "Do not answer the user message! Provide an array of at most 5 keywords related to the user message."},
+            {'role': 'user', 'content': user_message},
+        ]
 
-    preflight_response = client.chat.completions.create(
-        messages=preflight_messages,
-        model=model,
-        max_tokens=50,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "preflight_response",
-                "strict": True,
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "keywords": {
-                            "type": "array",
-                            "items": {"type": "string"}
-                        }
-                    },
-                    "required": ["keywords"],
-                    "additionalProperties": False
+        preflight_response = client.chat.completions.create(
+            messages=preflight_messages,
+            model=model,
+            max_tokens=50,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "preflight_response",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "keywords": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            }
+                        },
+                        "required": ["keywords"],
+                        "additionalProperties": False
+                    }
                 }
             }
-        }
-    )
+        )
 
-    preflight_res_content = json.loads(preflight_response.choices[0].message.content)
-    keywords = preflight_res_content.get("keywords")
-    related_info_sentences = kg_handler.get_related_info_from_keywords(keywords)
-    for sentence in related_info_sentences:
-        print(sentence)
+        preflight_res_content = json.loads(preflight_response.choices[0].message.content)
+        keywords = preflight_res_content.get("keywords")
+        related_info_sentences = kg_handler.get_related_info_from_keywords(keywords)
+        for sentence in related_info_sentences:
+            print(sentence)
 
     # Collect messages for the main request
     main_messages = [
         {'role': 'system', 'content': personality},
-        {'role': 'system', 'content': f"Current date and time: {current_date_time}"},
-        {'role': 'system', 'content': "Here is some information that might be related to the user message, however, not all of them are relevant:"}
+        {'role': 'system', 'content': f"Current date and time: {current_date_time}"}
     ]
+
+    if not disable_kg_memory:
+        main_messages.append({'role': 'system', 'content': "Here is some information that might be related to the user message, however, not all of them are relevant:"})
+        for sentence in related_info_sentences:
+            main_messages.append({'role': 'system', 'content': sentence})
 
     # Add historical user-assistant pairs
     for message in message_history:
