@@ -1,9 +1,37 @@
 import threading
-import os
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import (
+    Qt,
+    QPropertyAnimation,
+    pyqtProperty
+)
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QWidget
 from discord.bot import DiscordBot
+
+
+class ColorCircle(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._color = QColor(201, 0, 0)  # Start with red
+        self.setFixedSize(50, 50)
+        self.updateStyleSheet()
+
+    @pyqtProperty(QColor)
+    def color(self):
+        return self._color
+
+    @color.setter
+    def color(self, color):
+        self._color = color
+        self.updateStyleSheet()
+
+    def updateStyleSheet(self):
+        self.setStyleSheet(
+            f"background-color: rgba({self._color.red()}, {self._color.green()}, "
+            f"{self._color.blue()}, {self._color.alpha() / 255.0}); "
+            f"border-radius: 25px;"
+        )
 
 class DiscordTab(QWidget):
     def __init__(self):
@@ -15,27 +43,56 @@ class DiscordTab(QWidget):
         self.bot_thread = None
         self.is_bot_running = False
 
+        # Replace QLabel status circle with ColorCircle
+        self.status_circle = ColorCircle(self)
+
+        # Create animations
+        self.idle_animation = QPropertyAnimation(self.status_circle, b"color")
+        self.idle_animation.setDuration(1500)
+        self.idle_animation.setLoopCount(-1)  # Infinite loop
+        self.setup_idle_animation()
+
+        self.running_animation = QPropertyAnimation(self.status_circle, b"color")
+        self.running_animation.setDuration(1500)
+        self.running_animation.setLoopCount(-1)
+        self.setup_running_animation()
+
+        # Start the idle animation when the app starts
+        self.idle_animation.start()
+
+        # Rest of your initialization code remains the same
         self.toggle_bot_button = QPushButton("Start Bot", self)
         self.toggle_bot_button.clicked.connect(self.on_toggle_bot_clicked)
+        self.toggle_bot_button.setStyleSheet("width: 200px; height: 40px;")
 
         self.status_label = QLabel("Not Running", self)
         self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("text-align: center;")
 
         self.channel_id_input = QLineEdit(self)
         self.channel_id_input.setPlaceholderText("Enter Channel ID")
         self.channel_id_input.setVisible(False)
+        self.channel_id_input.setStyleSheet("width: 300px; height: 30px;")
 
         self.message_input = QLineEdit(self)
         self.message_input.setPlaceholderText("Type your message here...")
         self.message_input.setVisible(False)
+        self.message_input.setStyleSheet("width: 300px; height: 30px;")
 
         self.send_message_button = QPushButton("Send Message", self)
         self.send_message_button.clicked.connect(self.on_send_message_clicked)
         self.send_message_button.setVisible(False)
+        self.send_message_button.setStyleSheet("width: 200px; height: 40px;")
 
         # Status layout with button and status label
         status_layout = QVBoxLayout()
         status_layout.setAlignment(Qt.AlignCenter)
+
+        status_circle_layout = QHBoxLayout()
+        status_circle_layout.addStretch()
+        status_circle_layout.addWidget(self.status_circle)
+        status_circle_layout.addStretch()
+        status_layout.addLayout(status_circle_layout)
 
         toggle_button_layout = QHBoxLayout()
         toggle_button_layout.addStretch()
@@ -49,7 +106,7 @@ class DiscordTab(QWidget):
         status_label_layout.addStretch()
         status_layout.addLayout(status_label_layout)
 
-        # Input layout with input fields and send button
+        # Input layout
         input_layout = QVBoxLayout()
         input_layout.setAlignment(Qt.AlignCenter)
 
@@ -79,16 +136,29 @@ class DiscordTab(QWidget):
 
         self.setLayout(main_layout)
 
-        # Load and apply the QSS file
-        self.load_stylesheet()
+    def setup_idle_animation(self):
+        # Create keyframes for smoother animation
+        self.idle_animation.setKeyValueAt(0, QColor(201, 0, 0))    # Red
+        self.idle_animation.setKeyValueAt(0.5, QColor(196, 160, 0))  # Yellow
+        self.idle_animation.setKeyValueAt(1, QColor(201, 0, 0))    # Back to red
 
-    def load_stylesheet(self):
-        qss_file = os.path.join(os.path.dirname(__file__), 'discord.qss')
-        try:
-            with open(qss_file, 'r') as file:
-                self.setStyleSheet(file.read())
-        except FileNotFoundError:
-            print(f"Style sheet file '{qss_file}' not found.")
+    def setup_running_animation(self):
+        # Create keyframes for smoother animation
+        self.running_animation.setKeyValueAt(0, QColor(0, 255, 76))      # Green
+        self.running_animation.setKeyValueAt(0.5, QColor(0, 196, 186))  # Turquoise
+        self.running_animation.setKeyValueAt(1, QColor(0, 255, 76))      # Back to green
+
+    def update_status(self, status):
+        self.status_label.setText(status)
+
+        # Stop both animations first
+        self.idle_animation.stop()
+        self.running_animation.stop()
+
+        if status == "Running":
+            self.running_animation.start()
+        else:
+            self.idle_animation.start()
 
     def on_toggle_bot_clicked(self):
         if not self.is_bot_running:
@@ -121,9 +191,6 @@ class DiscordTab(QWidget):
         self.channel_id_input.setVisible(False)
         self.message_input.setVisible(False)
         self.send_message_button.setVisible(False)
-
-    def update_status(self, status):
-        self.status_label.setText(status)
 
     def on_send_message_clicked(self):
         if not self.is_bot_running:
