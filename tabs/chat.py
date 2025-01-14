@@ -69,7 +69,7 @@ class ChatTab(QWidget):
         self.speech_synthesis_enabled.setChecked(True)
         self.clear_history_button = QPushButton("Clear History", self)
         self.enable_kg_memory_checkbox = QCheckBox("Enable Knowledge Graph Memory", self)
-        self.enable_kg_memory_checkbox.setChecked(False)  
+        self.enable_kg_memory_checkbox.setChecked(False)
 
         # Set the font size for the input box and response box
         font = QFont("Arial", 14)  # Set font family and size (14 points)
