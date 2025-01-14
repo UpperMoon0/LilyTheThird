@@ -31,8 +31,8 @@ def update_history(user_message, assistant_message):
     message_history.append({'role': 'user', 'content': user_message})
     message_history.append({'role': 'assistant', 'content': assistant_message})
 
-    # Keep only the last 5 messages (user + assistant pairs)
-    if len(message_history) > 10:
+    # Keep only the last 10 messages (user + assistant pairs)
+    if len(message_history) > 20:
         message_history.pop(0)
 
 def get_response(user_message, disable_kg_memory=False):

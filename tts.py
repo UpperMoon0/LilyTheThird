@@ -1,35 +1,67 @@
-# tts.py
+import asyncio
+import edge_tts
+import pygame
 import os
-import azure.cognitiveservices.speech as speechsdk
+import time
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# Set up Azure TTS
-tts_key = os.getenv('TTS_KEY')
-a_region = os.getenv('REGION')
-speech_config = speechsdk.SpeechConfig(subscription=tts_key, region=a_region)
-speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
+from translator import translate_to_japanese
 
 
-def synthesize_speech(response):
-    ssml_string = f"""
-    <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">
-        <voice name="en-GB-AdaMultilingualNeural">
-            <prosody pitch="+12%" rate="-8%">
-                {response}
-            </prosody>
-        </voice>
-    </speak>
+def wait_for_file_availability(file_path, timeout=5):
     """
-    try:
-        result = speech_synthesizer.speak_ssml_async(ssml_string).get()
+    Wait for the audio file to become available to ensure no other process is using it.
+    :param file_path: The path to the audio file
+    :param timeout: How long to wait before giving up (in seconds)
+    :return: True if the file is available, False if it couldn't be accessed within the timeout
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if not os.path.exists(file_path):
+            return True
+        try:
+            with open(file_path, 'r'):
+                return True
+        except IOError:
+            time.sleep(0.1)
+    return False
 
-        if result.reason == speechsdk.ResultReason.Canceled:
-            cancellation_details = result.cancellation_details
-            print("Speech synthesis canceled: {}".format(cancellation_details.reason))
-            if cancellation_details.reason == speechsdk.CancellationReason.Error and cancellation_details.error_details:
-                print("Error details: {}".format(cancellation_details.error_details))
-    except Exception as e:
-        print(f"An error occurred during speech synthesis: {e}")
+
+async def text_to_speech_and_play(text, voice="ja-JP-NanamiNeural", pitch="+15Hz"):
+    """
+    Convert text to speech with pitch adjustment using edge-tts and play the audio.
+    :param text: Text to synthesize
+    :param voice: TTS voice to use
+    :param pitch: Pitch adjustment (e.g., "+50Hz", "-50Hz")
+    """
+    # Translate the text
+    translated_text = translate_to_japanese(text)
+
+    # Create a unique filename for each audio file
+    output_file = f"output/audio_{int(time.time())}.mp3"
+
+    # Wait until the file is available (if another process is using it)
+    if not wait_for_file_availability(output_file):
+        print("Unable to access the file. Please try again.")
+        return
+
+    # Create communicate object with pitch adjustment
+    tts = edge_tts.Communicate(
+        text=translated_text,
+        voice=voice,
+        pitch=pitch
+    )
+
+    # Save the generated speech to the output file
+    await tts.save(output_file)
+    print(f"Audio saved to {output_file}")
+
+    # Initialize pygame mixer
+    pygame.mixer.init()
+    pygame.mixer.music.load(output_file)
+    pygame.mixer.music.play()
+
+    # Wait until the audio has finished playing
+    while pygame.mixer.music.get_busy():
+        await asyncio.sleep(0.1)
+
+    print("Audio played.")
