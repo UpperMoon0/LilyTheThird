@@ -10,6 +10,24 @@ from actions import action_handler
 from llm import ChatbotManager
 from tts import text_to_speech_and_play
 
+
+def clear_output_folder():
+    output_folder = "outputs"  # Adjust this path as needed
+
+    # Check if the outputs folder exists
+    if os.path.exists(output_folder):
+        # Delete files that start with 'audio' in the outputs folder
+        for filename in os.listdir(output_folder):
+            if filename.startswith("audio"):
+                file_path = os.path.join(output_folder, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        print(f"Deleted {file_path}")
+                except Exception as e:
+                    print(f"Error deleting {file_path}: {e}")
+
+
 class ChatTab(QWidget):
     def __init__(self):
         super().__init__()
@@ -43,7 +61,18 @@ class ChatTab(QWidget):
         self.clear_history_button.clicked.connect(self.clear_history)
 
         # Clear the outputs folder when the app starts
-        self.clear_output_folder()
+        clear_output_folder()
+
+        # Load and apply the style sheet
+        self.load_stylesheet()
+
+    def load_stylesheet(self):
+        qss_file = os.path.join(os.path.dirname(__file__), 'style.qss')
+        try:
+            with open(qss_file, 'r') as file:
+                self.setStyleSheet(file.read())
+        except FileNotFoundError:
+            print(f"Style sheet file '{qss_file}' not found.")
 
     def get_response(self):
         threading.Thread(target=self._get_response_thread).start()
@@ -77,18 +106,3 @@ class ChatTab(QWidget):
         message_history = []
         self.response_box.append("History cleared.")
 
-    def clear_output_folder(self):
-        output_folder = "outputs"  # Adjust this path as needed
-
-        # Check if the outputs folder exists
-        if os.path.exists(output_folder):
-            # Delete files that start with 'audio' in the outputs folder
-            for filename in os.listdir(output_folder):
-                if filename.startswith("audio"):
-                    file_path = os.path.join(output_folder, filename)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.remove(file_path)
-                            print(f"Deleted {file_path}")
-                    except Exception as e:
-                        print(f"Error deleting {file_path}: {e}")

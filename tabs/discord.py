@@ -1,5 +1,8 @@
 import threading
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QPushButton, QLineEdit, QWidget
+import os
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QWidget
 from discord.bot import DiscordBot
 
 class DiscordTab(QWidget):
@@ -16,6 +19,7 @@ class DiscordTab(QWidget):
         self.toggle_bot_button.clicked.connect(self.on_toggle_bot_clicked)
 
         self.status_label = QLabel("Not Running", self)
+        self.status_label.setAlignment(Qt.AlignCenter)
 
         self.channel_id_input = QLineEdit(self)
         self.channel_id_input.setPlaceholderText("Enter Channel ID")
@@ -29,14 +33,62 @@ class DiscordTab(QWidget):
         self.send_message_button.clicked.connect(self.on_send_message_clicked)
         self.send_message_button.setVisible(False)
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.toggle_bot_button)
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.channel_id_input)
-        layout.addWidget(self.message_input)
-        layout.addWidget(self.send_message_button)
+        # Status layout with button and status label
+        status_layout = QVBoxLayout()
+        status_layout.setAlignment(Qt.AlignCenter)
 
-        self.setLayout(layout)
+        toggle_button_layout = QHBoxLayout()
+        toggle_button_layout.addStretch()
+        toggle_button_layout.addWidget(self.toggle_bot_button)
+        toggle_button_layout.addStretch()
+        status_layout.addLayout(toggle_button_layout)
+
+        status_label_layout = QHBoxLayout()
+        status_label_layout.addStretch()
+        status_label_layout.addWidget(self.status_label)
+        status_label_layout.addStretch()
+        status_layout.addLayout(status_label_layout)
+
+        # Input layout with input fields and send button
+        input_layout = QVBoxLayout()
+        input_layout.setAlignment(Qt.AlignCenter)
+
+        channel_id_layout = QHBoxLayout()
+        channel_id_layout.addStretch()
+        channel_id_layout.addWidget(self.channel_id_input)
+        channel_id_layout.addStretch()
+        input_layout.addLayout(channel_id_layout)
+
+        message_input_layout = QHBoxLayout()
+        message_input_layout.addStretch()
+        message_input_layout.addWidget(self.message_input)
+        message_input_layout.addStretch()
+        input_layout.addLayout(message_input_layout)
+
+        send_button_layout = QHBoxLayout()
+        send_button_layout.addStretch()
+        send_button_layout.addWidget(self.send_message_button)
+        send_button_layout.addStretch()
+        input_layout.addLayout(send_button_layout)
+
+        # Main layout
+        main_layout = QVBoxLayout()
+        main_layout.setAlignment(Qt.AlignTop)
+        main_layout.addLayout(status_layout)
+        main_layout.addLayout(input_layout)
+
+        self.setLayout(main_layout)
+
+        # Load and apply the QSS file
+        self.load_stylesheet()
+
+    def load_stylesheet(self):
+        qss_file = os.path.join(os.path.dirname(__file__), 'discord.qss')
+        try:
+            with open(qss_file, 'r') as file:
+                self.setStyleSheet(file.read())
+        except FileNotFoundError:
+            print(f"Style sheet file '{qss_file}' not found.")
 
     def on_toggle_bot_clicked(self):
         if not self.is_bot_running:

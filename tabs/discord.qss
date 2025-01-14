@@ -1,0 +1,13 @@
+QPushButton {
+    width: 200px;
+    height: 40px;
+}
+
+QLineEdit {
+    width: 300px;
+    height: 30px;
+}
+
+QLabel {
+    text-align: center;
+}
