@@ -29,6 +29,11 @@ This desktop application enables users to interact with a chatbot and a Discord 
 
 - **Browser Action**: 
   - Open a web browser to search for keywords.
+ 
+You will need to set these variables in your .env file for the app to work:
+- `OPENAI_KEY`: your OpenAI API key.
+- `PERSONALITY`: a description of how you would like the chatbot to behave.
+- `DISCORD_TOKEN`: the Discord token to connect to your Discord app.
 
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more details.
