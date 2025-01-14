@@ -78,9 +78,6 @@ class ChatbotManager:
             {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"}
         ]
 
-        print("personality: ", self.personality)
-        print("Main messages: ", main_messages)
-
         if not disable_kg_memory:
             main_messages.append({'role': 'system', 'content': "Here is some information that might be related to the user message, however, not all of them are relevant:"})
             for sentence in related_info_sentences:
