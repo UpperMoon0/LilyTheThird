@@ -14,7 +14,7 @@ class ChatTab(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.chatbot_manager = ChatbotManager(personality="Friendly assistant.")  # Create an instance of ChatbotManager
+        self.chatbot_manager = ChatbotManager()
 
         self.prompt_input = QLineEdit(self)
         self.response_box = QTextEdit(self)
