@@ -37,8 +37,14 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.tabs)
 
+        # Set the window title to "Lily III"
+        self.setWindowTitle("Lily III")
+
         # Clear the outputs folder when the app starts
         clear_output_folder()
+
+        # Set the window to full screen on start
+        self.showMaximized()
 
     def closeEvent(self, event):
         # Clear the outputs folder before the application closes

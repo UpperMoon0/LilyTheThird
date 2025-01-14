@@ -2,9 +2,10 @@ import asyncio
 import os
 import threading
 
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont, QRegion
 from PyQt5.QtWidgets import QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBox, \
-    QPushButton
+    QPushButton, QLabel
 
 from actions import action_handler
 from llm import ChatbotManager
@@ -28,11 +29,38 @@ def clear_output_folder():
                     print(f"Error deleting {file_path}: {e}")
 
 
+from PyQt5.QtGui import QPixmap
+
+from PyQt5.QtWidgets import QHBoxLayout
+
 class ChatTab(QWidget):
     def __init__(self):
         super().__init__()
 
         self.chatbot_manager = ChatbotManager()
+
+        # Create a QLabel for the avatar
+        self.avatar_label = QLabel(self)
+        self.avatar_label.setFixedSize(300, 300)  # Set the size of the avatar
+        self.avatar_label.setAlignment(Qt.AlignCenter)  # Center the avatar
+
+        # Load the avatar image
+        avatar_pixmap = QPixmap("assets/avatar.png")
+        avatar_pixmap = avatar_pixmap.scaled(self.avatar_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+        # Set the avatar image to the QLabel
+        self.avatar_label.setPixmap(avatar_pixmap)
+
+        # Create a QRegion to make the image circular
+        mask_region = QRegion(0, 0, self.avatar_label.width(), self.avatar_label.height(), QRegion.Ellipse)
+
+        # Apply the mask to the QLabel to clip the image into a circle
+        self.avatar_label.setMask(mask_region)
+
+        # Create an HBoxLayout for the avatar and center it
+        avatar_layout = QHBoxLayout()
+        avatar_layout.setAlignment(Qt.AlignCenter)
+        avatar_layout.addWidget(self.avatar_label)
 
         self.prompt_input = QLineEdit(self)
         self.response_box = QTextEdit(self)
@@ -41,7 +69,7 @@ class ChatTab(QWidget):
         self.speech_synthesis_enabled.setChecked(True)
         self.clear_history_button = QPushButton("Clear History", self)
         self.enable_kg_memory_checkbox = QCheckBox("Enable Knowledge Graph Memory", self)
-        self.enable_kg_memory_checkbox.setChecked(True)  # By default, the memory is enabled
+        self.enable_kg_memory_checkbox.setChecked(False)  
 
         # Set the font size for the input box and response box
         font = QFont("Arial", 14)  # Set font family and size (14 points)
@@ -49,6 +77,7 @@ class ChatTab(QWidget):
         self.response_box.setFont(font)
 
         layout = QVBoxLayout()
+        layout.addLayout(avatar_layout)  # Add the avatar layout to the main layout
         layout.addWidget(self.prompt_input)
         layout.addWidget(self.response_box)
         layout.addWidget(self.speech_synthesis_enabled)
@@ -62,17 +91,6 @@ class ChatTab(QWidget):
 
         # Clear the outputs folder when the app starts
         clear_output_folder()
-
-        # Load and apply the style sheet
-        self.load_stylesheet()
-
-    def load_stylesheet(self):
-        qss_file = os.path.join(os.path.dirname(__file__), 'style.qss')
-        try:
-            with open(qss_file, 'r') as file:
-                self.setStyleSheet(file.read())
-        except FileNotFoundError:
-            print(f"Style sheet file '{qss_file}' not found.")
 
     def get_response(self):
         threading.Thread(target=self._get_response_thread).start()
