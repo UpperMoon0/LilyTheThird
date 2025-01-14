@@ -69,9 +69,14 @@ class DiscordTab(QWidget):
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("text-align: center;")
 
+        self.guild_id_input = QLineEdit(self)
+        self.guild_id_input.setPlaceholderText("Enter Guild ID")
+        self.guild_id_input.setVisible(True)
+        self.guild_id_input.setStyleSheet("width: 300px; height: 30px;")
+
         self.channel_id_input = QLineEdit(self)
         self.channel_id_input.setPlaceholderText("Enter Channel ID")
-        self.channel_id_input.setVisible(False)
+        self.channel_id_input.setVisible(True)
         self.channel_id_input.setStyleSheet("width: 300px; height: 30px;")
 
         self.message_input = QLineEdit(self)
@@ -83,6 +88,10 @@ class DiscordTab(QWidget):
         self.send_message_button.clicked.connect(self.on_send_message_clicked)
         self.send_message_button.setVisible(False)
         self.send_message_button.setStyleSheet("width: 200px; height: 40px;")
+
+        self.save_button = QPushButton("Save", self)
+        self.save_button.clicked.connect(self.on_save_clicked)
+        self.save_button.setStyleSheet("width: 200px; height: 40px;")
 
         # Status layout with button and status label
         status_layout = QVBoxLayout()
@@ -110,11 +119,23 @@ class DiscordTab(QWidget):
         input_layout = QVBoxLayout()
         input_layout.setAlignment(Qt.AlignCenter)
 
+        guild_id_layout = QHBoxLayout()
+        guild_id_layout.addStretch()
+        guild_id_layout.addWidget(self.guild_id_input)
+        guild_id_layout.addStretch()
+        input_layout.addLayout(guild_id_layout)
+
         channel_id_layout = QHBoxLayout()
         channel_id_layout.addStretch()
         channel_id_layout.addWidget(self.channel_id_input)
         channel_id_layout.addStretch()
         input_layout.addLayout(channel_id_layout)
+
+        save_button_layout = QHBoxLayout()
+        save_button_layout.addStretch()
+        save_button_layout.addWidget(self.save_button)
+        save_button_layout.addStretch()
+        input_layout.addLayout(save_button_layout)
 
         message_input_layout = QHBoxLayout()
         message_input_layout.addStretch()
@@ -164,22 +185,18 @@ class DiscordTab(QWidget):
         if not self.is_bot_running:
             self.update_status("Starting")
             self.toggle_bot_button.setEnabled(False)
-            self.bot_thread = threading.Thread(target=self.start_bot)
+            self.bot_thread = threading.Thread(target=self.bot.start_bot)
             self.bot_thread.start()
         else:
             self.update_status("Stopping")
             self.toggle_bot_button.setEnabled(False)
             self.bot.stop_bot()
 
-    def start_bot(self):
-        self.bot.start_bot()
-
     def on_bot_ready(self):
         self.is_bot_running = True
         self.update_status("Running")
         self.toggle_bot_button.setText("Stop Bot")
         self.toggle_bot_button.setEnabled(True)
-        self.channel_id_input.setVisible(True)
         self.message_input.setVisible(True)
         self.send_message_button.setVisible(True)
 
@@ -188,7 +205,6 @@ class DiscordTab(QWidget):
         self.update_status("Not Running")
         self.toggle_bot_button.setText("Start Bot")
         self.toggle_bot_button.setEnabled(True)
-        self.channel_id_input.setVisible(False)
         self.message_input.setVisible(False)
         self.send_message_button.setVisible(False)
 
@@ -203,12 +219,26 @@ class DiscordTab(QWidget):
         if channel_id_text and message:
             try:
                 channel_id = int(channel_id_text)
-                channel = self.bot.bot.get_channel(channel_id)
-                if channel:
-                    self.bot.send_message(channel, message)
-                else:
-                    print("Channel not found.")
+                self.bot.send_message(channel_id, message)
             except ValueError:
                 print("Invalid Channel ID entered.")
 
         self.message_input.clear()
+
+    def on_save_clicked(self):
+        guild_id_text = self.guild_id_input.text()
+        channel_id_text = self.channel_id_input.text()
+
+        if guild_id_text:
+            try:
+                guild_id = int(guild_id_text)
+                self.bot.set_guild_id(guild_id)
+            except ValueError:
+                print("Invalid Guild ID entered.")
+
+        if channel_id_text:
+            try:
+                channel_id = int(channel_id_text)
+                self.bot.set_channel_id(channel_id)
+            except ValueError:
+                print("Invalid Channel ID entered.")
