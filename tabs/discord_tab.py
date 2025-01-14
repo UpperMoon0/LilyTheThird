@@ -7,7 +7,8 @@ from PyQt5.QtCore import (
 )
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QWidget
-from discord.bot import DiscordBot
+
+from discord_integration.discord_bot import DiscordBot
 
 
 class ColorCircle(QLabel):

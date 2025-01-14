@@ -108,7 +108,7 @@ class ChatbotManager:
             }
         }
 
-        # Request the response from the model
+        # Request the response from the models
         main_response = self.client.chat.completions.create(
             messages=main_messages,
             model=self.model,

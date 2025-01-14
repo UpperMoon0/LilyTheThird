@@ -3,9 +3,9 @@ import sys
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
 
-from tabs.chat import ChatTab
-from tabs.discord import DiscordTab
-from tabs.vtube import VTubeTab  # Import the new VtubeTab
+from tabs.chat_tab import ChatTab
+from tabs.discord_tab import DiscordTab
+from tabs.vtube_tab import VTubeTab  # Import the new VtubeTab
 
 def clear_output_folder():
     output_folder = "outputs"  # Adjust this path as needed
