@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from tabs.chat import ChatTab
 from tabs.discord import DiscordTab
-from tabs.vtube import VtubeTab  # Import the new VtubeTab
+from tabs.vtube import VTubeTab  # Import the new VtubeTab
 
 def clear_output_folder():
     output_folder = "outputs"  # Adjust this path as needed
@@ -30,7 +30,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget(self)
         self.chat_tab = ChatTab()
         self.discord_tab = DiscordTab()
-        self.vtube_tab = VtubeTab()  # Create an instance of VtubeTab
+        self.vtube_tab = VTubeTab()  # Create an instance of VtubeTab
 
         self.tabs.addTab(self.chat_tab, "Chat")
         self.tabs.addTab(self.discord_tab, "Discord")
