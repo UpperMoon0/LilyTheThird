@@ -1,20 +1,24 @@
 import os
 import discord
-from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QLineEdit, QWidget
+import asyncio
+from PyQt5.QtCore import pyqtSignal, QObject
 
-class DiscordBot:
+class DiscordBot(QObject):
+    bot_ready = pyqtSignal()
+    bot_stopped = pyqtSignal()
+
     def __init__(self):
+        super().__init__()
         self.bot = None
+        self.is_running = False
 
     def start_bot(self):
-        # Retrieve the token from the environment variable
         discord_token = os.getenv("DISCORD_TOKEN")
 
         if not discord_token:
             print("DISCORD_TOKEN not found in .env file.")
             return
 
-        # Set up the bot client
         intents = discord.Intents.default()
         intents.message_content = True
         self.bot = discord.Client(intents=intents)
@@ -22,19 +26,23 @@ class DiscordBot:
         @self.bot.event
         async def on_ready():
             print(f"Bot logged in as {self.bot.user}")
+            self.is_running = True
+            self.bot_ready.emit()
 
         @self.bot.event
         async def on_message(message):
             if message.content.lower() == "hello":
                 await message.channel.send("Hello there!")
 
-        # Start the bot using the provided token
         self.bot.run(discord_token)
 
-    def send_message(self, channel, message):
-        # Sends a message to a specific channel
-        async def send():
-            await channel.send(message)
+    def stop_bot(self):
+        if self.bot and self.is_running:
+            async def close_bot():
+                await self.bot.close()
+                self.is_running = False
+                self.bot_stopped.emit()
+                print("Bot has been stopped")
 
-        # Get the event loop and run the send function
-        self.bot.loop.create_task(send())
+            if hasattr(self.bot, 'loop') and self.bot.loop.is_running():
+                asyncio.run_coroutine_threadsafe(close_bot(), self.bot.loop)

@@ -7,13 +7,14 @@ from PyQt5.QtWidgets import QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBo
     QPushButton
 
 from actions import action_handler
-from llm_api import get_response
+from llm import ChatbotManager
 from tts import text_to_speech_and_play
-
 
 class ChatTab(QWidget):
     def __init__(self):
         super().__init__()
+
+        self.chatbot_manager = ChatbotManager(personality="Friendly assistant.")  # Create an instance of ChatbotManager
 
         self.prompt_input = QLineEdit(self)
         self.response_box = QTextEdit(self)
@@ -49,8 +50,11 @@ class ChatTab(QWidget):
 
     def _get_response_thread(self):
         self.prompt_input.setDisabled(True)
-        message, action = get_response(self.prompt_input.text(), not self.enable_kg_memory_checkbox.isChecked())
 
+        # Use the ChatbotManager instance to get the response
+        message, action = self.chatbot_manager.get_response(self.prompt_input.text(), not self.enable_kg_memory_checkbox.isChecked())
+
+        # Execute the action if any
         action_handler.execute_command(action)
 
         print(f"Message: {message}")
