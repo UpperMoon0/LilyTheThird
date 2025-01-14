@@ -130,7 +130,7 @@ class DiscordTab(QWidget):
 
         # Main layout
         main_layout = QVBoxLayout()
-        main_layout.setAlignment(Qt.AlignTop)
+        main_layout.setAlignment(Qt.AlignCenter)
         main_layout.addLayout(status_layout)
         main_layout.addLayout(input_layout)
 

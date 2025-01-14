@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from tabs.chat import ChatTab
 from tabs.discord import DiscordTab
-
+from tabs.vtube import VtubeTab  # Import the new VtubeTab
 
 def clear_output_folder():
     output_folder = "outputs"  # Adjust this path as needed
@@ -23,7 +23,6 @@ def clear_output_folder():
                 except Exception as e:
                     print(f"Error deleting {file_path}: {e}")
 
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -31,9 +30,11 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget(self)
         self.chat_tab = ChatTab()
         self.discord_tab = DiscordTab()
+        self.vtube_tab = VtubeTab()  # Create an instance of VtubeTab
 
         self.tabs.addTab(self.chat_tab, "Chat")
         self.tabs.addTab(self.discord_tab, "Discord")
+        self.tabs.addTab(self.vtube_tab, "Vtube")  # Add the Vtube tab
 
         self.setCentralWidget(self.tabs)
 
@@ -50,7 +51,6 @@ class MainWindow(QMainWindow):
         # Clear the outputs folder before the application closes
         clear_output_folder()
         event.accept()  # Accept the close event to allow the window to close
-
 
 app = QApplication(sys.argv)
 window = MainWindow()

@@ -4,15 +4,14 @@ from actions import browser_action
 
 def execute_command(action):
     if action is not None:
-        str.lower(action)
-        print(action)
+        action = action.lower()
 
         if 'download' in action:
-            if 'extract' or 'unsort' in action:
+            if 'extract' in action or 'unsort' in action:
                 file_action.unsort_download()
-            elif 'sort' or 'organize' in action:
+            elif 'sort' in action or 'organize' in action:
                 file_action.sort_download()
-        elif 'browse' in action:
-            keyword = action[action.find('browse') + len('browse'):]
+        elif 'browse' in action or 'search' in action:
+            keyword = action.split(' ', 1)[1]
             browser_action.browse(keyword)
 

@@ -75,7 +75,8 @@ class ChatbotManager:
         # Collect messages for the main request
         main_messages = [
             {'role': 'system', 'content': self.personality},
-            {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"}
+            {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"},
+            {'role': 'system', 'content': "Provide a short action query, including action and object (e.g., 'play music'):"}
         ]
 
         if not disable_kg_memory:
