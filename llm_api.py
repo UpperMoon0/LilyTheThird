@@ -104,9 +104,9 @@ def get_response(user_message, disable_kg_memory=False):
                 "type": "object",
                 "properties": {
                     "message": {"type": "string"},
-                    "action": {"type": "string"},
+                    "actions": {"type": "string"},
                 },
-                "required": ["message", "action"],
+                "required": ["message", "actions"],
                 "additionalProperties": False
             }
         }
@@ -127,7 +127,7 @@ def get_response(user_message, disable_kg_memory=False):
     main_res_content = json.loads(main_response)
 
     message = main_res_content.get("message")
-    action = main_res_content.get("action")
+    action = main_res_content.get("actions")
 
     # Update history with the user message and assistant's message
     update_history(user_message, message)

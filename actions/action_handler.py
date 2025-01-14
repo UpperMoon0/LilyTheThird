@@ -1,5 +1,5 @@
-from action import file_action
-from action import browser_action
+from actions import file_action
+from actions import browser_action
 
 
 def execute_command(action):

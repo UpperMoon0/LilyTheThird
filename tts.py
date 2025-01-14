@@ -37,7 +37,7 @@ async def text_to_speech_and_play(text, voice="ja-JP-NanamiNeural", pitch="+15Hz
     translated_text = translate_to_japanese(text)
 
     # Create a unique filename for each audio file
-    output_file = f"output/audio_{int(time.time())}.mp3"
+    output_file = f"outputs/audio_{int(time.time())}.mp3"
 
     # Wait until the file is available (if another process is using it)
     if not wait_for_file_availability(output_file):
@@ -51,7 +51,7 @@ async def text_to_speech_and_play(text, voice="ja-JP-NanamiNeural", pitch="+15Hz
         pitch=pitch
     )
 
-    # Save the generated speech to the output file
+    # Save the generated speech to the outputs file
     await tts.save(output_file)
     print(f"Audio saved to {output_file}")
 
