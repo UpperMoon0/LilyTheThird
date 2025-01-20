@@ -19,8 +19,6 @@ class ChatbotManager:
         self.model = model
         self.message_history = []
         self.client = OpenAI(api_key=os.getenv('OPENAI_KEY'))
-        self.current_time = datetime.now()
-        self.current_date_time = self.current_time.strftime("%Y-%m-%d %H:%M:%S")
 
     def update_history(self, user_message, assistant_message):
         """Update message history, keeping only the last 5 message pairs"""
@@ -71,6 +69,9 @@ class ChatbotManager:
             related_info_sentences = kg_handler.get_related_info_from_keywords(keywords)
             for sentence in related_info_sentences:
                 print(sentence)
+
+        self.current_time = datetime.now()
+        self.current_date_time = self.current_time.strftime("%Y-%m-%d %H:%M:%S")
 
         # Collect messages for the main request
         main_messages = [

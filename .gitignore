@@ -8,3 +8,6 @@ kg/knowledge_graph.rdf
 /kg/data
 /outputs
 /tabs/__pycache__
+/discord_integration/commands/gtnh_test/__pycache__
+/discord_integration/__pycache__
+/models/__pycache__

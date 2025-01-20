@@ -1,57 +1,16 @@
+# discord_integration/commands/gtnh_test.py
 import random
 import discord
 from discord.ui import View, Button
+
+from discord_integration.commands.gtnh_test.gtnh_questions import questions
 from models.multiple_choice_answer import MultipleChoiceAnswer
-from models.multiple_choice_question import MultipleChoiceQuestion
 
 
 class GTNHIntelligenceTestCommand:
     def __init__(self, bot):
         self.bot = bot
-        self.questions = []  # List to store questions
-
-        # Example of adding questions
-        self.questions.append(MultipleChoiceQuestion(
-            "How many pieces of wool do you need to craft a bed before the Stone Age?",
-            10,
-            [MultipleChoiceAnswer("3", False),
-             MultipleChoiceAnswer("4", False),
-             MultipleChoiceAnswer("6", True),
-             MultipleChoiceAnswer("8", False)]
-        ))
-
-        self.questions.append(MultipleChoiceQuestion(
-            "Which creature explodes when killed with a sword?",
-            15,
-            [MultipleChoiceAnswer("Cow", True),
-             MultipleChoiceAnswer("Chicken", False),
-             MultipleChoiceAnswer("Pig", False),
-             MultipleChoiceAnswer("Zombie", False)]
-        ))
-
-        self.questions.append(MultipleChoiceQuestion(
-            "Which of these items/blocks doesn't need flint to craft?",
-            15,
-            [MultipleChoiceAnswer("Crafting Table", False),
-             MultipleChoiceAnswer("Bed", True),
-             MultipleChoiceAnswer("Furnace", False),
-             MultipleChoiceAnswer("Chest", False),
-             MultipleChoiceAnswer("All of them", False)]
-        ))
-
-        self.questions.append(MultipleChoiceQuestion(
-            "You can get steel before the Steam Age.",
-            20,
-            [MultipleChoiceAnswer("True", True),
-             MultipleChoiceAnswer("False", False)]
-        ))
-
-        self.questions.append(MultipleChoiceQuestion(
-            "In the early game, you can eat the same food repeatedly without any penalty.",
-            20,
-            [MultipleChoiceAnswer("True", False),
-             MultipleChoiceAnswer("False", True)]
-        ))
+        self.questions = questions  # Use the imported questions
 
         @self.bot.tree.command(name="gtnh_intelligence_test", description="Test your knowledge about the modpack GT: New Horizons.")
         async def gtnh_intelligence_test_command(interaction: discord.Interaction):
@@ -61,7 +20,7 @@ class GTNHIntelligenceTestCommand:
             user_score = {'score': 0}  # Store score in a mutable object (dictionary)
 
             # Randomly pick n questions
-            n = 4  # Number of questions to ask
+            n = 8  # Number of questions to ask
             selected_questions = random.sample(self.questions, n)
 
             # Shuffle the selected questions

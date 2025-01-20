@@ -1,12 +1,14 @@
-# discord/discord_bot.py
 import asyncio
 import os
+import time
+
 import discord
 from PyQt5.QtCore import pyqtSignal, QObject
 from discord.ext import commands
 
+from discord_integration.commands.gtnh_test.gtnh_test import GTNHIntelligenceTestCommand
 from discord_integration.commands.iq_command import IQCommand
-from discord_integration.commands.gtnh_test import GTNHIntelligenceTestCommand
+from llm import ChatbotManager
 
 
 class DiscordBot(QObject):
@@ -19,14 +21,22 @@ class DiscordBot(QObject):
         self.is_running = False
         self.guild_id = None
         self.channel_id = None
+        self.chatbot_manager = ChatbotManager()  # Instance of ChatbotManager
+        self.last_activity_time = None
+        self.cooldown_period = 10 * 60  # 10 minutes in seconds
 
     def set_guild_id(self, guild_id):
         """Sets the guild ID to sync slash commands with."""
         self.guild_id = guild_id
 
     def set_channel_id(self, channel_id):
-        """Sets the channel ID to send messages to."""
+        """Sets the channel ID to listen for messages."""
         self.channel_id = channel_id
+
+    async def setup_hook(self):
+        """Called during the bot setup to run asynchronous tasks."""
+        # Start the inactivity check background task
+        self.bot.loop.create_task(self.check_inactivity())
 
     def start_bot(self):
         """Starts the Discord bot and logs in using the token."""
@@ -53,8 +63,56 @@ class DiscordBot(QObject):
         # Register the GTNH Intelligence Test command
         GTNHIntelligenceTestCommand(self.bot)
 
-        # Start the bot
+        @self.bot.event
+        async def on_message(message):
+            """Triggered when a message is sent in a channel."""
+            if message.author.bot:
+                return  # Ignore messages from bots
+
+            # If last_activity_time is None, check for "Hey Lily" to trigger specific behavior
+            if self.last_activity_time is None:
+                if message.channel.id == self.channel_id:
+                    # Reset last activity time on any new message
+                    self.last_activity_time = time.time()  # Reset the last activity time whenever a new message is received
+
+                    if message.content.lower().startswith("hey lily"):
+                        user_message = message.content[len("hey lily"):].strip()
+
+                        if user_message:
+                            # Get the chatbot's response with user message
+                            chatbot_response, _ = self.chatbot_manager.get_response(
+                                user_message, disable_kg_memory=True
+                            )
+                        else:
+                            # If no user message is provided, send a default "Hey Lily" to the chatbot
+                            chatbot_response, _ = self.chatbot_manager.get_response(
+                                "Hey Lily", disable_kg_memory=True
+                            )
+
+                        await message.channel.send(chatbot_response)
+            else:
+                # Process any other message regardless of content, since activity is happening
+                if message.channel.id == self.channel_id:
+                    user_message = message.content.strip()
+                    chatbot_response, _ = self.chatbot_manager.get_response(
+                        user_message, disable_kg_memory=True
+                    )
+                    await message.channel.send(chatbot_response)
+
+
+
+        # Start the bot using asyncio.run
         self.bot.run(discord_token)
+
+    async def check_inactivity(self):
+        """Check for inactivity and reset the bot if idle for more than the cooldown period."""
+        while True:
+            await asyncio.sleep(60)  # Check every minute
+            if self.last_activity_time and time.time() - self.last_activity_time > self.cooldown_period:
+                # No activity for 10 minutes, reset the bot state
+                print("Cooldown expired, asking for 'Hey Lily' again.")
+                self.last_activity_time = None
+                # Add logic here to trigger the bot to request "Hey Lily"
 
     async def sync_commands(self):
         """Syncs the command tree with Discord."""
