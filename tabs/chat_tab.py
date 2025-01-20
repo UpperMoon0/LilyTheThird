@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBo
     QPushButton, QLabel
 
 from actions import action_handler
-from llm import ChatbotManager
+from llm.chatbox_llm import ChatBoxLLM
 from tts import text_to_speech_and_play
 
 
@@ -37,7 +37,7 @@ class ChatTab(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.chatbot_manager = ChatbotManager()
+        self.chatBoxLLM = ChatBoxLLM()
 
         # Create a QLabel for the avatar
         self.avatar_label = QLabel(self)
@@ -99,7 +99,7 @@ class ChatTab(QWidget):
         self.prompt_input.setDisabled(True)
 
         # Use the ChatbotManager instance to get the response
-        message, action = self.chatbot_manager.get_response(self.prompt_input.text(), not self.enable_kg_memory_checkbox.isChecked())
+        message, action = self.chatBoxLLM.get_response(self.prompt_input.text(), not self.enable_kg_memory_checkbox.isChecked())
 
         # Execute the action if any
         action_handler.execute_command(action)

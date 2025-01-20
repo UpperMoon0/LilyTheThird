@@ -1,13 +1,13 @@
 /.env
 /response.mp3
 /__pycache__
-/actions/__pycache__
 kg/knowledge_graph.html
 kg/knowledge_graph.rdf
-/kg/__pycache__
 /kg/data
 /outputs
 /tabs/__pycache__
 /discord_integration/commands/gtnh_test/__pycache__
 /discord_integration/__pycache__
 /models/__pycache__
+/kg/__pycache__
+/actions/__pycache__

@@ -5,10 +5,11 @@ import time
 import discord
 from PyQt5.QtCore import pyqtSignal, QObject
 from discord.ext import commands
+from dotenv import load_dotenv
 
 from discord_integration.commands.gtnh_test.gtnh_test import GTNHIntelligenceTestCommand
 from discord_integration.commands.iq_command import IQCommand
-from llm import ChatbotManager
+from llm.discord_llm import DiscordLLM
 
 
 class DiscordBot(QObject):
@@ -17,11 +18,12 @@ class DiscordBot(QObject):
 
     def __init__(self):
         super().__init__()
+        load_dotenv()
         self.bot = None
         self.is_running = False
-        self.guild_id = None
-        self.channel_id = None
-        self.chatbot_manager = ChatbotManager()  # Instance of ChatbotManager
+        self.guild_id = os.getenv("DISCORD_GUILD_ID")
+        self.channel_id = os.getenv("DISCORD_CHANNEL_ID")
+        self.discordLLM = DiscordLLM()
         self.last_activity_time = None
         self.cooldown_period = 10 * 60  # 10 minutes in seconds
 
@@ -76,17 +78,19 @@ class DiscordBot(QObject):
                     self.last_activity_time = time.time()  # Reset the last activity time whenever a new message is received
 
                     if message.content.lower().startswith("hey lily"):
+                        user_id = message.author.id
+                        user_name = message.author.name
                         user_message = message.content[len("hey lily"):].strip()
 
                         if user_message:
                             # Get the chatbot's response with user message
-                            chatbot_response, _ = self.chatbot_manager.get_response(
-                                user_message, disable_kg_memory=True
+                            chatbot_response, _ = self.discordLLM.get_response(
+                                user_message, user_id, user_name
                             )
                         else:
                             # If no user message is provided, send a default "Hey Lily" to the chatbot
-                            chatbot_response, _ = self.chatbot_manager.get_response(
-                                "Hey Lily", disable_kg_memory=True
+                            chatbot_response, _ = self.discordLLM.get_response(
+                                "Hey Lily", user_id, user_name
                             )
 
                         await message.channel.send(chatbot_response)
@@ -94,8 +98,8 @@ class DiscordBot(QObject):
                 # Process any other message regardless of content, since activity is happening
                 if message.channel.id == self.channel_id:
                     user_message = message.content.strip()
-                    chatbot_response, _ = self.chatbot_manager.get_response(
-                        user_message, disable_kg_memory=True
+                    chatbot_response, _ = self.discordLLM.get_response(
+                        user_message, message.author.id, message.author.name
                     )
                     await message.channel.send(chatbot_response)
 

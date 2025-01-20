@@ -1,6 +1,7 @@
 import random
+
 import discord
-from discord import app_commands
+
 
 class IQCommand:
     def __init__(self, bot):

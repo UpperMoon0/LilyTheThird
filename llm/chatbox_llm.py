@@ -12,10 +12,10 @@ load_dotenv()
 # Set up OpenAI API key
 openai.api_key = os.getenv('OPENAI_KEY')
 
-class ChatbotManager:
+class ChatBoxLLM:
     def __init__(self, personality=None, model="gpt-4o-mini-2024-07-18"):
         # Set up initial variables for each instance
-        self.personality = personality or os.getenv('PERSONALITY')
+        self.personality = personality or os.getenv('PERSONALITY_TO_MASTER')
         self.model = model
         self.message_history = []
         self.client = OpenAI(api_key=os.getenv('OPENAI_KEY'))
@@ -27,6 +27,7 @@ class ChatbotManager:
 
         # Keep only the last 10 messages (user + assistant pairs)
         if len(self.message_history) > 20:
+            self.message_history.pop(0)
             self.message_history.pop(0)
 
     def get_response(self, user_message, disable_kg_memory=False):

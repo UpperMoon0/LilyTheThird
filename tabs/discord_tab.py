@@ -1,3 +1,4 @@
+import os
 import threading
 
 from PyQt5.QtCore import (
@@ -7,6 +8,7 @@ from PyQt5.QtCore import (
 )
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QWidget
+from dotenv import load_dotenv
 
 from discord_integration.discord_bot import DiscordBot
 
@@ -37,6 +39,8 @@ class ColorCircle(QLabel):
 class DiscordTab(QWidget):
     def __init__(self):
         super().__init__()
+
+        load_dotenv()  # Load environment variables from .env file
 
         self.bot = DiscordBot()
         self.bot.bot_ready.connect(self.on_bot_ready)
@@ -70,14 +74,15 @@ class DiscordTab(QWidget):
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet("text-align: center;")
 
+        # Load guild_id and channel_id from .env and set in the input fields
         self.guild_id_input = QLineEdit(self)
         self.guild_id_input.setPlaceholderText("Enter Guild ID")
-        self.guild_id_input.setVisible(True)
+        self.guild_id_input.setText(os.getenv("DISCORD_GUILD_ID"))
         self.guild_id_input.setStyleSheet("width: 300px; height: 30px;")
 
         self.channel_id_input = QLineEdit(self)
         self.channel_id_input.setPlaceholderText("Enter Channel ID")
-        self.channel_id_input.setVisible(True)
+        self.channel_id_input.setText(os.getenv("DISCORD_CHANNEL_ID"))
         self.channel_id_input.setStyleSheet("width: 300px; height: 30px;")
 
         self.message_input = QLineEdit(self)
