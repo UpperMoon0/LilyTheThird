@@ -101,7 +101,8 @@ class ChatBoxLLM:
             temperature=random.uniform(0.2, 0.8),
             response_format=response_format
         )
-        main_res_content = json.loads(main_response)
+        # Extract and parse the JSON content from the first choice's message content
+        main_res_content = json.loads(main_response.choices[0].message.content)
         message = main_res_content.get("message")
         action = main_res_content.get("actions")
         self.update_history(user_message, message)

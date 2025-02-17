@@ -2,7 +2,7 @@ import asyncio
 import os
 import threading
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QRegion, QPixmap
 from PyQt5.QtWidgets import QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBox, QPushButton, QLabel, QHBoxLayout
 from actions import action_handler
@@ -24,6 +24,8 @@ def clear_output_folder():
                     pass
 
 class ChatTab(QWidget):
+    updateResponse = pyqtSignal(str, str)  # user text, assistant message
+
     def __init__(self):
         super().__init__()
 
@@ -53,7 +55,6 @@ class ChatTab(QWidget):
         # Knowledge graph memory checkbox and status
         self.enable_kg_memory_checkbox = QCheckBox("Enable Knowledge Graph Memory", self)
         self.enable_kg_memory_checkbox.setChecked(False)
-        # Always create kg_status_label first
         self.kg_status_label = QLabel(self)
         if not kg_handler.knowledge_graph_loaded:
             self.enable_kg_memory_checkbox.setEnabled(False)
@@ -80,21 +81,36 @@ class ChatTab(QWidget):
 
         self.prompt_input.returnPressed.connect(self.get_response)
         self.clear_history_button.clicked.connect(self.clear_history)
+        self.updateResponse.connect(self.on_update_response)
         clear_output_folder()
 
     def get_response(self):
-        threading.Thread(target=self._get_response_thread).start()
-
-    def _get_response_thread(self):
+        user_text = self.prompt_input.text().strip()
+        if not user_text:
+            return
         self.prompt_input.setDisabled(True)
-        message, action = self.chatBoxLLM.get_response(self.prompt_input.text(), not self.enable_kg_memory_checkbox.isChecked())
+        threading.Thread(target=self._get_response_thread, args=(user_text,), daemon=True).start()
+
+    def _get_response_thread(self, user_text):
+        message, action = self.chatBoxLLM.get_response(
+            user_text, not self.enable_kg_memory_checkbox.isChecked()
+        )
         action_handler.execute_command(action)
         print(f"Message: {message}")
         print(f"Action: {action}")
         if self.speech_synthesis_enabled.isChecked():
-            threading.Thread(target=lambda: asyncio.run(text_to_speech_and_play(message, "ja-JP-NanamiNeural", "+15Hz"))).start()
-        self.response_box.append(f"You: {self.prompt_input.text()}")
-        self.response_box.append(f"Lily: {message}")
+            threading.Thread(
+                target=lambda: asyncio.run(
+                    text_to_speech_and_play(message, "ja-JP-NanamiNeural", "+15Hz")
+                ),
+                daemon=True
+            ).start()
+        # Emit a signal to update the UI on the main thread
+        self.updateResponse.emit(user_text, message)
+
+    def on_update_response(self, user_text, assistant_message):
+        self.response_box.append(f"You: {user_text}")
+        self.response_box.append(f"Lily: {assistant_message}")
         self.prompt_input.clear()
         self.prompt_input.setDisabled(False)
 
