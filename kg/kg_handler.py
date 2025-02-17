@@ -1,9 +1,7 @@
 import os
 import rdflib
 from pyvis.network import Network
-
 from kg import kg_queries
-
 
 def visualize_graph(graph):
     net = Network(notebook=True, height="800px", width="100%", directed=True)
@@ -12,7 +10,6 @@ def visualize_graph(graph):
         net.add_node(str(obj))
         net.add_edge(str(subj), str(obj), title=str(pred))
     net.show("knowledge_graph.html")
-    print("Graph visualization saved as 'knowledge_graph.html'.")
 
 def create_graph(rdf_path):
     graph = rdflib.Graph()
@@ -38,7 +35,15 @@ def graph_init():
             print(f"Error loading graph: {e}")
             return create_graph(rdf_path)
 
-graph = graph_init()
+# Remove automatic loading on app start.
+graph = None
+knowledge_graph_loaded = False
+
+def load_knowledge_graph():
+    global graph, knowledge_graph_loaded
+    graph = graph_init()
+    knowledge_graph_loaded = True
+    return graph
 
 def clean_keywords(keywords):
     cleaned_keywords = []
@@ -49,15 +54,10 @@ def clean_keywords(keywords):
     return cleaned_keywords
 
 def clean_triple(triple):
-    # Extract the last part of the URI after the last '/'
     cleaned_part = triple.split('/')[-1]
-    # Replace '22-rdf-syntax-ns#type' with 'is'
     cleaned_part = cleaned_part.replace('22-rdf-syntax-ns#type', 'is')
-    # Replace underscores with spaces
     cleaned_part = cleaned_part.replace('_', ' ')
-    # Replace 'LOC' with 'a location'
     cleaned_part = cleaned_part.replace('LOC', 'a location')
-    # Replace 'FAC' with 'a facility'
     cleaned_part = cleaned_part.replace('FAC', 'a facility')
     return cleaned_part
 
@@ -72,4 +72,6 @@ def triples_to_sentences(triples):
     return sentences
 
 def get_related_info_from_keywords(keywords):
+    if graph is None:
+        return []
     return triples_to_sentences(kg_queries.get_triples_from_keywords(graph, clean_keywords(keywords)))
