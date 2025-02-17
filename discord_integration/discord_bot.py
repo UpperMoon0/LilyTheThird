@@ -9,7 +9,10 @@ from dotenv import load_dotenv
 
 from discord_integration.commands.gtnh_test.gtnh_test import GTNHIntelligenceTestCommand
 from discord_integration.commands.iq_command import IQCommand
+from discord_integration.commands.voice.join import JoinCommand
+from discord_integration.commands.voice.play import PlayCommand
 from llm.discord_llm import DiscordLLM
+from models.song_queue import SongQueue
 
 
 class DiscordBot(QObject):
@@ -18,7 +21,7 @@ class DiscordBot(QObject):
 
     def __init__(self):
         super().__init__()
-        load_dotenv()
+        load_dotenv()  # Load environment variables from .env file
         self.bot = None
         self.is_running = False
         self.guild_id = os.getenv("DISCORD_GUILD_ID")
@@ -26,19 +29,26 @@ class DiscordBot(QObject):
         self.discordLLM = DiscordLLM()
         self.last_activity_time = None
         self.cooldown_period = 10 * 60  # 10 minutes in seconds
-
-    def set_guild_id(self, guild_id):
-        """Sets the guild ID to sync slash commands with."""
-        self.guild_id = guild_id
-
-    def set_channel_id(self, channel_id):
-        """Sets the channel ID to listen for messages."""
-        self.channel_id = channel_id
+        self.song_queue = SongQueue(self)  # Initialize song queue for PlayCommand
 
     async def setup_hook(self):
         """Called during the bot setup to run asynchronous tasks."""
         # Start the inactivity check background task
         self.bot.loop.create_task(self.check_inactivity())
+
+    def set_guild_id(self, guild_id: int):
+        """Sets the guild ID."""
+        self.guild_id = guild_id
+        print(f"Guild ID set to {self.guild_id}")
+
+    def set_channel_id(self, channel_id: int):
+        """Sets the channel ID."""
+        self.channel_id = channel_id
+        print(f"Channel ID set to {self.channel_id}")
+
+    def get_channel_id(self):
+        """Returns the channel ID."""
+        return self.channel_id
 
     def start_bot(self):
         """Starts the Discord bot and logs in using the token."""
@@ -60,63 +70,27 @@ class DiscordBot(QObject):
             self.bot_ready.emit()
             await self.sync_commands()
 
-        # Register the IQ command
+        # Register commands
         IQCommand(self.bot)
-        # Register the GTNH Intelligence Test command
         GTNHIntelligenceTestCommand(self.bot)
+        JoinCommand(self.bot)
+        PlayCommand(self.bot, self.song_queue)
 
-        @self.bot.event
-        async def on_message(message):
-            """Triggered when a message is sent in a channel."""
-            if message.author.bot:
-                return  # Ignore messages from bots
-
-            # If last_activity_time is None, check for "Hey Lily" to trigger specific behavior
-            if self.last_activity_time is None:
-                if message.channel.id == self.channel_id:
-                    # Reset last activity time on any new message
-                    self.last_activity_time = time.time()  # Reset the last activity time whenever a new message is received
-
-                    if message.content.lower().startswith("hey lily"):
-                        user_id = message.author.id
-                        user_name = message.author.name
-                        user_message = message.content[len("hey lily"):].strip()
-
-                        if user_message:
-                            # Get the chatbot's response with user message
-                            chatbot_response, _ = self.discordLLM.get_response(
-                                user_message, user_id, user_name
-                            )
-                        else:
-                            # If no user message is provided, send a default "Hey Lily" to the chatbot
-                            chatbot_response, _ = self.discordLLM.get_response(
-                                "Hey Lily", user_id, user_name
-                            )
-
-                        await message.channel.send(chatbot_response)
-            else:
-                # Process any other message regardless of content, since activity is happening
-                if message.channel.id == self.channel_id:
-                    user_message = message.content.strip()
-                    chatbot_response, _ = self.discordLLM.get_response(
-                        user_message, message.author.id, message.author.name
-                    )
-                    await message.channel.send(chatbot_response)
-
-
-
-        # Start the bot using asyncio.run
+        # Start the bot (without asyncio.run)
         self.bot.run(discord_token)
 
     async def check_inactivity(self):
         """Check for inactivity and reset the bot if idle for more than the cooldown period."""
         while True:
             await asyncio.sleep(60)  # Check every minute
-            if self.last_activity_time and time.time() - self.last_activity_time > self.cooldown_period:
-                # No activity for 10 minutes, reset the bot state
-                print("Cooldown expired, asking for 'Hey Lily' again.")
-                self.last_activity_time = None
-                # Add logic here to trigger the bot to request "Hey Lily"
+            if self.last_activity_time is not None:
+                time_since_last_activity = time.time() - self.last_activity_time
+                if time_since_last_activity > self.cooldown_period:
+                    # No activity for 10 minutes, reset the bot state
+                    print("Cooldown expired, asking for 'Hey Lily' again.")
+                    self.last_activity_time = None
+            else:
+                print("No activity time set, waiting for first message.")
 
     async def sync_commands(self):
         """Syncs the command tree with Discord."""
@@ -129,17 +103,16 @@ class DiscordBot(QObject):
             print("Commands synced globally")
 
     def stop_bot(self):
-        """Stops the bot gracefully."""
+        """Gracefully stops the bot."""
         if self.bot and self.is_running:
-            async def close_bot():
-                """Closes the bot connection."""
-                await self.bot.close()
-                self.is_running = False
-                self.bot_stopped.emit()
-                print("Bot has been stopped")
-
-            if hasattr(self.bot, "loop") and self.bot.loop.is_running():
-                asyncio.run_coroutine_threadsafe(close_bot(), self.bot.loop)
+            # Stop background tasks
+            self.is_running = False
+            self.bot_ready.disconnect()  # Disconnect the signal if it's connected
+            self.bot.loop.create_task(self.bot.close())  # Asynchronously close the bot
+            print("Bot is shutting down...")
+            self.bot_stopped.emit()  # Emit stop signal after shutting down
+        else:
+            print("Bot is not running or already stopped.")
 
     def send_message(self, channel_id, message):
         """Sends a message to a specified channel."""
@@ -152,6 +125,7 @@ class DiscordBot(QObject):
                 print(f"Channel with ID {channel_id} not found.")
 
         if self.bot and self.is_running:
-            asyncio.run_coroutine_threadsafe(send(), self.bot.loop)
-        else:
-            print("Bot is not running. Unable to send message.")
+            if self.bot.loop.is_running():
+                asyncio.create_task(send())  # Use asyncio.create_task to send the message
+            else:
+                print("Bot loop is not running. Unable to send message.")

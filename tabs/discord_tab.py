@@ -238,13 +238,13 @@ class DiscordTab(QWidget):
         if guild_id_text:
             try:
                 guild_id = int(guild_id_text)
-                self.bot.set_guild_id(guild_id)
+                self.bot.set_guild_id(guild_id)  # Call the set_guild_id method
             except ValueError:
                 print("Invalid Guild ID entered.")
 
         if channel_id_text:
             try:
                 channel_id = int(channel_id_text)
-                self.bot.set_channel_id(channel_id)
+                self.bot.set_channel_id(channel_id)  # Call the set_channel_id method
             except ValueError:
                 print("Invalid Channel ID entered.")

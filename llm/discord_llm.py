@@ -12,9 +12,9 @@ load_dotenv()
 openai.api_key = os.getenv('OPENAI_KEY')
 
 class DiscordLLM:
-    def __init__(self, model="gpt-4o-mini-2024-07-18"):
+    def __init__(self):
         # Set up initial variables for each instance
-        self.model = model
+        self.model = "gpt-4o-mini-2024-07-18"
         self.message_history = []
         self.client = OpenAI(api_key=os.getenv('OPENAI_KEY'))
 

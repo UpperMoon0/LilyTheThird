@@ -8,7 +8,7 @@ def sort_download():
         'image': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.webp'],
         'video': ['.mp4', '.mkv', '.flv', '.avi', '.mov', '.wmv'],
         'doc': ['.txt', '.doc', '.docx', '.pdf', '.odt'],
-        'music': ['.mp3', '.wav', '.flac', '.m4a', '.wma', '.aac', '.ogg', '.opus'],
+        'voice': ['.mp3', '.wav', '.flac', '.m4a', '.wma', '.aac', '.ogg', '.opus'],
         'slide': ['.ppt', '.pptx', '.odp'],
         'spreadsheet': ['.xls', '.xlsx', '.ods', '.csv'],
         'zip': ['.zip', '.rar', '.tar', '.gz', '.bz2'],
@@ -35,7 +35,7 @@ def sort_download():
 
 def unsort_download():
     download_dir = os.path.expanduser('~/Downloads')  # Path to the Download directory
-    file_types = ['image', 'video', 'doc', 'music', 'slide', 'spreadsheet', 'zip', 'other']
+    file_types = ['image', 'video', 'doc', 'voice', 'slide', 'spreadsheet', 'zip', 'other']
 
     for file_type in file_types:
         type_dir = os.path.join(download_dir, file_type)

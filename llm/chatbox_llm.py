@@ -13,10 +13,10 @@ load_dotenv()
 openai.api_key = os.getenv('OPENAI_KEY')
 
 class ChatBoxLLM:
-    def __init__(self, personality=None, model="gpt-4o-mini-2024-07-18"):
+    def __init__(self):
         # Set up initial variables for each instance
-        self.personality = personality or os.getenv('PERSONALITY_TO_MASTER')
-        self.model = model
+        self.personality = os.getenv('PERSONALITY_TO_MASTER')
+        self.model = "gpt-4o-mini-2024-07-18"
         self.message_history = []
         self.client = OpenAI(api_key=os.getenv('OPENAI_KEY'))
 
@@ -78,7 +78,7 @@ class ChatBoxLLM:
         main_messages = [
             {'role': 'system', 'content': self.personality},
             {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"},
-            {'role': 'system', 'content': "Provide a short action query, including action and object (e.g., 'play music'):"}
+            {'role': 'system', 'content': "Provide a short action query, including action and object (e.g., 'play voice'):"}
         ]
 
         if not disable_kg_memory:
