@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QFileDialog, QSizePolicy
 )
 from llm.ide_llm import IdeLLM
+from views.components.attachment_chip import AttachmentChip  # Import the new component
 
 class IDETab(QWidget):
     def __init__(self):
@@ -24,12 +25,12 @@ class IDETab(QWidget):
         self.add_attachment_button.setFixedSize(30, 30)
         self.add_attachment_button.clicked.connect(self.choose_files)
         self.attachments_layout.addWidget(self.add_attachment_button)
-        self.attachments_layout.addStretch()  # Push any file widget to left
+        self.attachments_layout.addStretch()  # Keep attachments to the left
 
         # Prompt input box (taller than a line edit)
         self.prompt_input = QTextEdit(self)
         self.prompt_input.setPlaceholderText("Enter your message...")
-        self.prompt_input.setFixedHeight(100)  # Adjust height as needed
+        self.prompt_input.setFixedHeight(100)
 
         # Send button
         self.send_button = QPushButton("Send", self)
@@ -38,7 +39,6 @@ class IDETab(QWidget):
         # Main layout setup
         layout = QVBoxLayout()
         layout.addWidget(self.chat_box)
-        # Add the attachments container above the prompt input
         layout.addLayout(self.attachments_layout)
         layout.addWidget(self.prompt_input)
         layout.addWidget(self.send_button)
@@ -53,20 +53,11 @@ class IDETab(QWidget):
                     self.add_attachment_widget(file_path)
 
     def add_attachment_widget(self, file_path):
-        # Create a small widget to represent the file attachment
-        attachment_widget = QWidget(self)
-        layout = QHBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        file_label = QLabel(os.path.basename(file_path), self)
-        remove_button = QPushButton("x", self)
-        remove_button.setFixedSize(20, 20)
-        # Use a lambda to pass the widget and file_path to the remover method
-        remove_button.clicked.connect(lambda: self.remove_attachment(attachment_widget, file_path))
-        layout.addWidget(file_label)
-        layout.addWidget(remove_button)
-        attachment_widget.setLayout(layout)
-        # Add the widget to the attachments layout (after the add_attachment_button)
-        self.attachments_layout.addWidget(attachment_widget)
+        # Create an AttachmentChip instance.
+        chip = AttachmentChip(file_path, self)
+        # Connect the chip's signal to the removal method.
+        chip.removeClicked.connect(lambda fp: self.remove_attachment(chip, fp))
+        self.attachments_layout.addWidget(chip)
 
     def remove_attachment(self, widget, file_path):
         if file_path in self.attached_files:
@@ -86,8 +77,7 @@ class IDETab(QWidget):
         # Clear the input and file attachments
         self.prompt_input.clear()
 
-        # Remove all attachment widgets from the layout except the add_attachment_button
-        # (assuming the add_attachment_button is the first item in the attachments_layout)
+        # Remove all attachment widgets from the layout except for the add_attachment_button.
         while self.attachments_layout.count() > 1:
             item = self.attachments_layout.takeAt(1)
             if item.widget():
