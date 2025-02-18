@@ -19,7 +19,7 @@ class DiscordBot(QObject):
     bot_ready = pyqtSignal()
     bot_stopped = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, ipc_queue=None):
         super().__init__()
         load_dotenv()  # Load environment variables from .env file
         self.bot = None
@@ -30,11 +30,15 @@ class DiscordBot(QObject):
         self.last_activity_time = None
         self.cooldown_period = 10 * 60  # 10 minutes in seconds
         self.song_queue = SongQueue(self)  # Initialize song queue for PlayCommand
+        self.ipc_queue = ipc_queue  # IPC queue for inter-process communication
 
     async def setup_hook(self):
         """Called during the bot setup to run asynchronous tasks."""
         # Start the inactivity check background task
         self.bot.loop.create_task(self.check_inactivity())
+        # Start the IPC listener task if an IPC queue is provided
+        if self.ipc_queue is not None:
+            self.bot.loop.create_task(self.ipc_listener_task())
 
     def set_guild_id(self, guild_id: int):
         """Sets the guild ID."""
@@ -68,6 +72,10 @@ class DiscordBot(QObject):
             print(f"Bot logged in as {self.bot.user}")
             self.is_running = True
             self.bot_ready.emit()
+            # Schedule background tasks (inactivity check and IPC listener)
+            self.bot.loop.create_task(self.check_inactivity())
+            if self.ipc_queue is not None:
+                self.bot.loop.create_task(self.ipc_listener_task())
             await self.sync_commands()
 
         # Register commands
@@ -91,6 +99,44 @@ class DiscordBot(QObject):
                     self.last_activity_time = None
             else:
                 print("No activity time set, waiting for first message.")
+
+    async def ipc_listener_task(self):
+        """Listens for messages from the IPC queue and sends them to Discord."""
+        print("IPC listener started.")
+        loop = asyncio.get_running_loop()
+        while self.is_running:
+            try:
+                # This is a blocking call executed in a thread so as not to block the event loop.
+                message = await loop.run_in_executor(None, self.ipc_queue.get)
+                if message is None:
+                    continue
+                print(f"Received IPC message: {message}")
+                # Expecting a dict with keys 'channel_id' and 'content'
+                await self.async_send_message(message.get("channel_id"), message.get("content"))
+            except Exception as e:
+                print("Error in ipc_listener_task:", e)
+                await asyncio.sleep(0.1)
+
+    async def async_send_message(self, channel_id, message):
+        """Asynchronously sends a message to the specified channel."""
+        if not self.bot or not self.is_running:
+            print("Bot is not running. Cannot send message.")
+            return
+        try:
+            # Convert channel_id to integer if necessary
+            channel_id = int(channel_id)
+        except Exception as e:
+            print("Invalid channel id provided:", channel_id)
+            return
+
+        channel = self.bot.get_channel(channel_id)
+        if channel:
+            try:
+                await channel.send(message)
+            except Exception as e:
+                print("Failed to send message:", e)
+        else:
+            print(f"Channel with ID {channel_id} not found.")
 
     async def sync_commands(self):
         """Syncs the command tree with Discord."""
@@ -129,3 +175,16 @@ class DiscordBot(QObject):
                 asyncio.create_task(send())  # Use asyncio.create_task to send the message
             else:
                 print("Bot loop is not running. Unable to send message.")
+
+if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.freeze_support()
+
+    from PyQt5.QtWidgets import QApplication
+    from views.discord_tab import DiscordTab
+    import sys
+
+    app = QApplication(sys.argv)
+    win = DiscordTab()
+    win.show()
+    sys.exit(app.exec_())
