@@ -6,7 +6,7 @@ from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
 from views.vtube_tab import VTubeTab
 from views.ide_tab import IDETab
-from views.knowledge_graph_tab import KnowledgeGraphTab  # new import
+from views.knowledge_graph_tab import KnowledgeGraphTab  
 
 def clear_output_folder():
     output_folder = "outputs" 

@@ -3,8 +3,8 @@ import os
 import threading
 import speech_recognition as sr  
 
-from PyQt5.QtCore import Qt, pyqtSignal, QMetaObject, Q_ARG
-from PyQt5.QtGui import QFont, QRegion, QPixmap
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QMetaObject, Q_ARG, QSize, QTimer
+from PyQt5.QtGui import QFont, QRegion, QPixmap, QIcon
 from PyQt5.QtWidgets import QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBox, QPushButton, QLabel, QHBoxLayout
 from actions import action_handler
 from llm.chatbox_llm import ChatBoxLLM
@@ -52,8 +52,11 @@ class ChatTab(QWidget):
         font = QFont("Arial", 14)
         self.prompt_input.setFont(font)
 
-        self.record_button = QPushButton("Record", self)
+        self.record_button = QPushButton(self)
         self.record_button.setStyleSheet("width: 100px; height: 30px;")
+        # Set no text and use the idle microphone icon initially
+        self.record_button.setIcon(QIcon("assets/mic_idle.png"))
+        self.record_button.setIconSize(QSize(30, 30))
         self.record_button.clicked.connect(self.record_voice)  # Connect record button to voice recording
 
         # Layout for text input and record button
@@ -149,11 +152,26 @@ class ChatTab(QWidget):
             with sr.Microphone() as source:
                 recognizer.adjust_for_ambient_noise(source, duration=1)
                 print("Recording... Please speak now.")
+                # Update UI: switch icon to "on" and display the recording message in red
+                QMetaObject.invokeMethod(self, "start_recording_ui", Qt.QueuedConnection)
                 audio = recognizer.listen(source, phrase_time_limit=5)
                 recognized_text = recognizer.recognize_google(audio)
                 print("Recognized text:", recognized_text)
-                # Safely update the UI element from the background thread.
-                from PyQt5.QtCore import QMetaObject, Q_ARG, Qt
+                # Safely update the UI element from the background thread using the global QMetaObject, Q_ARG, and Qt.
                 QMetaObject.invokeMethod(self.prompt_input, "setText", Qt.QueuedConnection, Q_ARG(str, recognized_text))
         except Exception as e:
             print("Voice recognition error:", e)
+        finally:
+            QMetaObject.invokeMethod(self, "reset_record_icon", Qt.QueuedConnection)
+
+    @pyqtSlot()
+    def reset_record_icon(self):
+        """Reset the record button icon to the idle state"""
+        self.record_button.setIcon(QIcon("assets/mic_idle.png"))
+
+    @pyqtSlot()
+    def start_recording_ui(self):
+        """Update UI: set the record button icon to 'mic_on' and display recording status in red."""
+        self.record_button.setIcon(QIcon("assets/mic_on.png"))
+        # Append the recording message formatted in red using HTML.
+        self.response_box.append('<span style="color: red;">Recording... Please speak now.</span>')
