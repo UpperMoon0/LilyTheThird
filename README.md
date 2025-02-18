@@ -22,7 +22,7 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
   - Short-term memory: Maintains a prompt history.
   - Long-term memory: Stores information in a Knowledge Graph.
   
-- **IDE Tab**:
+- **IDE Tab** (WIP):
   - An integrated development environment featuring LLM-powered code assistance and support for file attachments.
   
 - **Knowledge Graph Tab**:
