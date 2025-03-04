@@ -1,4 +1,5 @@
 import os
+import time
 from multiprocessing import Process, Queue
 
 from PyQt5.QtCore import (
@@ -174,10 +175,25 @@ class DiscordTab(QWidget):
         else:
             self.update_status("Stopping")
             self.toggle_bot_button.setEnabled(False)
+
             if self.bot_process is not None:
-                self.bot_process.terminate()
-                self.bot_process.join()
+                # Send shutdown command through IPC
+                if self.ipc_queue:
+                    self.ipc_queue.put({"command": "shutdown"})
+
+                    # Wait briefly for graceful shutdown (max 5 seconds)
+                    timeout = 5.0
+                    start_time = time.time()
+                    while self.bot_process.is_alive() and time.time() - start_time < timeout:
+                        time.sleep(0.1)
+
+                # If bot is still running after timeout, terminate it
+                if self.bot_process.is_alive():
+                    self.bot_process.terminate()
+                    self.bot_process.join()
+
                 self.bot_process = None
+
             self.is_bot_running = False
             self.ipc_queue = None  # Clear IPC queue reference
             self.on_bot_stopped()

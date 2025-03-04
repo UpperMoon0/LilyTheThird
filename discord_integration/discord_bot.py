@@ -9,8 +9,10 @@ from dotenv import load_dotenv
 
 from discord_integration.commands.gtnh_test.gtnh_test import GTNHIntelligenceTestCommand
 from discord_integration.commands.iq_command import IQCommand
+from discord_integration.commands.voice.clear_queue import ClearQueueCommand
 from discord_integration.commands.voice.join import JoinCommand
 from discord_integration.commands.voice.play import PlayCommand
+from discord_integration.commands.voice.skip_song import SkipCommand
 from llm.discord_llm import DiscordLLM
 from models.song_queue import SongQueue
 
@@ -83,6 +85,8 @@ class DiscordBot(QObject):
         GTNHIntelligenceTestCommand(self.bot)
         JoinCommand(self.bot)
         PlayCommand(self.bot, self.song_queue)
+        SkipCommand(self.bot, self.song_queue)
+        ClearQueueCommand(self.bot, self.song_queue)
 
         # Start the bot (without asyncio.run)
         self.bot.run(discord_token)
@@ -110,9 +114,18 @@ class DiscordBot(QObject):
                 message = await loop.run_in_executor(None, self.ipc_queue.get)
                 if message is None:
                     continue
+
                 print(f"Received IPC message: {message}")
-                # Expecting a dict with keys 'channel_id' and 'content'
-                await self.async_send_message(message.get("channel_id"), message.get("content"))
+
+                # Check for shutdown command
+                if message.get("command") == "shutdown":
+                    print("Shutdown command received, closing bot gracefully...")
+                    await self.bot.close()
+                    return
+
+                # Regular message handling
+                if "channel_id" in message and "content" in message:
+                    await self.async_send_message(message.get("channel_id"), message.get("content"))
             except Exception as e:
                 print("Error in ipc_listener_task:", e)
                 await asyncio.sleep(0.1)
@@ -139,14 +152,16 @@ class DiscordBot(QObject):
             print(f"Channel with ID {channel_id} not found.")
 
     async def sync_commands(self):
-        """Syncs the command tree with Discord."""
+        """Syncs the command tree with Discord both globally and with the specific guild."""
+        # Always sync globally first
+        await self.bot.tree.sync()
+        print("Commands synced globally")
+
+        # Additionally sync with the specific guild if guild_id is provided
         if self.guild_id:
             guild = discord.Object(id=self.guild_id)
             await self.bot.tree.sync(guild=guild)
-            print(f"Commands synced with guild ID {self.guild_id}")
-        else:
-            await self.bot.tree.sync()
-            print("Commands synced globally")
+            print(f"Commands additionally synced with guild ID {self.guild_id}")
 
     def stop_bot(self):
         """Gracefully stops the bot."""
