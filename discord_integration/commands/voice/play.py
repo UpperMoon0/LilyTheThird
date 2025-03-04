@@ -66,13 +66,12 @@ class PlayCommand:
                 file_path = self._fix_file_extension(file_path)
 
             # Add song to queue
-            await self.song_queue.add_song(file_path, info['title'])
+            await self.song_queue.add_song(file_path, info['title'], send_message=False)
 
             # If the bot isn't playing anything, start playing
             if not self.song_queue.is_playing:
                 await self.song_queue.play_next_song(interaction.guild)
 
-            print(f"✅ SUCCESS: alternative_extractor method worked for URL: {url}")
             await interaction.followup.send(f"Added to queue: {info['title']}")
             return True
 

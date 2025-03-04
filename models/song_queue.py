@@ -10,17 +10,18 @@ class SongQueue:
         self.is_playing = False  # Indicates if a song is currently playing
         self.volume = 0.5  # Default volume (0.0 to 1.0)
 
-    async def add_song(self, file_path, title):
-        """Adds a song to the queue and sends a message to the channel."""
+    async def add_song(self, file_path, title, send_message=True):
+        """Adds a song to the queue and optionally sends a message to the channel."""
         self.queue.append((file_path, title))
-        channel = self.bot.bot.get_channel(int(self.bot.get_channel_id()))
-        if channel:
-            await channel.send(f"Added to queue: {title}")
-        else:
-            print(f"Channel with ID {self.bot.get_channel_id()} not found.")
+        if send_message:
+            channel = self.bot.bot.get_channel(int(self.bot.get_channel_id()))
+            if channel:
+                await channel.send(f"Added to queue: {title}")
+            else:
+                print(f"Channel with ID {self.bot.get_channel_id()} not found.")
 
     async def play_next_song(self, guild):
-        """Plays the next song in the queue with improved audio settings."""
+        """Plays the next song in the queue."""
         if not self.queue:
             self.is_playing = False
             return  # No more songs to play
@@ -39,24 +40,19 @@ class SongQueue:
         # Get the voice client
         vc = guild.voice_client
         if vc and not vc.is_playing():
-            # Simplified FFmpeg options that work on most systems
-            ffmpeg_options = {
-                'options': '-vn -b:a 192k'
-            }
-
             try:
                 self.is_playing = True
 
-                # Create audio source with proper file path
+                # Simplified FFmpeg setup with correct format
                 audio_source = discord.FFmpegPCMAudio(
-                    source=file_path,
-                    **ffmpeg_options
+                    executable="ffmpeg",
+                    source=file_path
                 )
 
-                # Use PCMVolumeTransformer for better volume control
+                # Use PCMVolumeTransformer for volume control
                 volume_controlled = discord.PCMVolumeTransformer(audio_source, volume=self.volume)
 
-                # Play the audio with proper callback
+                # Play the audio
                 vc.play(
                     volume_controlled,
                     after=lambda e: self._play_next_song_callback(e, guild)
@@ -72,7 +68,6 @@ class SongQueue:
             except Exception as e:
                 print(f"Error playing audio: {e}")
                 self.is_playing = False
-                # Try to play next song if this one fails
                 await self.play_next_song(guild)
 
     def _play_next_song_callback(self, error, guild):
