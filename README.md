@@ -1,7 +1,7 @@
 # Project Documentation
 
 ## Overview
-Lily is a comprehensive unified platform that integrates multiple powerful tools into one seamless experience. As a single entity, Lily unifies an LLM-powered chatbot, a feature-rich Discord bot, an advanced IDE with code assistance and file attachments, interactive Knowledge Graph visualization, and VTube Studio integration for virtual avatar control. Lily also supports translation and speech synthesis, providing an all-in-one interface for communication, development, and multimedia interaction.
+Lily is a comprehensive unified platform that integrates multiple powerful tools into one seamless experience. As a single entity, Lily unifies an LLM-powered chatbot, a feature-rich Discord bot, interactive Knowledge Graph visualization, and VTube Studio integration for virtual avatar control. Lily also supports translation and speech synthesis, providing an all-in-one interface for communication, development, and multimedia interaction.
 
 ## Technologies Used
 - Python
@@ -21,9 +21,6 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
   - Convert Japanese responses into speech using Edge TTS.
   - Short-term memory: Maintains a prompt history.
   - Long-term memory: Stores information in a Knowledge Graph.
-  
-- **IDE Tab** (WIP):
-  - An integrated development environment featuring LLM-powered code assistance and support for file attachments.
   
 - **Knowledge Graph Tab**:
   - Visualize and interact with the Knowledge Graph built from user interactions.
