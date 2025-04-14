@@ -1,3 +1,5 @@
+import asyncio
+import os
 import re
 
 import discord
@@ -51,32 +53,87 @@ class PlayCommand:
                 )
 
     async def download(self, interaction, url):
+        """Downloads a song from a URL and adds it to the queue."""
         try:
-            ydl_opts = self._get_base_ydl_opts()
-            # Use settings from the alternative extractor method
-            ydl_opts["extractor_args"]["youtube"] = {"skip": ["dash", "hls"]}
-            ydl_opts["format"] = "bestaudio[ext=m4a]/bestaudio/best"
+            # Set up temporary directory to store downloads
+            os.makedirs('temp', exist_ok=True)
 
+            # Define better YoutubeDL options with workarounds for 403 errors
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': 'temp/%(title)s.%(ext)s',
+                'restrictfilenames': True,
+                'noplaylist': False,
+                'nocheckcertificate': True,
+                'ignoreerrors': False,
+                'logtostderr': False,
+                'quiet': True,
+                'no_warnings': True,
+                'default_search': 'auto',
+                'source_address': '0.0.0.0',  # Bind to ipv4
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                # Add custom headers to mimic a browser
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Referer': 'https://www.youtube.com/'
+                }
+            }
+
+            # Use asyncio to run in a thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+
+            # Extract info first without downloading
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if 'entries' in info:
-                    info = info['entries'][0]
+                info_dict = await loop.run_in_executor(
+                    None, lambda: ydl.extract_info(url, download=False)
+                )
 
-                file_path = ydl.prepare_filename(info)
-                file_path = self._fix_file_extension(file_path)
+                # Check if it's a playlist
+                if 'entries' in info_dict:
+                    await interaction.followup.send(f"Added {len(info_dict['entries'])} songs to the queue")
 
-            # Add song to queue
-            await self.song_queue.add_song(file_path, info['title'], send_message=False)
+                    # Handle playlist
+                    for entry in info_dict['entries']:
+                        if entry:
+                            # Now download each entry separately
+                            single_opts = ydl_opts.copy()
+                            single_opts['outtmpl'] = f"temp/{entry.get('title', 'Unknown')}.%(ext)s"
 
-            # If the bot isn't playing anything, start playing
-            if not self.song_queue.is_playing:
-                await self.song_queue.play_next_song(interaction.guild)
+                            with yt_dlp.YoutubeDL(single_opts) as single_ydl:
+                                try:
+                                    await loop.run_in_executor(None, lambda: single_ydl.download([entry.get('webpage_url')]))
 
-            await interaction.followup.send(f"Added to queue: {info['title']}")
+                                    # Add to queue
+                                    file_path = f"temp/{entry.get('title', 'Unknown')}.mp3"
+                                    self.song_queue.add_song(
+                                        file_path,
+                                        entry.get('title', 'Unknown'),
+                                        entry.get('webpage_url', url),
+                                        interaction.user
+                                    )
+                                except Exception as e:
+                                    print(f"Error downloading playlist entry: {e}")
+                                    continue
+                else:
+                    # Single video - download it
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        await loop.run_in_executor(None, lambda: ydl.download([url]))
+
+                    title = info_dict.get('title', 'Unknown')
+                    file_path = f"temp/{title}.mp3"
+                    self.song_queue.add_song(file_path, title, url, interaction.user)
+                    await interaction.followup.send(f"Added **{title}** to the queue")
+
             return True
-
         except Exception as e:
-            print(f"Alternative extractor method failed: {str(e)}")
+            await interaction.followup.send(f"An error occurred: {str(e)}")
+            print(f"Download error: {e}")
             return False
 
     def _get_base_ydl_opts(self):
