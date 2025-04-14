@@ -9,7 +9,8 @@ from PyQt5.QtWidgets import (QLineEdit, QTextEdit, QVBoxLayout, QWidget,
                              QCheckBox, QPushButton, QLabel, QHBoxLayout, QComboBox) # Added QComboBox
 from actions import action_handler
 from llm.chatbox_llm import ChatBoxLLM
-from tts import text_to_speech_and_play
+# Import the new TTS function
+from tts import generate_speech_from_provider
 from kg import kg_handler
 # Import models from central config
 from config.models import OPENAI_MODELS, GEMINI_MODELS
@@ -80,8 +81,8 @@ class ChatTab(QWidget):
         # Create response box and other controls
         self.response_box = QTextEdit(self)
         self.response_box.setReadOnly(True)
-        self.speech_synthesis_enabled = QCheckBox("Enable Speech Synthesis", self)
-        self.speech_synthesis_enabled.setChecked(True)
+        self.tts_provider_enabled = QCheckBox("Enable TTS (TTS-Provider)", self) # New checkbox
+        self.tts_provider_enabled.setChecked(False) # Default to off
         self.clear_history_button = QPushButton("Clear History", self)
 
         # Knowledge Graph Memory checkbox and status display
@@ -100,7 +101,7 @@ class ChatTab(QWidget):
         layout.addLayout(avatar_layout)
         layout.addLayout(prompt_layout)
         layout.addWidget(self.response_box)
-        layout.addWidget(self.speech_synthesis_enabled)
+        layout.addWidget(self.tts_provider_enabled) # Add new checkbox to layout
         layout.addWidget(self.enable_kg_memory_checkbox)
         layout.addWidget(self.kg_status_label)
         provider_layout = QHBoxLayout()
@@ -226,13 +227,15 @@ class ChatTab(QWidget):
         action_handler.execute_command(action)
         print(f"Message: {message}")
         print(f"Action: {action}")
-        if self.speech_synthesis_enabled.isChecked():
+
+        # Call TTS-Provider if enabled
+        if self.tts_provider_enabled.isChecked():
+            # Run the async TTS function in a separate thread
             threading.Thread(
-                target=lambda: asyncio.run(
-                    text_to_speech_and_play(message, "ja-JP-NanamiNeural", "+15Hz")
-                ),
+                target=lambda: asyncio.run(generate_speech_from_provider(message)),
                 daemon=True
             ).start()
+
         self.updateResponse.emit(user_text, message)
 
     def on_update_response(self, user_text, assistant_message):
