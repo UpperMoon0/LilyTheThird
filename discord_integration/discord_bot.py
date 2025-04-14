@@ -175,9 +175,17 @@ class DiscordBot: # Removed QObject inheritance
                     print(f"Error getting LLM response: {e}")
                     response = "Sorry, I encountered an error trying to process that."
 
-                # 6. Send Response
+                # 6. Send Response (Handle long messages)
                 if response:
-                    await message.channel.send(response)
+                    if len(response) <= 2000:
+                        await message.channel.send(response)
+                    else:
+                        # Split the response into chunks of 2000 characters
+                        print(f"Response length ({len(response)}) exceeds 2000 chars, splitting...")
+                        chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
+                        for chunk in chunks:
+                            await message.channel.send(chunk)
+                            await asyncio.sleep(0.5) # Small delay between chunks to avoid rate limits
                 else:
                     print("LLM returned an empty response.") # Log if response is empty
 
