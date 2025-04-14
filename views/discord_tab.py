@@ -4,12 +4,16 @@ from multiprocessing import Process, Queue
 
 from PyQt5.QtCore import (
     Qt,
-    QPropertyAnimation
+    QPropertyAnimation,
+    Qt
 )
 from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QWidget
+from PyQt5.QtWidgets import (QLabel, QVBoxLayout, QHBoxLayout, QPushButton,
+                             QLineEdit, QWidget, QComboBox) # Added QComboBox
 from dotenv import load_dotenv
 
+# Import models from central config
+from config.models import OPENAI_MODELS, GEMINI_MODELS
 from processes.discord_process import run_discord_bot
 from views.components.color_circle import ColorCircle
 
@@ -22,6 +26,19 @@ class DiscordTab(QWidget):
         self.bot_process = None
         self.is_bot_running = False
         self.ipc_queue = None  # Will hold the multiprocessing.Queue for IPC
+
+        # LLM Provider Selector for Discord Bot
+        self.discord_provider_label = QLabel("Bot LLM Provider:", self)
+        self.discord_provider_selector = QComboBox(self)
+        self.discord_provider_selector.addItems(["OpenAI", "Gemini"]) # Add providers
+        self.discord_provider_selector.currentIndexChanged.connect(self.on_discord_provider_changed)
+
+        # LLM Model Selector for Discord Bot
+        self.discord_model_label = QLabel("Bot LLM Model:", self)
+        self.discord_model_selector = QComboBox(self)
+        # Model selector will be populated based on provider selection
+        # Connect model change signal (optional for now, as LLM is in separate process)
+        # self.discord_model_selector.currentIndexChanged.connect(self.on_discord_model_changed)
 
         # Replace QLabel status circle with ColorCircle
         self.status_circle = ColorCircle(self)
@@ -74,6 +91,8 @@ class DiscordTab(QWidget):
         self.save_button.clicked.connect(self.on_save_clicked)
         self.save_button.setStyleSheet("width: 200px; height: 40px;")
 
+        # --- Layouts ---
+
         # Status layout with button and status label
         status_layout = QVBoxLayout()
         status_layout.setAlignment(Qt.AlignCenter)
@@ -112,6 +131,21 @@ class DiscordTab(QWidget):
         channel_id_layout.addStretch()
         input_layout.addLayout(channel_id_layout)
 
+        # Add LLM selectors to input layout
+        discord_provider_layout = QHBoxLayout()
+        discord_provider_layout.addStretch()
+        discord_provider_layout.addWidget(self.discord_provider_label)
+        discord_provider_layout.addWidget(self.discord_provider_selector)
+        discord_provider_layout.addStretch()
+        input_layout.addLayout(discord_provider_layout)
+
+        discord_model_layout = QHBoxLayout()
+        discord_model_layout.addStretch()
+        discord_model_layout.addWidget(self.discord_model_label)
+        discord_model_layout.addWidget(self.discord_model_selector)
+        discord_model_layout.addStretch()
+        input_layout.addLayout(discord_model_layout)
+
         save_button_layout = QHBoxLayout()
         save_button_layout.addStretch()
         save_button_layout.addWidget(self.save_button)
@@ -137,6 +171,37 @@ class DiscordTab(QWidget):
         main_layout.addLayout(input_layout)
 
         self.setLayout(main_layout)
+
+        # Populate initial model list
+        self._update_discord_model_selector()
+
+    def _update_discord_model_selector(self):
+        """Populates the Discord model selector based on the selected provider."""
+        selected_provider = self.discord_provider_selector.currentText().lower()
+        self.discord_model_selector.clear() # Clear existing items
+
+        if selected_provider == 'openai':
+            self.discord_model_selector.addItems(OPENAI_MODELS)
+        elif selected_provider == 'gemini':
+            self.discord_model_selector.addItems(GEMINI_MODELS)
+        else:
+            # Handle unknown provider case if necessary
+            pass
+        # Optionally, save the selection immediately or require clicking "Save"
+        # self.save_discord_llm_config() # Example: save on change
+
+    def on_discord_provider_changed(self):
+        """Handles the change in the Discord LLM provider selection."""
+        print("Discord LLM Provider selection changed.")
+        self._update_discord_model_selector()
+        # Note: We don't re-initialize the LLM here as it runs in a separate process.
+        # The config will be read when the bot process starts.
+
+    # Optional: Handler if model change needs immediate action (likely not needed here)
+    # def on_discord_model_changed(self):
+    #     print("Discord LLM Model selection changed.")
+    #     # self.save_discord_llm_config() # Example: save on change
+
 
     def setup_idle_animation(self):
         # Create keyframes for smoother animation
@@ -164,10 +229,28 @@ class DiscordTab(QWidget):
         if not self.is_bot_running:
             self.update_status("Starting")
             self.toggle_bot_button.setEnabled(False)
+            # Get selected LLM config
+            selected_provider = self.discord_provider_selector.currentText().lower()
+            selected_model = self.discord_model_selector.currentText()
+
+            if not selected_model:
+                 print("Error: No model selected for Discord bot.")
+                 self.update_status("Error: No model selected")
+                 self.toggle_bot_button.setEnabled(True) # Re-enable button
+                 return
+
+            # Create config dictionary using the keys expected by DiscordBot
+            discord_config = {
+                'discord_llm_provider': selected_provider, # Use 'discord_llm_provider'
+                'discord_llm_model': selected_model,       # Use 'discord_llm_model'
+                'guild_id': self.guild_id_input.text(),
+                'channel_id': self.channel_id_input.text()
+            }
+
             # Create a new IPC queue for communication
             self.ipc_queue = Queue()
-            # Start the Discord bot in a new process with the IPC queue
-            self.bot_process = Process(target=run_discord_bot, args=(self.ipc_queue,))
+            # Start the Discord bot in a new process, passing the config and queue
+            self.bot_process = Process(target=run_discord_bot, args=(self.ipc_queue, discord_config))
             self.bot_process.start()
             # For simplicity, assume the bot is ready soon.
             self.is_bot_running = True
@@ -232,23 +315,38 @@ class DiscordTab(QWidget):
     def on_save_clicked(self):
         guild_id_text = self.guild_id_input.text()
         channel_id_text = self.channel_id_input.text()
+        # --- Save only Guild ID and Channel ID to .env ---
+        # LLM config is now passed directly when starting the bot process
+        guild_id_saved = False
+        channel_id_saved = False
 
-        # Here we update the environment variables.
         if guild_id_text:
             try:
-                int(guild_id_text)
-                os.environ["DISCORD_GUILD_ID"] = guild_id_text
-                print(f"Guild ID set to {guild_id_text} (will be used next time the bot starts)")
+                 int(guild_id_text)
+                 # Optional: Save to .env if desired for persistence across app restarts
+                 # but it won't affect the currently running bot.
+                 # os.environ["DISCORD_GUILD_ID"] = guild_id_text
+                 print(f"Guild ID set to: {guild_id_text}")
+                 guild_id_saved = True
             except ValueError:
-                print("Invalid Guild ID entered.")
+                 print("Invalid Guild ID entered.")
 
         if channel_id_text:
             try:
-                int(channel_id_text)
-                os.environ["DISCORD_CHANNEL_ID"] = channel_id_text
-                print(f"Channel ID set to {channel_id_text} (will be used next time the bot starts)")
+                 int(channel_id_text)
+                 # Optional: Save to .env
+                 # os.environ["DISCORD_CHANNEL_ID"] = channel_id_text
+                 print(f"Channel ID set to: {channel_id_text}")
+                 channel_id_saved = True
             except ValueError:
-                print("Invalid Channel ID entered.")
+                 print("Invalid Channel ID entered.")
+
+        # Print status based on what was potentially saved or just validated
+        if guild_id_saved or channel_id_saved:
+             print("Guild/Channel IDs updated in UI. LLM settings are passed when starting the bot.")
+        else:
+             print("No valid Guild/Channel ID changes detected.")
+
 
     def setup_hook(self):
         pass

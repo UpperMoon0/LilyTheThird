@@ -21,25 +21,35 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 class ChatBoxLLM:
-    def __init__(self, provider='openai'):
+    # Accept model_name in the constructor
+    def __init__(self, provider='openai', model_name=None):
         self.personality = os.getenv('PERSONALITY_TO_MASTER')
         self.provider = provider
         self.message_history = []
+        self.model = model_name # Store the selected model name
+
+        if not self.model:
+             # Set default model if none provided (optional, based on desired behavior)
+             if self.provider == 'openai':
+                 self.model = "gpt-4o-mini" # Default OpenAI model
+             elif self.provider == 'gemini':
+                 self.model = "gemini-1.5-flash" # Default Gemini model
+             else:
+                 raise ValueError("Model name must be provided if provider is not OpenAI or Gemini with defaults.")
+             print(f"Warning: No model name provided, using default for {self.provider}: {self.model}")
+
 
         if self.provider == 'openai':
             if not OPENAI_API_KEY:
                 raise ValueError("OpenAI API key not found in environment variables.")
             self.client = OpenAI(api_key=OPENAI_API_KEY)
-            self.model = "gpt-4o-mini-2024-07-18"
+            # self.model is already set from constructor or default
         elif self.provider == 'gemini':
             if not GEMINI_API_KEY:
                 raise ValueError("Gemini API key not found in environment variables.")
-            # Ensure the model name is appropriate for Gemini, e.g., 'gemini-1.5-flash'
-            # You might want to make this configurable
-            self.model = "gemini-1.5-flash"
+            # Use the provided model_name to initialize the Gemini client
             self.client = genai.GenerativeModel(self.model)
-            # Gemini uses a different history format (alternating user/model roles)
-            # We'll adapt the OpenAI format before sending requests to Gemini
+            # Gemini history adaptation remains the same
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
 
@@ -101,15 +111,7 @@ class ChatBoxLLM:
             # stop_sequences=["}"], # May help ensure valid JSON, but can truncate
             max_output_tokens=500,
             temperature=random.uniform(0.2, 0.8),
-            response_mime_type="application/json", # Request JSON output
-             response_schema=genai.types.Schema( # Define expected schema
-                 type=genai.types.Type.OBJECT,
-                 properties={
-                     'message': genai.types.Schema(type=genai.types.Type.STRING),
-                     'actions': genai.types.Schema(type=genai.types.Type.STRING)
-                 },
-                 required=['message', 'actions']
-             )
+            response_mime_type="application/json" # Request JSON output (Schema removed)
         )
 
         try:

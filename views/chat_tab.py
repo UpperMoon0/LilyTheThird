@@ -1,5 +1,4 @@
 import asyncio
-import asyncio
 import os
 import threading
 import speech_recognition as sr
@@ -12,6 +11,9 @@ from actions import action_handler
 from llm.chatbox_llm import ChatBoxLLM
 from tts import text_to_speech_and_play
 from kg import kg_handler
+# Import models from central config
+from config.models import OPENAI_MODELS, GEMINI_MODELS
+
 
 def clear_output_folder():
     # Remove old audio files from the outputs folder
@@ -33,16 +35,18 @@ class ChatTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._initializing = True # Flag to prevent signals during setup
 
         # LLM Provider Selector
         self.provider_label = QLabel("Select LLM Provider:", self)
         self.provider_selector = QComboBox(self)
         self.provider_selector.addItems(["OpenAI", "Gemini"])
-        # Connect signal for provider change
-        self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
+        # Connect signal LATER
 
-        # Initial LLM Instantiation based on selector
-        self._initialize_llm()
+        # LLM Model Selector
+        self.model_label = QLabel("Select Model:", self)
+        self.model_selector = QComboBox(self)
+        # Connect signal LATER
 
         # Avatar setup
         self.avatar_label = QLabel(self)
@@ -64,10 +68,9 @@ class ChatTab(QWidget):
 
         self.record_button = QPushButton(self)
         self.record_button.setStyleSheet("width: 100px; height: 30px;")
-        # Set no text and use the idle microphone icon initially
         self.record_button.setIcon(QIcon("assets/mic_idle.png"))
         self.record_button.setIconSize(QSize(30, 30))
-        self.record_button.clicked.connect(self.record_voice)  # Connect record button to voice recording
+        self.record_button.clicked.connect(self.record_voice)
 
         # Layout for text input and record button
         prompt_layout = QHBoxLayout()
@@ -100,63 +103,129 @@ class ChatTab(QWidget):
         layout.addWidget(self.speech_synthesis_enabled)
         layout.addWidget(self.enable_kg_memory_checkbox)
         layout.addWidget(self.kg_status_label)
-        # Add provider selector to layout
         provider_layout = QHBoxLayout()
         provider_layout.addWidget(self.provider_label)
         provider_layout.addWidget(self.provider_selector)
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(self.model_label)
+        model_layout.addWidget(self.model_selector)
         layout.addLayout(provider_layout)
+        layout.addLayout(model_layout)
         layout.addWidget(self.clear_history_button)
         self.setLayout(layout)
 
-        # Connect signal for handling user input and clearing chat history
+        # Connect other signals
         self.prompt_input.returnPressed.connect(self.get_response)
         self.clear_history_button.clicked.connect(self.clear_history)
         self.updateResponse.connect(self.on_update_response)
+
+        # Initial Population and Initialization (BEFORE connecting signals)
+        self._update_model_selector() # Populate models for the default provider
+        self._initialize_llm()      # Initialize LLM once explicitly
+
+        # NOW connect the signals after initial setup
+        self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
+        self.model_selector.currentIndexChanged.connect(self.on_model_changed)
+
+        self._initializing = False  # Setup complete
         clear_output_folder()
 
-    def _initialize_llm(self):
-        """Initializes or re-initializes the ChatBoxLLM based on the selected provider."""
+    def _update_model_selector(self):
+        """Populates the model selector based on the selected provider."""
         selected_provider = self.provider_selector.currentText().lower()
+        # Block signals during modification to prevent premature triggers
+        self.model_selector.blockSignals(True)
+        self.model_selector.clear() # Clear existing items
+
+        model_list = []
+        if selected_provider == 'openai':
+            model_list = OPENAI_MODELS
+        elif selected_provider == 'gemini':
+            model_list = GEMINI_MODELS
+
+        if model_list:
+            self.model_selector.addItems(model_list)
+            # Default to first item
+            self.model_selector.setCurrentIndex(0)
+
+        self.model_selector.blockSignals(False) # Unblock signals
+
+
+    def _initialize_llm(self):
+        """Initializes or re-initializes the ChatBoxLLM based on the selected provider and model."""
+        selected_provider = self.provider_selector.currentText().lower()
+        selected_model = self.model_selector.currentText()
+
+        if not selected_model:
+             self.chatBoxLLM = None
+             return
+
+        # Prevent re-initialization if settings haven't changed
+        if not self._initializing and hasattr(self, 'chatBoxLLM') and self.chatBoxLLM and \
+           self.chatBoxLLM.provider == selected_provider and \
+           self.chatBoxLLM.model == selected_model:
+            return
+
         try:
-            self.chatBoxLLM = ChatBoxLLM(provider=selected_provider)
-            print(f"ChatBoxLLM initialized with provider: {selected_provider}")
-            # Clear history when provider changes
-            self.clear_history(notify=False) # Avoid double notification if called by on_provider_changed
-            self.response_box.append(f"Switched LLM provider to: {selected_provider.capitalize()}")
+            self.chatBoxLLM = ChatBoxLLM(provider=selected_provider, model_name=selected_model)
+            self.clear_history(notify=False)
+            # DO NOT append message here - let signal handlers do it
         except ValueError as e:
-            # Handle case where API key might be missing
-            print(f"Error initializing LLM: {e}")
-            self.response_box.append(f'<span style="color: red;">Error: Could not initialize {selected_provider.capitalize()} LLM. Check API key.</span>')
-            # Disable input if LLM fails to initialize? Or default to one?
-            # For now, just show error. User needs to fix .env and restart or change provider.
-            self.chatBoxLLM = None # Indicate LLM is not usable
+            print(f"--- Error initializing LLM: {e} ---")
+            if hasattr(self, 'response_box'):
+                 self.response_box.append(f'<span style="color: red;">Error: Could not initialize {selected_provider.capitalize()} ({selected_model}). Check API key/config.</span>')
+            self.chatBoxLLM = None
+
 
     def on_provider_changed(self):
         """Handles the change in the provider selection."""
-        print("LLM Provider selection changed.")
+        if self._initializing:
+            print("--- on_provider_changed SKIPPING (during init) ---")
+            return
+        print("--- on_provider_changed START ---")
+        self._update_model_selector() # Update models (signals blocked inside)
+        # Initialize LLM because provider change implies model change (to default)
         self._initialize_llm()
+        # Append message AFTER successful initialization
+        if self.chatBoxLLM: # Check if initialization was successful
+             selected_provider = self.provider_selector.currentText().capitalize()
+             selected_model = self.model_selector.currentText()
+             self.response_box.append(f"Switched LLM to: {selected_provider} - {selected_model}")
+        print("--- on_provider_changed END ---")
+
+
+    def on_model_changed(self):
+        """Handles the change in the model selection."""
+        if self._initializing:
+            print("--- on_model_changed SKIPPING (during init) ---")
+            return
+        # Check if model text is actually valid before initializing
+        if self.model_selector.currentText():
+             self._initialize_llm() # Re-initialize with the newly selected model
+             # Append message AFTER successful initialization
+             if self.chatBoxLLM: # Check if initialization was successful
+                 selected_provider = self.provider_selector.currentText().capitalize()
+                 selected_model = self.model_selector.currentText()
+                 self.response_box.append(f"Switched LLM to: {selected_provider} - {selected_model}")
+        else:
+             print("--- on_model_changed SKIPPING (empty model text) ---")
+        print("--- on_model_changed END ---")
 
 
     def get_response(self):
-        # Check if LLM is initialized
         if not self.chatBoxLLM:
             self.response_box.append('<span style="color: red;">LLM not initialized. Please select a valid provider and ensure API key is set.</span>')
             return
-
-        # Retrieve user input and start processing in a background thread.
         user_text = self.prompt_input.text().strip()
-        if not user_text:
-            return
+        if not user_text: return
         self.prompt_input.setDisabled(True)
         threading.Thread(target=self._get_response_thread, args=(user_text,), daemon=True).start()
 
     def _get_response_thread(self, user_text):
-        # Obtain the response from the chatbot LLM and execute any actions.
         message, action = self.chatBoxLLM.get_response(user_text, not self.enable_kg_memory_checkbox.isChecked())
         action_handler.execute_command(action)
         print(f"Message: {message}")
         print(f"Action: {action}")
-        # Optionally use text-to-speech to play the response.
         if self.speech_synthesis_enabled.isChecked():
             threading.Thread(
                 target=lambda: asyncio.run(
@@ -167,43 +236,34 @@ class ChatTab(QWidget):
         self.updateResponse.emit(user_text, message)
 
     def on_update_response(self, user_text, assistant_message):
-        # Append the conversation and reset the input.
         self.response_box.append(f"You: {user_text}")
         self.response_box.append(f"Lily: {assistant_message}")
         self.prompt_input.clear()
-        self.prompt_input.setDisabled(False) # Re-enable input
+        self.prompt_input.setDisabled(False)
 
     def clear_history(self, notify=True):
-        """Clears the chat history in the LLM instance and the UI."""
         if self.chatBoxLLM:
-            self.chatBoxLLM.message_history = [] # Clear history in the LLM object
+            self.chatBoxLLM.message_history = []
         if notify:
             self.response_box.append("History cleared.")
-        # No need to clear the UI box here if we append the message,
-        # but if you want a completely clear box: self.response_box.clear() followed by append.
 
     def enable_kg_features(self):
-        # Enable knowledge graph features after loading.
         self.enable_kg_memory_checkbox.setEnabled(True)
         self.kg_status_label.setText("Knowledge graph loaded")
 
     def record_voice(self):
-        # Initiate voice recording in a separate thread.
         threading.Thread(target=self._record_voice_thread, daemon=True).start()
 
     def _record_voice_thread(self):
-        # Record voice from the microphone and update the prompt with the recognized text.
         recognizer = sr.Recognizer()
         try:
             with sr.Microphone() as source:
                 recognizer.adjust_for_ambient_noise(source, duration=1)
                 print("Recording... Please speak now.")
-                # Update UI: switch icon to "on" and display the recording message in red
                 QMetaObject.invokeMethod(self, "start_recording_ui", Qt.QueuedConnection)
                 audio = recognizer.listen(source, phrase_time_limit=5)
                 recognized_text = recognizer.recognize_google(audio)
                 print("Recognized text:", recognized_text)
-                # Safely update the UI element from the background thread using the global QMetaObject, Q_ARG, and Qt.
                 QMetaObject.invokeMethod(self.prompt_input, "setText", Qt.QueuedConnection, Q_ARG(str, recognized_text))
         except Exception as e:
             print("Voice recognition error:", e)
@@ -212,12 +272,9 @@ class ChatTab(QWidget):
 
     @pyqtSlot()
     def reset_record_icon(self):
-        """Reset the record button icon to the idle state"""
         self.record_button.setIcon(QIcon("assets/mic_idle.png"))
 
     @pyqtSlot()
     def start_recording_ui(self):
-        """Update UI: set the record button icon to 'mic_on' and display recording status in red."""
         self.record_button.setIcon(QIcon("assets/mic_on.png"))
-        # Append the recording message formatted in red using HTML.
         self.response_box.append('<span style="color: red;">Recording... Please speak now.</span>')
