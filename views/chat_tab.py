@@ -1,11 +1,13 @@
 import asyncio
+import asyncio
 import os
 import threading
-import speech_recognition as sr  
+import speech_recognition as sr
 
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QMetaObject, Q_ARG, QSize, QTimer
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QMetaObject, Q_ARG, QSize
 from PyQt5.QtGui import QFont, QRegion, QPixmap, QIcon
-from PyQt5.QtWidgets import QLineEdit, QTextEdit, QVBoxLayout, QWidget, QCheckBox, QPushButton, QLabel, QHBoxLayout
+from PyQt5.QtWidgets import (QLineEdit, QTextEdit, QVBoxLayout, QWidget,
+                             QCheckBox, QPushButton, QLabel, QHBoxLayout, QComboBox) # Added QComboBox
 from actions import action_handler
 from llm.chatbox_llm import ChatBoxLLM
 from tts import text_to_speech_and_play
@@ -32,7 +34,15 @@ class ChatTab(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.chatBoxLLM = ChatBoxLLM()
+        # LLM Provider Selector
+        self.provider_label = QLabel("Select LLM Provider:", self)
+        self.provider_selector = QComboBox(self)
+        self.provider_selector.addItems(["OpenAI", "Gemini"])
+        # Connect signal for provider change
+        self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
+
+        # Initial LLM Instantiation based on selector
+        self._initialize_llm()
 
         # Avatar setup
         self.avatar_label = QLabel(self)
@@ -90,6 +100,11 @@ class ChatTab(QWidget):
         layout.addWidget(self.speech_synthesis_enabled)
         layout.addWidget(self.enable_kg_memory_checkbox)
         layout.addWidget(self.kg_status_label)
+        # Add provider selector to layout
+        provider_layout = QHBoxLayout()
+        provider_layout.addWidget(self.provider_label)
+        provider_layout.addWidget(self.provider_selector)
+        layout.addLayout(provider_layout)
         layout.addWidget(self.clear_history_button)
         self.setLayout(layout)
 
@@ -99,7 +114,35 @@ class ChatTab(QWidget):
         self.updateResponse.connect(self.on_update_response)
         clear_output_folder()
 
+    def _initialize_llm(self):
+        """Initializes or re-initializes the ChatBoxLLM based on the selected provider."""
+        selected_provider = self.provider_selector.currentText().lower()
+        try:
+            self.chatBoxLLM = ChatBoxLLM(provider=selected_provider)
+            print(f"ChatBoxLLM initialized with provider: {selected_provider}")
+            # Clear history when provider changes
+            self.clear_history(notify=False) # Avoid double notification if called by on_provider_changed
+            self.response_box.append(f"Switched LLM provider to: {selected_provider.capitalize()}")
+        except ValueError as e:
+            # Handle case where API key might be missing
+            print(f"Error initializing LLM: {e}")
+            self.response_box.append(f'<span style="color: red;">Error: Could not initialize {selected_provider.capitalize()} LLM. Check API key.</span>')
+            # Disable input if LLM fails to initialize? Or default to one?
+            # For now, just show error. User needs to fix .env and restart or change provider.
+            self.chatBoxLLM = None # Indicate LLM is not usable
+
+    def on_provider_changed(self):
+        """Handles the change in the provider selection."""
+        print("LLM Provider selection changed.")
+        self._initialize_llm()
+
+
     def get_response(self):
+        # Check if LLM is initialized
+        if not self.chatBoxLLM:
+            self.response_box.append('<span style="color: red;">LLM not initialized. Please select a valid provider and ensure API key is set.</span>')
+            return
+
         # Retrieve user input and start processing in a background thread.
         user_text = self.prompt_input.text().strip()
         if not user_text:
@@ -128,13 +171,16 @@ class ChatTab(QWidget):
         self.response_box.append(f"You: {user_text}")
         self.response_box.append(f"Lily: {assistant_message}")
         self.prompt_input.clear()
-        self.prompt_input.setDisabled(False)
+        self.prompt_input.setDisabled(False) # Re-enable input
 
-    def clear_history(self):
-        # Clear the global message history and update UI.
-        global message_history
-        message_history = []
-        self.response_box.append("History cleared.")
+    def clear_history(self, notify=True):
+        """Clears the chat history in the LLM instance and the UI."""
+        if self.chatBoxLLM:
+            self.chatBoxLLM.message_history = [] # Clear history in the LLM object
+        if notify:
+            self.response_box.append("History cleared.")
+        # No need to clear the UI box here if we append the message,
+        # but if you want a completely clear box: self.response_box.clear() followed by append.
 
     def enable_kg_features(self):
         # Enable knowledge graph features after loading.
