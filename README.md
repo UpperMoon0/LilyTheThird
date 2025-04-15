@@ -8,17 +8,19 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
 - PyQt5
 - Discord.py
 - SpeechRecognition
-- Edge TTS (Text-to-Speech)
+- External TTS-Provider (for Text-to-Speech via WebSocket) - Requires separate server.
 - Deep Translator (for translation)
 - OpenAI API (for large language model)
 - spaCy and rdflib (for knowledge graph processing)
 - websockets (for VTube Studio integration)
 
+**Note:** Text-to-Speech functionality requires the [TTS-Provider](https://github.com/UpperMoon0/TTS-Provider.git) server to be running locally (default: `ws://localhost:9000`).
+
 ## Features
 - **Chat Tab**: 
   - Interact with a chatbot powered by the OpenAI API.
   - Translate chatbot responses into Japanese using Deep Translator.
-  - Convert Japanese responses into speech using Edge TTS.
+  - Convert Japanese responses into speech via an external TTS-Provider server.
   - Short-term memory: Maintains a prompt history.
   - Long-term memory: Stores information in a Knowledge Graph.
   

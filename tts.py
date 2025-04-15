@@ -11,9 +11,9 @@ TTS_PROVIDER_URI = "ws://localhost:9000"
 
 async def generate_speech_from_provider(
     text: str,
-    speaker: int = 0,
+    speaker: int = 1, 
     sample_rate: int = 24000,
-    model: str = "edge", # Default to edge as per example
+    model: str = "edge", 
     tts_provider_uri: str = TTS_PROVIDER_URI
 ):
     """
