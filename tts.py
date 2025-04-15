@@ -35,52 +35,82 @@ async def generate_speech_from_provider(
         "speaker": speaker,
         "sample_rate": sample_rate,
         "response_mode": "stream",
-        "model": model
+        "model": model,
+        "lang": "ja-JP" # Added language parameter since text is translated
     }
 
     audio_buffer = io.BytesIO()
     metadata = {}
+    metadata_str = "" # To store the raw metadata string for error reporting
 
     try:
-        async with websockets.connect(tts_provider_uri) as websocket:
+        async with websockets.connect(
+            tts_provider_uri,
+            max_size=10*1024*1024, # Match client/server max size
+            ping_interval=None # Disable auto-ping if server handles it
+        ) as websocket:
             print(f"Connected to TTS Provider at {tts_provider_uri}")
             await websocket.send(json.dumps(request_payload))
             print("Sent TTS request.")
 
+            # --- Receive initial metadata ---
+            metadata_str = await websocket.recv()
+            if not isinstance(metadata_str, str):
+                print("Error: Expected initial metadata (JSON string), received bytes.")
+                return
+            metadata = json.loads(metadata_str)
+            print(f"Received initial response: {metadata}")
+
+            # Handle loading/queued status
+            while metadata.get("status") in ["loading", "queued"]:
+                queue_pos = metadata.get("queue_position", "N/A")
+                print(f"Server status: {metadata.get('status')}. Queue position: {queue_pos}. Waiting...")
+                metadata_str = await websocket.recv()
+                if not isinstance(metadata_str, str):
+                    print("Error: Expected status update (JSON string), received bytes.")
+                    return
+                metadata = json.loads(metadata_str)
+                print(f"Received update: {metadata}")
+
+            # Check for success status after loading/queueing
+            if metadata.get("status") != "success":
+                print(f"TTS Error from server: {metadata.get('message', 'Unknown error')}")
+                return
+
+            print("TTS Processing successful according to metadata. Receiving audio stream...")
+            # Store necessary info from metadata before receiving audio
+            sr = metadata.get("sample_rate", 24000) # Default if not provided
+            channels = metadata.get("channels", 1) # Default if not provided (server doesn't send this yet)
+            bit_depth = metadata.get("bit_depth", 16) # Default if not provided (server doesn't send this yet)
+
+            # --- Receive audio stream ---
             while True:
-                message = await websocket.recv()
+                try:
+                    message = await websocket.recv()
+                    if isinstance(message, bytes):
+                        # print(f"Received audio chunk: {len(message)} bytes") # Optional debug
+                        audio_buffer.write(message)
+                    elif isinstance(message, str):
+                        # Unexpected JSON message during audio stream? Log it.
+                        print(f"Warning: Received unexpected JSON during audio stream: {message}")
+                    # The loop will break naturally when the server closes the connection
+                    # after sending all audio data, or if an error occurs.
 
-                if isinstance(message, str):
-                    # JSON message (metadata or status)
-                    data = json.loads(message)
-                    print(f"Received JSON: {data}")
-                    if data.get("status") == "processing":
-                        metadata = data # Store metadata
-                        print("TTS Processing started...")
-                    elif data.get("status") == "complete":
-                        print("TTS Stream complete.")
-                        break # Exit loop on completion
-                    elif data.get("status") == "error":
-                        print(f"TTS Error from server: {data.get('message', 'Unknown error')}")
-                        return # Exit on error
-                    else:
-                        # Could be initial metadata without status=processing
-                        metadata.update(data)
-
-                elif isinstance(message, bytes):
-                    # Binary audio chunk
-                    # print(f"Received audio chunk: {len(message)} bytes")
-                    audio_buffer.write(message)
+                except websockets.exceptions.ConnectionClosedOK:
+                    print("Audio stream finished (connection closed by server).")
+                    break
+                except websockets.exceptions.ConnectionClosedError as e:
+                    print(f"Audio stream interrupted (connection closed with error): {e}")
+                    # Decide if partial audio is usable or not
+                    # For now, we'll try to play what we received
+                    break # Exit loop on connection error
 
             # --- Audio Playback ---
-            if audio_buffer.getbuffer().nbytes > 0 and metadata:
-                print("Preparing audio for playback...")
+            if audio_buffer.getbuffer().nbytes > 0:
+                print(f"Preparing audio for playback (using sr={sr}, channels={channels}, bit_depth={bit_depth})...")
                 audio_buffer.seek(0)
-                sr = metadata.get("sample_rate", 24000) # Default if not provided
-                channels = metadata.get("channels", 1)
-                bit_depth = metadata.get("bit_depth", 16)
 
-                # Determine numpy dtype based on bit depth
+                # Determine numpy dtype based on bit depth (already extracted from metadata)
                 if bit_depth == 16:
                     dtype = np.int16
                 elif bit_depth == 32:
@@ -105,18 +135,25 @@ async def generate_speech_from_provider(
 
                 except Exception as e:
                     print(f"Error processing or playing audio: {e}")
+                    import traceback
+                    traceback.print_exc()
 
             else:
-                print("No audio data received or metadata missing.")
+                print("No audio data received.")
 
     except websockets.exceptions.ConnectionClosedOK:
-        print("WebSocket connection closed normally.")
+        # This might happen if the connection closes before receiving the first metadata
+        print("WebSocket connection closed before receiving expected data.")
     except websockets.exceptions.ConnectionClosedError as e:
         print(f"WebSocket connection closed with error: {e}")
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON response from server. Received: {metadata_str}")
     except ConnectionRefusedError:
         print(f"Error: Connection refused. Is the TTS-Provider server running at {tts_provider_uri}?")
     except Exception as e:
         print(f"An unexpected error occurred during TTS processing: {e}")
+        import traceback
+        traceback.print_exc() # More detailed error for debugging
 
 # Example usage (for testing purposes)
 async def main_test():
