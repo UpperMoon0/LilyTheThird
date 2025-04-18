@@ -6,14 +6,14 @@ import speech_recognition as sr
 from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QMetaObject, Q_ARG, QSize
 from PyQt5.QtGui import QFont, QRegion, QPixmap, QIcon
 from PyQt5.QtWidgets import (QLineEdit, QTextEdit, QVBoxLayout, QWidget,
-                             QCheckBox, QPushButton, QLabel, QHBoxLayout, QComboBox) # Added QComboBox
+                             QCheckBox, QPushButton, QLabel, QHBoxLayout, QComboBox)
 from actions import action_handler
 from llm.chatbox_llm import ChatBoxLLM
-# Import the new TTS function
 from tts import generate_speech_from_provider
 from kg import kg_handler
-# Import models from central config
 from config.models import OPENAI_MODELS, GEMINI_MODELS
+# Import settings manager
+from settings_manager import load_settings, save_settings
 
 
 def clear_output_folder():
@@ -37,16 +37,25 @@ class ChatTab(QWidget):
     def __init__(self):
         super().__init__()
         self._initializing = True # Flag to prevent signals during setup
+        self.settings = load_settings() # Load settings first
+
+        # --- UI Setup (largely the same, but apply loaded settings) ---
 
         # LLM Provider Selector
         self.provider_label = QLabel("Select LLM Provider:", self)
         self.provider_selector = QComboBox(self)
         self.provider_selector.addItems(["OpenAI", "Gemini"])
+        # Set loaded provider *before* connecting signals
+        provider_index = self.provider_selector.findText(self.settings.get('selected_provider', 'OpenAI'))
+        if provider_index != -1:
+            self.provider_selector.setCurrentIndex(provider_index)
         # Connect signal LATER
 
         # LLM Model Selector
         self.model_label = QLabel("Select Model:", self)
         self.model_selector = QComboBox(self)
+        # Populate models based on the *loaded* provider first
+        self._update_model_selector(set_from_settings=True)
         # Connect signal LATER
 
         # Avatar setup
@@ -81,13 +90,17 @@ class ChatTab(QWidget):
         # Create response box and other controls
         self.response_box = QTextEdit(self)
         self.response_box.setReadOnly(True)
-        self.tts_provider_enabled = QCheckBox("Enable TTS (TTS-Provider)", self) # New checkbox
-        self.tts_provider_enabled.setChecked(False) # Default to off
+        self.tts_provider_enabled = QCheckBox("Enable TTS (TTS-Provider)", self)
+        self.tts_provider_enabled.setChecked(self.settings.get('tts_provider_enabled', False))
+        # Connect signal LATER
+
         self.clear_history_button = QPushButton("Clear History", self)
 
         # Knowledge Graph Memory checkbox and status display
         self.enable_kg_memory_checkbox = QCheckBox("Enable Knowledge Graph Memory", self)
-        self.enable_kg_memory_checkbox.setChecked(False)
+        self.enable_kg_memory_checkbox.setChecked(self.settings.get('enable_kg_memory', False))
+        # Connect signal LATER
+
         self.kg_status_label = QLabel(self)
         if not kg_handler.knowledge_graph_loaded:
             self.enable_kg_memory_checkbox.setEnabled(False)
@@ -101,7 +114,7 @@ class ChatTab(QWidget):
         layout.addLayout(avatar_layout)
         layout.addLayout(prompt_layout)
         layout.addWidget(self.response_box)
-        layout.addWidget(self.tts_provider_enabled) # Add new checkbox to layout
+        layout.addWidget(self.tts_provider_enabled)
         layout.addWidget(self.enable_kg_memory_checkbox)
         layout.addWidget(self.kg_status_label)
         provider_layout = QHBoxLayout()
@@ -120,18 +133,34 @@ class ChatTab(QWidget):
         self.clear_history_button.clicked.connect(self.clear_history)
         self.updateResponse.connect(self.on_update_response)
 
-        # Initial Population and Initialization (BEFORE connecting signals)
-        self._update_model_selector() # Populate models for the default provider
-        self._initialize_llm()      # Initialize LLM once explicitly
+        # Initialize LLM based on loaded settings
+        self._initialize_llm()
 
-        # NOW connect the signals after initial setup
+        # NOW connect the signals that should trigger saving settings
         self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
         self.model_selector.currentIndexChanged.connect(self.on_model_changed)
+        self.tts_provider_enabled.stateChanged.connect(self._save_current_settings)
+        self.enable_kg_memory_checkbox.stateChanged.connect(self._save_current_settings)
 
         self._initializing = False  # Setup complete
         clear_output_folder()
 
-    def _update_model_selector(self):
+    def _save_current_settings(self):
+        """Gathers current settings and saves them."""
+        if self._initializing: # Don't save during initial setup
+            return
+
+        current_settings = {
+            'tts_provider_enabled': self.tts_provider_enabled.isChecked(),
+            'enable_kg_memory': self.enable_kg_memory_checkbox.isChecked(),
+            'selected_provider': self.provider_selector.currentText(),
+            'selected_model': self.model_selector.currentText()
+        }
+        # Update the in-memory settings object as well
+        self.settings.update(current_settings)
+        save_settings(self.settings)
+
+    def _update_model_selector(self, set_from_settings=False):
         """Populates the model selector based on the selected provider."""
         selected_provider = self.provider_selector.currentText().lower()
         # Block signals during modification to prevent premature triggers
@@ -146,11 +175,21 @@ class ChatTab(QWidget):
 
         if model_list:
             self.model_selector.addItems(model_list)
-            # Default to first item
-            self.model_selector.setCurrentIndex(0)
+            if set_from_settings:
+                # Try to set the loaded model
+                loaded_model = self.settings.get('selected_model')
+                model_index = self.model_selector.findText(loaded_model)
+                if model_index != -1:
+                    self.model_selector.setCurrentIndex(model_index)
+                elif model_list: # Fallback to first if loaded model not found
+                    self.model_selector.setCurrentIndex(0)
+            elif model_list: # Default to first if not setting from saved
+                self.model_selector.setCurrentIndex(0)
 
         self.model_selector.blockSignals(False) # Unblock signals
-
+        # Save settings if the model was changed *not* during initial load
+        if not set_from_settings:
+             self._save_current_settings()
 
     def _initialize_llm(self):
         """Initializes or re-initializes the ChatBoxLLM based on the selected provider and model."""
@@ -158,25 +197,31 @@ class ChatTab(QWidget):
         selected_model = self.model_selector.currentText()
 
         if not selected_model:
+             print("--- Initialize LLM: No model selected, skipping. ---")
              self.chatBoxLLM = None
              return
 
-        # Prevent re-initialization if settings haven't changed
+        # Prevent re-initialization if settings haven't changed (unless initializing)
         if not self._initializing and hasattr(self, 'chatBoxLLM') and self.chatBoxLLM and \
            self.chatBoxLLM.provider == selected_provider and \
            self.chatBoxLLM.model == selected_model:
+            print(f"--- Initialize LLM: Settings unchanged ({selected_provider}/{selected_model}), skipping. ---")
             return
 
+        print(f"--- Initializing LLM: Provider={selected_provider}, Model={selected_model} ---")
         try:
             self.chatBoxLLM = ChatBoxLLM(provider=selected_provider, model_name=selected_model)
-            self.clear_history(notify=False)
-            # DO NOT append message here - let signal handlers do it
+            # Clear history only if not initializing (avoids clearing on startup)
+            if not self._initializing:
+                self.clear_history(notify=False)
+                self.response_box.append(f"Switched LLM to: {selected_provider.capitalize()} - {selected_model}")
         except ValueError as e:
             print(f"--- Error initializing LLM: {e} ---")
             if hasattr(self, 'response_box'):
                  self.response_box.append(f'<span style="color: red;">Error: Could not initialize {selected_provider.capitalize()} ({selected_model}). Check API key/config.</span>')
             self.chatBoxLLM = None
-
+        # Save settings after successful initialization or change
+        self._save_current_settings()
 
     def on_provider_changed(self):
         """Handles the change in the provider selection."""
@@ -184,14 +229,10 @@ class ChatTab(QWidget):
             print("--- on_provider_changed SKIPPING (during init) ---")
             return
         print("--- on_provider_changed START ---")
-        self._update_model_selector() # Update models (signals blocked inside)
+        self._update_model_selector() # Update models (saves settings inside)
         # Initialize LLM because provider change implies model change (to default)
+        # _initialize_llm will handle saving and appending messages
         self._initialize_llm()
-        # Append message AFTER successful initialization
-        if self.chatBoxLLM: # Check if initialization was successful
-             selected_provider = self.provider_selector.currentText().capitalize()
-             selected_model = self.model_selector.currentText()
-             self.response_box.append(f"Switched LLM to: {selected_provider} - {selected_model}")
         print("--- on_provider_changed END ---")
 
 
@@ -200,14 +241,11 @@ class ChatTab(QWidget):
         if self._initializing:
             print("--- on_model_changed SKIPPING (during init) ---")
             return
+        print("--- on_model_changed START ---")
         # Check if model text is actually valid before initializing
         if self.model_selector.currentText():
-             self._initialize_llm() # Re-initialize with the newly selected model
-             # Append message AFTER successful initialization
-             if self.chatBoxLLM: # Check if initialization was successful
-                 selected_provider = self.provider_selector.currentText().capitalize()
-                 selected_model = self.model_selector.currentText()
-                 self.response_box.append(f"Switched LLM to: {selected_provider} - {selected_model}")
+             # _initialize_llm will handle saving and appending messages
+             self._initialize_llm()
         else:
              print("--- on_model_changed SKIPPING (empty model text) ---")
         print("--- on_model_changed END ---")
@@ -253,6 +291,8 @@ class ChatTab(QWidget):
     def enable_kg_features(self):
         self.enable_kg_memory_checkbox.setEnabled(True)
         self.kg_status_label.setText("Knowledge graph loaded")
+        # Save settings if KG becomes enabled (user might want this persisted)
+        self._save_current_settings()
 
     def record_voice(self):
         threading.Thread(target=self._record_voice_thread, daemon=True).start()

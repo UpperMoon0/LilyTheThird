@@ -7,6 +7,7 @@ import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 import google.generativeai as genai
+from pydantic import BaseModel, Field # Import Pydantic
 from kg import kg_handler
 
 load_dotenv()
@@ -19,6 +20,18 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 openai.api_key = OPENAI_API_KEY
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
+# Define Pydantic models for the desired JSON structure
+class KnowledgeTriple(BaseModel):
+    subject: str
+    predicate: str
+    object: str
+
+class GeminiResponseSchema(BaseModel):
+    message: str
+    actions: str
+    new_knowledge: list[KnowledgeTriple] = Field(default_factory=list)
+
 
 class ChatBoxLLM:
     # Accept model_name in the constructor
@@ -85,10 +98,11 @@ class ChatBoxLLM:
             main_res_content = json.loads(main_response.choices[0].message.content)
             message = main_res_content.get("message")
             action = main_res_content.get("actions")
-            return message, action
+            new_knowledge = main_res_content.get("new_knowledge", []) # Extract new knowledge
+            return message, action, new_knowledge # Return new knowledge
         except Exception as e:
             print(f"Error calling OpenAI API: {e}")
-            return f"Error: Could not get response from OpenAI. {e}", "none"
+            return f"Error: Could not get response from OpenAI. {e}", "none", [] # Return empty list on error
 
     def _get_gemini_response(self, main_messages):
         """Handles the API call to Gemini."""
@@ -105,13 +119,12 @@ class ChatBoxLLM:
         # Construct the final prompt parts for Gemini
         prompt_parts = [f"System Instructions:\n{' '.join(system_prompts)}\n\nUser Request:\n{user_message_content}"]
 
-        # Define generation config for JSON output (adjust based on Gemini API specifics)
+        # Define generation config using the Pydantic model for the schema
         generation_config = genai.types.GenerationConfig(
-            # candidate_count=1, # Usually default
-            # stop_sequences=["}"], # May help ensure valid JSON, but can truncate
-            max_output_tokens=500,
+            max_output_tokens=800,
             temperature=random.uniform(0.2, 0.8),
-            response_mime_type="application/json" # Request JSON output (Schema removed)
+            response_mime_type="application/json",
+            response_schema=GeminiResponseSchema # Use the Pydantic model here
         )
 
         try:
@@ -125,18 +138,27 @@ class ChatBoxLLM:
 
             # Gemini response might need specific parsing depending on JSON mode behavior
             # Assuming response.text contains the JSON string if successful
+            print(f"--- Raw Gemini Response Text ---") # ADDED: Log raw response
+            print(response.text)                      # ADDED: Log raw response
+            print(f"------------------------------") # ADDED: Log raw response
             if response.text:
-                 main_res_content = json.loads(response.text)
-                 message = main_res_content.get("message")
-                 action = main_res_content.get("actions")
-                 return message, action
+                 try: # ADDED: Try block for JSON parsing
+                     main_res_content = json.loads(response.text)
+                     message = main_res_content.get("message")
+                     action = main_res_content.get("actions")
+                     new_knowledge = main_res_content.get("new_knowledge", []) # Extract new knowledge
+                     return message, action, new_knowledge # Return new knowledge
+                 except json.JSONDecodeError as json_err: # ADDED: Catch JSON specific error
+                     print(f"Error decoding Gemini JSON response: {json_err}")
+                     print(f"Problematic text: {response.text}") # Log the text that failed
+                     return f"Error: Failed to parse Gemini JSON response. {json_err}", "none", []
             else:
                  # Handle cases where Gemini might not return text (e.g., safety blocks)
                  print(f"Gemini response issue: {response.prompt_feedback}")
                  # Check candidates if available
                  if response.candidates:
                      print(f"Gemini candidate: {response.candidates[0].content}") # Log candidate content if available
-                 return "Error: Gemini response was empty or blocked.", "none"
+                 return "Error: Gemini response was empty or blocked.", "none", [] # Return empty list on error
 
         except Exception as e:
             print(f"Error calling Gemini API: {e}")
@@ -144,7 +166,7 @@ class ChatBoxLLM:
             error_details = str(e)
             # if hasattr(e, 'response') and hasattr(e.response, 'text'):
             #     error_details += f" | Response: {e.response.text}" # Be cautious logging full responses
-            return f"Error: Could not get response from Gemini. {error_details}", "none"
+            return f"Error: Could not get response from Gemini. {error_details}", "none", [] # Return empty list on error
 
 
     def get_response(self, user_message, disable_kg_memory=False):
@@ -217,13 +239,39 @@ class ChatBoxLLM:
         main_messages = [
             {'role': 'system', 'content': self.personality},
             {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"},
-            # System prompt requesting JSON structure
-            {'role': 'system', 'content': 'Generate a response containing a "message" field for the user and an "actions" field (string, use "none" if no action). Respond in JSON format matching this schema: {"type": "object", "properties": {"message": {"type": "string"}, "actions": {"type": "string"}}, "required": ["message", "actions"]}'}
+            # System prompt requesting JSON structure including knowledge extraction
+            {'role': 'system', 'content': '''Generate a response with:
+1.  "message": Your conversational reply to the user.
+2.  "actions": A string indicating a required action ("browse", "none", etc.), use "none" if no specific action is needed.
+3.  "new_knowledge": An array of new factual triples (subject, predicate, object) learned from the latest user message and your response, suitable for storing in a knowledge graph. Each triple should be an object like {"subject": "...", "predicate": "...", "object": "..."}. If no new facts are learned, provide an empty array [].
+
+Respond ONLY in JSON format matching this schema:
+{
+  "type": "object",
+  "properties": {
+    "message": {"type": "string"},
+    "actions": {"type": "string"},
+    "new_knowledge": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "subject": {"type": "string"},
+          "predicate": {"type": "string"},
+          "object": {"type": "string"}
+        },
+        "required": ["subject", "predicate", "object"]
+      }
+    }
+  },
+  "required": ["message", "actions", "new_knowledge"]
+}'''},
         ]
 
         # Add KG context if available and enabled
         if not disable_kg_memory and related_info_sentences:
-            main_messages.append({'role': 'system', 'content': "Context from Knowledge Graph (use if relevant):"})
+            # Refined instruction for using KG context
+            main_messages.append({'role': 'system', 'content': "Consider the following facts from the Knowledge Graph when formulating your response. Prioritize information directly related to the user's query. Use this context to provide more informed and accurate answers:"})
             for sentence in related_info_sentences:
                 main_messages.append({'role': 'system', 'content': f"- {sentence}"}) # Prefix KG sentences
 
@@ -236,27 +284,55 @@ class ChatBoxLLM:
         # --- Call Appropriate LLM ---
         message = None
         action = "none" # Default action
+        new_knowledge = [] # Default empty knowledge
 
         if self.provider == 'openai':
+            # Updated OpenAI schema to match the prompt
             openai_response_format = {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "custom_response",
+                    "name": "lily_response_with_knowledge",
                     "strict": True, # Enforce schema
                     "schema": {
                         "type": "object",
                         "properties": {
                             "message": {"type": "string"},
                             "actions": {"type": "string"},
+                            "new_knowledge": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "subject": {"type": "string"},
+                                        "predicate": {"type": "string"},
+                                        "object": {"type": "string"}
+                                    },
+                                    "required": ["subject", "predicate", "object"]
+                                }
+                            }
                         },
-                        "required": ["message", "actions"],
+                        "required": ["message", "actions", "new_knowledge"],
                         "additionalProperties": False
                     }
                 }
             }
-            message, action = self._get_openai_response(main_messages, openai_response_format)
+            message, action, new_knowledge = self._get_openai_response(main_messages, openai_response_format)
         elif self.provider == 'gemini':
-            message, action = self._get_gemini_response(main_messages)
+            # Gemini response handling already updated in _get_gemini_response
+            message, action, new_knowledge = self._get_gemini_response(main_messages)
+
+        # --- Store New Knowledge in KG ---
+        if not disable_kg_memory and new_knowledge:
+            try:
+                # Ensure kg_handler has the necessary function
+                if hasattr(kg_handler, 'add_triples_to_graph'):
+                    print(f"Attempting to add {len(new_knowledge)} new triple(s) to KG.")
+                    kg_handler.add_triples_to_graph(new_knowledge)
+                else:
+                    print("Warning: kg_handler.add_triples_to_graph function not found. Cannot store new knowledge.")
+            except Exception as e:
+                print(f"Error adding new knowledge to KG: {e}")
+
 
         # --- Update History and Return ---
         # Ensure message is not None before updating history
