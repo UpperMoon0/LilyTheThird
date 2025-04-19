@@ -80,6 +80,28 @@ class ChatBoxLLM:
                 else:
                     result = action_function()
 
+            # --- Summarize Web Search Results ---
+            if tool_name == "search_web" and isinstance(result, str) and result and not result.startswith("Error:"):
+                print(f"--- Summarizing web search results for query: {arguments.get('query', 'N/A')} ---")
+                raw_search_results = result # Keep original raw results
+                # Prepare messages for summarization
+                # Use a simple prompt asking for summarization.
+                summarization_prompt = f"Please summarize the following web search results and make them easy to read:\n\n{raw_search_results}"
+                # Use generate_final_response for summarization.
+                # We pass only the summarization prompt and a neutral personality.
+                summary_messages = [{'role': 'user', 'content': summarization_prompt}] # Treat prompt as user request to summarizer
+                summarized_result = self.llm_client.generate_final_response(
+                    messages=summary_messages,
+                    personality_prompt="You are an expert summarization assistant." # Neutral personality for this task
+                )
+
+                if summarized_result and not summarized_result.startswith("Error:"):
+                    print(f"Summarized Result: {summarized_result}")
+                    result = summarized_result # Replace raw result with summary
+                else:
+                    print("Warning: Failed to summarize web search results. Using raw results.")
+                    # Keep the original raw_search_results (already in 'result') if summarization fails
+
             # Format the result specifically for fetch_memory (remains the same)
             if tool_name == "fetch_memory" and isinstance(result, dict):
                 formatted_string = "Memory Fetch Results:\n"

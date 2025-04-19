@@ -1,56 +1,123 @@
 import asyncio
-from duckduckgo_search import DDGS 
+import requests
+from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
 from typing import List, Dict, Optional
+import logging # Added for better error logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Function to fetch and extract text from a URL
+def fetch_url_content(url: str, timeout: int = 10) -> Optional[str]:
+    """Fetches content from a URL and extracts text using BeautifulSoup."""
+    try:
+        headers = { # Add headers to mimic a browser
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=timeout)
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+        # Check content type to avoid parsing non-HTML content
+        if 'text/html' not in response.headers.get('Content-Type', ''):
+            logging.warning(f"Skipping non-HTML content at {url}")
+            return None
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Extract text from paragraph tags, join them, limit length
+        paragraphs = soup.find_all('p')
+        content = ' '.join(p.get_text() for p in paragraphs)
+        
+        # Limit the content length to avoid overly long results
+        max_content_length = 2000 
+        return content[:max_content_length] + "..." if len(content) > max_content_length else content
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching URL {url}: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Error parsing URL {url}: {e}")
+        return None
 
 async def perform_web_search(query: str, max_results: int = 5) -> str:
     """
     Performs a web search using DuckDuckGo and returns a formatted string
-    of the top results.
+    of the top results. Attempts to fetch detailed content for all results,
+    falling back to snippets if fetching fails.
 
     Args:
         query: The search query string.
-        max_results: The maximum number of results to return.
+        max_results: The maximum number of results to return from DDG.
 
     Returns:
         A string containing the search results, or an error message.
     """
-    print(f"Performing web search for: {query}")
+    logging.info(f"Performing web search for: '{query}' (max_results={max_results}, attempting detail fetch for all)")
     results_str = f"Web search results for '{query}':\n\n"
     try:
-        # DDGS().text() appears to return a list directly, even in async context.
-        # We'll call it and iterate normally.
+        # Use asynchronous DDGS search if available and beneficial,
+        # but the library might handle this internally. Sticking to sync call for now.
+        # Consider using asyncio.to_thread if DDGS().text is blocking.
         search_results: Optional[List[Dict]] = DDGS().text(query, max_results=max_results)
 
         if not search_results:
+            logging.warning(f"No web search results found for '{query}'.")
             return f"No web search results found for '{query}'."
 
+        processed_results = 0
         for i, result in enumerate(search_results):
             title = result.get('title', 'N/A')
             href = result.get('href', 'N/A')
-            # Corrected indentation for lines within the loop
-            body = result.get('body', 'N/A').replace('\n', ' ') # Clean up body
+            original_snippet = result.get('body', 'N/A').replace('\n', ' ') # Clean up snippet
+
+            display_body = f"Snippet: {original_snippet}" # Default to original snippet
+
+            # Always attempt to fetch detailed content if URL is valid
+            if href and href.startswith(('http://', 'https://')):
+                logging.info(f"Attempting to fetch detailed content for result {i+1}: {href}")
+                # Run synchronous fetch_url_content in a separate thread
+                # to avoid blocking the async event loop.
+                detailed_content = await asyncio.to_thread(fetch_url_content, href)
+
+                if detailed_content:
+                    display_body = f"Summary: {detailed_content}"
+                    logging.info(f"Successfully fetched and summarized content for {href}")
+                else:
+                    logging.warning(f"Failed to fetch detailed content for {href}, using snippet.")
+                    # Fallback to original snippet is already handled by default
+            else:
+                 # Log if URL is invalid or missing, snippet will be used by default
+                 if not href:
+                     logging.warning(f"Result {i+1} ('{title}') has no URL. Using snippet.")
+                 elif not href.startswith(('http://', 'https://')):
+                     logging.warning(f"Result {i+1} ('{title}') has an invalid URL: {href}. Using snippet.")
+
+
             results_str += f"{i+1}. Title: {title}\n"
             results_str += f"   URL: {href}\n"
-            results_str += f"   Snippet: {body}\n\n"
+            results_str += f"   {display_body}\n\n" # Use the determined body (snippet or summary)
+            processed_results += 1
 
-        # Corrected indentation for print and return
-        print(f"Web search completed. Returning {len(search_results)} results.")
+        logging.info(f"Web search completed. Returning {processed_results} results.")
         return results_str.strip()
 
     except Exception as e:
-        print(f"Error during web search for '{query}': {e}")
+        logging.exception(f"Error during web search processing for '{query}': {e}") # Use logging.exception for stack trace
         return f"Error performing web search: {e}"
 
 # Example usage (for testing)
 async def main_test():
-    search_query = "What is the capital of France?"
-    results = await perform_web_search(search_query)
-    print("\n--- Search Results ---")
+    search_query = "What is the latest news on Python 4?"
+    # Test fetching detail (default behavior now)
+    results = await perform_web_search(search_query, max_results=3)
+    print("\n--- Search Results (Attempting Detail Fetch for All) ---")
     print(results)
-    print("--------------------")
+    print("-------------------------------------------------------")
+
 
 if __name__ == "__main__":
-    # To test this script directly: python -m tools.web_search_tool
-    # Note: Running with `python -m` ensures correct relative imports if needed later.
+    # To test this script directly: python -m LilyTheThird.tools.web_search_tool
+    # Run from the project root directory (d:/Dev/Workspace/Python)
     print("Running web search tool test...")
     asyncio.run(main_test())
