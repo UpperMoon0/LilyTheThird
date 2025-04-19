@@ -43,9 +43,9 @@ class ChatBoxLLM:
             "write_file": file_tool.write_file,
             # Memory tools (map to mongo_handler methods if connected)
             "fetch_memory": self.mongo_handler.retrieve_memories_by_query if self.mongo_handler.is_connected() else self._mongo_unavailable,
-            "save_memory": self.mongo_handler.add_memory_from_tool if self.mongo_handler.is_connected() else self._mongo_unavailable,
+            "save_memory": self.mongo_handler.add_fact if self.mongo_handler.is_connected() else self._mongo_unavailable, # Map to add_fact for arbitrary content
         }
-    
+
     def _mongo_unavailable(self, *args, **kwargs):
         """Placeholder function for when MongoDB is not connected."""
         return "Error: MongoDB connection is not available. Cannot use memory tool."
@@ -173,10 +173,21 @@ class ChatBoxLLM:
         else:
             # --- Update Short-Term History with Final Response ---
             self.history_manager.add_message('assistant', final_message)
-            print("Interaction finished. Saving only occurs via explicit 'save_memory' tool call.")
+
+            # --- Save Conversation Turn to Long-Term Memory (MongoDB) ---
+            if self.mongo_handler.is_connected():
+                try:
+                    # Use the original user_message and the final_message
+                    self.mongo_handler.add_memory(user_input=user_message, llm_response=final_message)
+                    print("Conversation turn saved to MongoDB.")
+                except Exception as e:
+                    print(f"Error saving conversation turn to MongoDB: {e}")
+            else:
+                print("MongoDB not connected. Conversation turn not saved.")
 
         # --- Return Final Generated Message ---
-        return final_message
+        # Return two values as expected by chat_tab.py
+        return final_message, None
 
 
     def __del__(self):

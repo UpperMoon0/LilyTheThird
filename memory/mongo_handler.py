@@ -36,11 +36,15 @@ class MongoHandler:
             )
             # The ismaster command is cheap and does not require auth.
             self.client.admin.command('ismaster')
-            # Infer database name from URI if possible, otherwise default
-            db_name = self.client.get_database().name if self.client.get_database() else "lily_memory"
-            self.db = self.client[db_name]
+            # Get the database object (uses DB from URI or defaults to 'test')
+            self.db = self.client.get_database()
+            db_name = self.db.name # Get the actual name being used
             self.collection = self.db[collection_name]
             logging.info(f"Successfully connected to MongoDB. Database: '{db_name}', Collection: '{collection_name}'")
+
+            # --- Automatically create text index if it doesn't exist ---
+            self._ensure_text_index()
+
         except ConfigurationError as e:
             logging.error(f"MongoDB configuration error: {e}. Please check your MONGO_URI format.")
             self.client = None # Ensure client is None on error
@@ -103,61 +107,95 @@ class MongoHandler:
             logging.error(f"Failed to retrieve memories from MongoDB: {e}")
             return []
 
-    # Potential future method:
-    # def search_memories(self, query: str, limit: int = 5):
-    #     """Searches memories based on a query (requires text index on 'user_input' and 'llm_response')."""
-    #     if not self.is_connected():
-    #         logging.warning("MongoDB not connected. Cannot search memories.")
-    #         return []
-    #     try:
-    #         # Ensure you have a text index created in MongoDB:
-    #         # db.memories.createIndex({ user_input: "text", llm_response: "text" })
-    #         memories = list(self.collection.find(
-    #             { "$text": { "$search": query } },
-    #             { "score": { "$meta": "textScore" } } # Optional: score by relevance
-    #         ).sort({ "score": { "$meta": "textScore" } }).limit(limit))
-    #         logging.info(f"Found {len(memories)} memories matching query '{query}'.")
-    #         return memories
-    #     except Exception as e:
-    #         logging.error(f"Failed to search memories in MongoDB: {e}")
-    #         return []
+    def retrieve_memories_by_query(self, query: str, limit: int = 5):
+        """
+        Searches memories based on a query using a text index.
+        Requires a text index on 'user_input' and 'llm_response' fields in MongoDB.
+        Example Mongo Shell command: db.memories.createIndex({ user_input: "text", llm_response: "text" })
+        """
+        if not self.is_connected():
+            logging.warning("MongoDB not connected. Cannot search memories.")
+            return []
+        try:
+            # Ensure you have a text index created in MongoDB:
+            # db.memories.createIndex({ user_input: "text", llm_response: "text" })
+            memories = list(self.collection.find(
+                { "$text": { "$search": query } },
+                { "score": { "$meta": "textScore" } } # Optional: score by relevance
+            ).sort({ "score": { "$meta": "textScore" } }).limit(limit))
+            logging.info(f"Found {len(memories)} memories matching query '{query}'.")
+            # Format results, handling both conversation turns and facts
+            formatted_results = []
+            for m in memories:
+                if 'user_input' in m and 'llm_response' in m:
+                    formatted_results.append(f"User: {m['user_input']}\nLily: {m['llm_response']}")
+                elif 'content' in m: # Assume it's a fact if content exists
+                    formatted_results.append(f"Fact: {m['content']}")
+                # Add more checks here if other document types are possible
+            return formatted_results
+        except Exception as e:
+            # Handle case where text index might not exist
+            if "text index required" in str(e).lower():
+                 logging.error("Text index not found on 'memories' collection. Please create one for searching.")
+                 logging.error("Mongo Shell: db.memories.createIndex({ user_input: \"text\", llm_response: \"text\", content: \"text\" })") # Updated example command
+            else:
+                logging.error(f"Failed to search memories in MongoDB: {e}")
+            return []
+
+    def _ensure_text_index(self):
+        """Checks if the required text index exists and creates it if not."""
+        if not self.is_connected():
+            logging.warning("Cannot ensure text index: MongoDB not connected.")
+            return
+
+        index_name = "memory_text_search" # Choose a name for the index
+        # Define fields to be included in the text index
+        index_fields = [("user_input", "text"), ("llm_response", "text"), ("content", "text")]
+
+        try:
+            existing_indexes = self.collection.index_information()
+            # Check if an index with the desired name already exists
+            if index_name not in existing_indexes:
+                logging.info(f"Text index '{index_name}' not found. Creating index...")
+                # Create the text index with the specified name
+                self.collection.create_index(index_fields, name=index_name, default_language='english')
+                logging.info(f"Text index '{index_name}' created successfully on fields: {[f[0] for f in index_fields]}.")
+            else:
+                # Optional: Verify if the existing index covers the required fields
+                # This is more complex, for now, we assume the name match is sufficient
+                logging.info(f"Text index '{index_name}' already exists.")
+        except Exception as e:
+            logging.error(f"Failed to check or create text index '{index_name}': {e}")
+
+
+    def add_fact(self, content: str, metadata: dict = None):
+        """
+        Adds an arbitrary piece of information (fact) to the MongoDB collection.
+
+        Args:
+            content (str): The information/fact to store.
+            metadata (dict, optional): Additional metadata. Defaults to None.
+        """
+        if not self.is_connected():
+            logging.warning("MongoDB not connected. Cannot add fact.")
+            return None
+
+        fact_unit = {
+            "type": "fact", # Differentiate from conversation turns
+            "content": content,
+            "timestamp": datetime.utcnow(),
+            "metadata": metadata or {}
+        }
+        try:
+            result = self.collection.insert_one(fact_unit)
+            logging.info(f"Fact added with ID: {result.inserted_id}")
+            return result.inserted_id
+        except Exception as e:
+            logging.error(f"Failed to add fact to MongoDB: {e}")
+            return None
 
     def close_connection(self):
         """Closes the MongoDB connection."""
         if self.client:
             self.client.close()
             logging.info("MongoDB connection closed.")
-
-# Example Usage (for testing)
-if __name__ == "__main__":
-    print("Testing MongoHandler...")
-    handler = MongoHandler()
-
-    if handler.is_connected():
-        print("\nAdding a test memory...")
-        test_meta = {"source": "test_script", "tags": ["testing", "example"]}
-        inserted_id = handler.add_memory("Hello Lily", "Hello Master!", metadata=test_meta)
-        if inserted_id:
-            print(f"Test memory added with ID: {inserted_id}")
-
-        print("\nRetrieving recent memories...")
-        recent = handler.retrieve_recent_memories(5)
-        if recent:
-            print(f"Found {len(recent)} memories:")
-            for mem in recent:
-                print(f"- ID: {mem['_id']}, Time: {mem['timestamp']}, User: {mem['user_input'][:30]}...")
-        else:
-            print("Could not retrieve recent memories.")
-
-        # print("\nSearching memories (requires text index)...")
-        # search_results = handler.search_memories("hello")
-        # if search_results:
-        #     print(f"Found {len(search_results)} search results:")
-        #     for mem in search_results:
-        #          print(f"- ID: {mem['_id']}, Score: {mem.get('score', 'N/A')}, User: {mem['user_input'][:30]}...")
-        # else:
-        #     print("Could not perform search or no results found.")
-
-        handler.close_connection()
-    else:
-        print("Could not connect to MongoDB. Please check your MONGO_URI in .env and ensure the server is running.")

@@ -252,10 +252,10 @@ class LLMClient:
         Returns:
             The generated message string, or None if an error occurs.
         """
-        # Ensure personality prompt is included
+        # Ensure personality prompt is included, followed by the full history
         final_messages = [{"role": "system", "content": personality_prompt}]
-        # Add the rest of the conversation history
-        final_messages.extend([msg for msg in messages if msg['role'] != 'system']) # Avoid duplicating system prompts if any were passed in messages
+        # Add the rest of the conversation history, preserving all roles including 'system' for tool results
+        final_messages.extend(messages) # Pass the full history
 
         # --- Call the appropriate provider ---
         if self.provider == 'openai':
@@ -310,8 +310,12 @@ class LLMClient:
 
 
             # Combine system prompts and the final user message/trigger
-            # Ensure system prompts are clearly delineated if Gemini doesn't have a dedicated system role
-            prompt_parts = [f"System Instructions:\n{' '.join(system_prompts)}\n\nUser Request/Context:\n{final_user_content}"]
+            # Explicitly instruct Gemini to use the full context, including tool results (now present in system_prompts)
+            prompt_parts = [
+                f"System Instructions:\n{' '.join(system_prompts)}\n\n"
+                f"User Request/Context:\n{final_user_content}\n\n"
+                f"IMPORTANT: Generate your final response based *only* on the information provided in the System Instructions and the preceding conversation history (including any Tool results shown). Synthesize the information accurately."
+            ]
             # print(f"History sent to Gemini start_chat:\n{json.dumps(gemini_history_to_pass, indent=2)}") # DEBUG
             # print(f"Prompt parts sent to Gemini send_message:\n{prompt_parts}") # DEBUG
 
