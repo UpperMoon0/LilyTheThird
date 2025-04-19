@@ -8,17 +8,20 @@ import logging # Added for better error logging
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Function to fetch and extract text from a URL
+# Function to fetch and extract text from a URL using requests.Session
 def fetch_url_content(url: str, timeout: int = 10) -> Optional[str]:
-    """Fetches content from a URL and extracts text using BeautifulSoup."""
+    """Fetches content from a URL and extracts text using BeautifulSoup and requests.Session."""
+    headers = { # Add headers to mimic a browser
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     try:
-        headers = { # Add headers to mimic a browser
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=timeout)
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        # Use a session for potentially better connection management
+        with requests.Session() as session:
+            session.headers.update(headers) # Set headers for the session
+            response = session.get(url, timeout=timeout)
+            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
 
-        # Check content type to avoid parsing non-HTML content
+        # Check content type to avoid parsing non-HTML content (after getting response)
         if 'text/html' not in response.headers.get('Content-Type', ''):
             logging.warning(f"Skipping non-HTML content at {url}")
             return None
@@ -34,7 +37,7 @@ def fetch_url_content(url: str, timeout: int = 10) -> Optional[str]:
         return content[:max_content_length] + "..." if len(content) > max_content_length else content
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching URL {url}: {e}")
+        logging.error(f"Error fetching URL {url} with requests.Session: {e}")
         return None
     except Exception as e:
         logging.error(f"Error parsing URL {url}: {e}")
@@ -56,10 +59,28 @@ async def perform_web_search(query: str, max_results: int = 5) -> str:
     logging.info(f"Performing web search for: '{query}' (max_results={max_results}, attempting detail fetch for all)")
     results_str = f"Web search results for '{query}':\n\n"
     try:
-        # Use asynchronous DDGS search if available and beneficial,
-        # but the library might handle this internally. Sticking to sync call for now.
-        # Consider using asyncio.to_thread if DDGS().text is blocking.
-        search_results: Optional[List[Dict]] = DDGS().text(query, max_results=max_results)
+        # Define a helper function to run DDGS().text within the thread
+        # This ensures a fresh DDGS instance is potentially used each time
+        def _ddgs_search_in_thread(q: str, mr: int):
+            try:
+                # Instantiate DDGS inside the thread function
+                with DDGS() as ddgs: # Use context manager if available (check library docs)
+                    # If DDGS() doesn't support context manager, just instantiate: ddgs = DDGS()
+                    return ddgs.text(q, max_results=mr)
+            except Exception as thread_ddg_exc:
+                # Log the error from within the thread if possible, or re-raise
+                logging.error(f"Error inside DDGS search thread for '{q}': {thread_ddg_exc}")
+                raise # Re-raise the exception to be caught outside
+
+        try:
+            # Run the helper function in a separate thread
+            search_results: Optional[List[Dict]] = await asyncio.to_thread(
+                _ddgs_search_in_thread, query, max_results
+            )
+        except Exception as ddg_exc:
+            # Catch exceptions raised from the thread helper
+            logging.exception(f"Error executing DDGS search thread for '{query}': {ddg_exc}")
+            return f"Error performing web search (DDG call failed): {ddg_exc}"
 
         if not search_results:
             logging.warning(f"No web search results found for '{query}'.")

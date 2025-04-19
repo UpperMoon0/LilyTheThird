@@ -48,8 +48,7 @@ class MongoHandler:
             # --- Automatically clean up duplicate facts on startup ---
             self.cleanup_duplicate_facts()
 
-            # --- Automatically clean up duplicate conversations on startup ---
-            self.cleanup_duplicate_conversations()
+            # --- Duplicate conversation cleanup removed ---
 
         except ConfigurationError as e:
             logging.error(f"MongoDB configuration error: {e}. Please check your MONGO_URI format.")
@@ -65,125 +64,79 @@ class MongoHandler:
         """Checks if the MongoDB client is connected."""
         return self.client is not None and self.collection is not None
 
-    def add_memory(self, user_input: str, llm_response: str, metadata: dict = None):
+    # --- add_memory method removed ---
+
+    # --- retrieve_recent_memories method removed ---
+
+    def retrieve_memories_by_query(self, query: str, fact_limit: int = 5):
         """
-        Adds a memory unit to the MongoDB collection.
+        Searches memories (facts) based on a query using a text index.
+        Requires a text index on the 'content' field.
 
         Args:
-            user_input (str): The user's input text.
-            llm_response (str): The LLM's response text.
-            metadata (dict, optional): Additional metadata to store. Defaults to None.
-        """
-        if not self.is_connected():
-            logging.warning("MongoDB not connected. Cannot add memory.")
-            return None
-
-        memory_unit = {
-            "user_input": user_input,
-            "llm_response": llm_response,
-            "timestamp": datetime.utcnow(), # Store timestamp in UTC
-            "metadata": metadata or {} # Ensure metadata is always a dict
-        }
-        try:
-            result = self.collection.insert_one(memory_unit)
-            logging.info(f"Memory added with ID: {result.inserted_id}")
-            return result.inserted_id
-        except Exception as e:
-            logging.error(f"Failed to add memory to MongoDB: {e}")
-            return None
-
-    def retrieve_recent_memories(self, limit: int = 10):
-        """
-        Retrieves the most recent memory units.
-
-        Args:
-            limit (int): The maximum number of memories to retrieve. Defaults to 10.
+            query (str): The search query string.
+            fact_limit (int): The maximum number of facts to retrieve. Defaults to 5.
 
         Returns:
-            list: A list of memory documents, or an empty list if not connected or error occurs.
-        """
-        if not self.is_connected():
-            logging.warning("MongoDB not connected. Cannot retrieve memories.")
-            return []
-        try:
-            memories = list(self.collection.find().sort("timestamp", -1).limit(limit))
-            logging.info(f"Retrieved {len(memories)} recent memories.")
-            return memories
-        except Exception as e:
-            logging.error(f"Failed to retrieve memories from MongoDB: {e}")
-            return []
-
-    def retrieve_memories_by_query(self, query: str, fact_limit: int = 5, conversation_limit: int = 5):
-        """
-        Searches memories based on a query using a text index and separates
-        results into facts and conversations.
-        Requires a text index on 'user_input', 'llm_response', and 'content' fields.
+            list: A list of fact strings, or an empty list if not connected or error occurs.
         """
         if not self.is_connected():
             logging.warning("MongoDB not connected. Cannot search memories.")
-            return {"facts": [], "conversations": []}
-
-        # Fetch more results initially to have enough candidates for both lists
-        initial_fetch_limit = max(fact_limit, conversation_limit) * 2 # Fetch double the max needed, adjust as needed
+            return [] # Return empty list directly
 
         try:
+            # Search only for documents of type 'fact' using the text index
             memories = list(self.collection.find(
-                { "$text": { "$search": query } },
-                { "score": { "$meta": "textScore" } }
-            ).sort({ "score": { "$meta": "textScore" } }).limit(initial_fetch_limit)) # Fetch more initially
-            logging.info(f"Retrieved {len(memories)} potential memories matching query '{query}'.")
+                {
+                    "type": "fact", # Ensure we only match facts
+                    "$text": { "$search": query }
+                },
+                { "score": { "$meta": "textScore" } } # Include text score for sorting
+            ).sort({ "score": { "$meta": "textScore" } }).limit(fact_limit)) # Limit to fact_limit
 
-            facts = []
-            conversations = []
+            logging.info(f"Retrieved {len(memories)} facts matching query '{query}'.")
 
-            for m in memories:
-                # Check for fact type first (using the 'type' field if available, or 'content')
-                is_fact = m.get("type") == "fact" or ('content' in m and 'user_input' not in m and 'llm_response' not in m)
-                is_conversation = 'user_input' in m and 'llm_response' in m
+            # Format the results as strings
+            facts = [f"Fact: {m.get('content', 'N/A')}" for m in memories]
 
-                if is_fact and len(facts) < fact_limit:
-                    facts.append(f"Fact: {m.get('content', 'N/A')}") # Use get for safety
-                elif is_conversation and len(conversations) < conversation_limit:
-                    conversations.append(f"User: {m.get('user_input', 'N/A')}\nLily: {m.get('llm_response', 'N/A')}") # Use get
-
-                # Stop searching if both lists are full
-                if len(facts) >= fact_limit and len(conversations) >= conversation_limit:
-                    break
-
-            logging.info(f"Filtered results: {len(facts)} facts, {len(conversations)} conversations.")
-            return {"facts": facts, "conversations": conversations} # Return a dictionary
+            return facts
 
         except Exception as e:
-            # Handle case where text index might not exist
-            if "text index required" in str(e).lower():
-                 logging.error("Text index not found on 'memories' collection. Please create one for searching.")
-                 logging.error("Mongo Shell: db.memories.createIndex({ user_input: \"text\", llm_response: \"text\", content: \"text\" })")
+            # Handle case where text index might not exist or other errors
+            if "text index required" in str(e).lower() or "index not found" in str(e).lower():
+                 logging.error("Text index not found or invalid on 'memories' collection (expected on 'content'). Please create one.")
+                 logging.error("Mongo Shell Example: db.memories.createIndex({ content: \"text\" }, { name: \"fact_content_search\" })")
             else:
                 logging.error(f"Failed to search memories in MongoDB: {e}")
-            return {"facts": [], "conversations": []} # Return empty lists on error
+            return [] # Return empty list on error
 
     def _ensure_text_index(self):
-        """Checks if the required text index exists and creates it if not."""
+        """Checks if the required text index exists on 'content' and creates it if not."""
         if not self.is_connected():
             logging.warning("Cannot ensure text index: MongoDB not connected.")
             return
 
-        index_name = "memory_text_search" # Choose a name for the index
-        # Define fields to be included in the text index
-        index_fields = [("user_input", "text"), ("llm_response", "text"), ("content", "text")]
+        index_name = "fact_content_search" # More specific index name
+        # Define fields to be included in the text index - ONLY 'content' now
+        index_fields = [("content", "text")]
 
         try:
             existing_indexes = self.collection.index_information()
             # Check if an index with the desired name already exists
             if index_name not in existing_indexes:
-                logging.info(f"Text index '{index_name}' not found. Creating index...")
-                # Create the text index with the specified name
+                logging.info(f"Text index '{index_name}' on 'content' field not found. Creating index...")
+                # Create the text index with the specified name and fields
                 self.collection.create_index(index_fields, name=index_name, default_language='english')
-                logging.info(f"Text index '{index_name}' created successfully on fields: {[f[0] for f in index_fields]}.")
+                logging.info(f"Text index '{index_name}' created successfully on field: 'content'.")
             else:
-                # Optional: Verify if the existing index covers the required fields
-                # This is more complex, for now, we assume the name match is sufficient
-                logging.info(f"Text index '{index_name}' already exists.")
+                # Optional: Verify if the existing index *is* the correct text index on 'content'
+                index_info = existing_indexes.get(index_name, {})
+                is_correct_text_index = any(field == "content" and index_type == "text" for field, index_type in index_info.get("key", []))
+                if is_correct_text_index:
+                    logging.info(f"Text index '{index_name}' on 'content' field already exists.")
+                else:
+                    # This case is unlikely if the name matches but indicates a problem
+                    logging.warning(f"Index named '{index_name}' exists but doesn't seem to be the correct text index on 'content'. Manual review recommended.")
         except Exception as e:
             logging.error(f"Failed to check or create text index '{index_name}': {e}")
 
@@ -286,88 +239,7 @@ class MongoHandler:
         except Exception as e:
             logging.error(f"An error occurred during duplicate fact cleanup: {e}")
 
-    def cleanup_duplicate_conversations(self):
-        """
-        Removes duplicate conversation documents based on the combination of
-        'user_input' and 'llm_response' fields, keeping only the oldest entry
-        for each unique pair.
-        """
-        if not self.is_connected():
-            logging.warning("MongoDB not connected. Cannot perform conversation cleanup.")
-            return
-
-        logging.info("Starting duplicate conversation cleanup...")
-        ids_to_delete = []
-        try:
-            # Aggregation pipeline to find duplicate conversations
-            pipeline = [
-                {
-                    # Match documents likely representing conversations
-                    # Ensure both fields exist, and optionally exclude 'fact' type if necessary
-                    "$match": {
-                        "user_input": { "$exists": True },
-                        "llm_response": { "$exists": True },
-                        # "type": { "$ne": "fact" } # Uncomment if facts might wrongly have user/llm fields
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": { # Group by the combination of user input and llm response
-                            "user": "$user_input",
-                            "lily": "$llm_response"
-                        },
-                        "ids": { "$push": "$_id" }, # Collect all ObjectIds for this pair
-                        "first_timestamp": { "$min": "$timestamp" }, # Find the earliest timestamp
-                        "count": { "$sum": 1 } # Count documents per pair
-                    }
-                },
-                {
-                    "$match": { "count": { "$gt": 1 } } # Filter for groups with more than one document
-                }
-            ]
-
-            duplicate_groups = list(self.collection.aggregate(pipeline))
-            logging.info(f"Found {len(duplicate_groups)} conversation content groups with duplicates.")
-
-            if not duplicate_groups:
-                logging.info("No duplicate conversations found.")
-                return
-
-            # Find the ID of the document with the minimum timestamp for each group
-            ids_to_keep = set()
-            for group in duplicate_groups:
-                user_input = group['_id']['user']
-                llm_response = group['_id']['lily']
-                first_timestamp = group['first_timestamp']
-
-                # Find the specific document matching the pair and the earliest timestamp
-                doc_to_keep = self.collection.find_one(
-                    {
-                        "user_input": user_input,
-                        "llm_response": llm_response,
-                        "timestamp": first_timestamp
-                        # "type": { "$ne": "fact" } # Add if needed for disambiguation
-                    },
-                    {"_id": 1} # Only fetch the ID
-                )
-                if doc_to_keep:
-                    ids_to_keep.add(doc_to_keep['_id'])
-
-            # Collect IDs to delete (all IDs in duplicate groups MINUS the ones we keep)
-            for group in duplicate_groups:
-                for doc_id in group['ids']:
-                    if doc_id not in ids_to_keep:
-                        ids_to_delete.append(doc_id)
-
-            if ids_to_delete:
-                logging.info(f"Identified {len(ids_to_delete)} duplicate conversation documents to remove.")
-                delete_result = self.collection.delete_many({"_id": {"$in": ids_to_delete}})
-                logging.info(f"Successfully removed {delete_result.deleted_count} duplicate conversation documents.")
-            else:
-                logging.info("No conversation documents needed deletion after identifying keepers.")
-
-        except Exception as e:
-            logging.error(f"An error occurred during duplicate conversation cleanup: {e}")
+    # --- cleanup_duplicate_conversations method removed ---
 
 
     def close_connection(self):

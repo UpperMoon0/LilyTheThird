@@ -102,23 +102,22 @@ class ChatBoxLLM:
                     print("Warning: Failed to summarize web search results. Using raw results.")
                     # Keep the original raw_search_results (already in 'result') if summarization fails
 
-            # Format the result specifically for fetch_memory (remains the same)
-            if tool_name == "fetch_memory" and isinstance(result, dict):
-                formatted_string = "Memory Fetch Results:\n"
-                if result.get("facts"):
-                    formatted_string += "\nRelevant Facts (max 5):\n"
-                    formatted_string += "\n---\n".join(result["facts"]) # Facts are already formatted strings
+            # Format the result specifically for fetch_memory
+            # retrieve_memories_by_query now returns a list of fact strings
+            if tool_name == "fetch_memory" and isinstance(result, list):
+                if result: # Check if the list is not empty
+                    formatted_string = "Memory Fetch Results:\n\nRelevant Facts:\n"
+                    # The strings in the list are already formatted with "Fact: ..."
+                    formatted_string += "\n---\n".join(result)
                 else:
-                    formatted_string += "\nNo relevant facts found.\n"
-
-                if result.get("conversations"):
-                    formatted_string += "\nRelevant Conversations (max 5):\n"
-                    formatted_string += "\n\n".join(result["conversations"]) # Conversations are already formatted strings
-                else:
-                    formatted_string += "\nNo relevant conversations found.\n"
+                    formatted_string = "Memory Fetch Results:\n\nNo relevant facts found."
                 return formatted_string
             else:
                 # Ensure result is a string for history for other tools
+                # Handle the case where fetch_memory might return None or error string
+                if tool_name == "fetch_memory" and not isinstance(result, list):
+                     return str(result) # Return error message or "None" as string
+                # Default handling for other tools
                 return str(result) if result is not None else "Tool executed successfully, but returned no output."
         except TypeError as e:
              # Handle cases where arguments don't match function signature
@@ -259,12 +258,14 @@ class ChatBoxLLM:
 
             # --- Save Conversation Turn to Long-Term Memory (MongoDB) ---
             if self.mongo_handler.is_connected():
-                try:
+                # try:
                     # Use the original user_message and the final_message
-                    self.mongo_handler.add_memory(user_input=user_message, llm_response=final_message)
-                    print("Conversation turn saved to MongoDB.")
-                except Exception as e:
-                    print(f"Error saving conversation turn to MongoDB: {e}")
+                    # self.mongo_handler.add_memory(user_input=user_message, llm_response=final_message) # <-- Commented out as requested
+                    # print("Conversation turn saved to MongoDB.")
+                # except Exception as e:
+                    # print(f"Error saving conversation turn to MongoDB: {e}")
+                # --- Conversation saving disabled ---
+                print("Conversation turn saving to MongoDB is disabled.") # Add a log message
             else:
                 print("MongoDB not connected. Conversation turn not saved.")
 
