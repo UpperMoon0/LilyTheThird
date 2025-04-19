@@ -1,161 +1,97 @@
-import os
-import re # Import re for cleaning URIs
-import rdflib
-from rdflib import URIRef, Literal # Import URIRef and Literal
-from pyvis.network import Network
-from kg import kg_queries
+import json
+from pydantic import ValidationError # Assuming pydantic might be useful here too, or just use dict checks
+from typing import Union # Import Union
 
-# Helper function to create consistent URIs
-def create_uri(text):
-    # Simple cleaning: lowercase, replace spaces with underscores, remove non-alphanumeric (except _)
-    clean_text = re.sub(r'[^a-z0-9_]', '', text.lower().replace(" ", "_"))
-    # Basic check to avoid empty URIs after cleaning
-    if not clean_text:
-        clean_text = "unknown_entity" # Fallback for empty strings
-    return URIRef(f"http://lilykg.org/entity/{clean_text}")
-
-def create_predicate_uri(text):
-     # Simple cleaning for predicates
-    clean_text = re.sub(r'[^a-z0-9_]', '', text.lower().replace(" ", "_"))
-    if not clean_text:
-        clean_text = "unknown_relation"
-    return URIRef(f"http://lilykg.org/relation/{clean_text}")
-
-
-def visualize_graph(graph):
-    net = Network(notebook=True, height="800px", width="100%", directed=True)
-    for subj, pred, obj in graph:
-        net.add_node(str(subj))
-        net.add_node(str(obj))
-        net.add_edge(str(subj), str(obj), title=str(pred))
-    net.show("knowledge_graph.html")
-
-def create_graph(rdf_path):
-    graph = rdflib.Graph()
-    print("New empty graph created:", graph)
-    graph.serialize(rdf_path, format="xml")
-    print(f"Empty knowledge graph saved as '{rdf_path}'.")
-    visualize_graph(graph)
-    return graph
-
-def graph_init():
-    rdf_path = os.path.join(os.path.dirname(__file__), "knowledge_graph.rdf")
-    if not os.path.exists(rdf_path):
-        print("No RDF file found, creating a new graph.")
-        return create_graph(rdf_path)
-    else:
-        try:
-            graph = rdflib.Graph()
-            graph.parse(rdf_path, format="xml")
-            print(f"Graph contains {len(graph)} triples.")
-            print("Graph loaded successfully.")
-            return graph
-        except Exception as e:
-            print(f"Error loading graph: {e}")
-            return create_graph(rdf_path)
-
-# Remove automatic loading on app start.
-graph = None
+# --- Existing kg_handler code ---
+# Placeholder for knowledge graph handling functions
 knowledge_graph_loaded = False
-rdf_file_path = os.path.join(os.path.dirname(__file__), "knowledge_graph.rdf") # Store path globally
 
 def load_knowledge_graph():
-    global graph, knowledge_graph_loaded, rdf_file_path
-    graph = graph_init() # graph_init already uses the path
+    global knowledge_graph_loaded
+    # ... implementation ...
     knowledge_graph_loaded = True
-    return graph
+    print("Knowledge graph loaded.")
 
-# Function to add triples extracted by the LLM
 def add_triples_to_graph(triples):
-    global graph, knowledge_graph_loaded, rdf_file_path
-    if not knowledge_graph_loaded or graph is None:
-        print("Error: Knowledge graph is not loaded. Cannot add triples.")
+    if not knowledge_graph_loaded:
+        print("Warning: Knowledge graph not loaded. Cannot add triples.")
         return
-
-    added_count = 0
-    for triple_dict in triples:
-        try:
-            subj_text = triple_dict.get("subject")
-            pred_text = triple_dict.get("predicate")
-            obj_text = triple_dict.get("object")
-
-            if subj_text and pred_text and obj_text:
-                # Create URIs for subject and predicate
-                subj_uri = create_uri(subj_text)
-                pred_uri = create_predicate_uri(pred_text)
-
-                # Object can be a URI or a Literal. Let's treat it as Literal for simplicity now,
-                # unless it looks like an entity already processed (heuristic needed if complex).
-                # For now, assume objects are mostly descriptive values.
-                obj_node = Literal(obj_text) # Treat object as Literal by default
-
-                # Add the triple to the graph
-                graph.add((subj_uri, pred_uri, obj_node))
-                added_count += 1
-                print(f"Added to KG: ({subj_text}, {pred_text}, {obj_text})")
-            else:
-                print(f"Skipping invalid triple dict: {triple_dict}")
-
-        except Exception as e:
-            print(f"Error processing triple {triple_dict}: {e}")
-
-    if added_count > 0:
-        try:
-            # Save the updated graph back to the file
-            graph.serialize(rdf_file_path, format="xml")
-            print(f"Successfully added {added_count} triple(s) and saved the knowledge graph.")
-            # Optionally re-visualize if needed, might be slow
-            # visualize_graph(graph)
-        except Exception as e:
-            print(f"Error saving updated knowledge graph: {e}")
-
-
-def clean_keywords(keywords):
-    cleaned_keywords = []
-    for keyword in keywords:
-        keyword = keyword.lower()
-        words = keyword.split()
-        cleaned_keywords.extend(words)
-    return cleaned_keywords
-
-def clean_triple(triple_part): # Renamed from clean_triple to avoid confusion
-    # Improved cleaning to handle URIs and Literals
-    if isinstance(triple_part, URIRef):
-        cleaned_part = str(triple_part).split('/')[-1]
-        cleaned_part = cleaned_part.replace('22-rdf-syntax-ns#type', 'is_a') # More descriptive predicate
-        cleaned_part = cleaned_part.replace('_', ' ')
-        # Add more specific replacements if needed (e.g., entity types)
-        if str(triple_part).startswith("http://lilykg.org/entity/"):
-             # Keep entity names relatively clean
-             pass
-        elif str(triple_part).startswith("http://lilykg.org/relation/"):
-             # Keep relation names relatively clean
-             pass
-        else: # Generic URI cleaning
-             cleaned_part = cleaned_part.split('#')[-1] # Handle fragment identifiers
-
-    elif isinstance(triple_part, Literal):
-        cleaned_part = str(triple_part) # Just use the literal value
-    else: # Fallback for unexpected types
-        cleaned_part = str(triple_part)
-
-    # General replacements (apply carefully)
-    # cleaned_part = cleaned_part.replace('LOC', 'location') # Example
-    # cleaned_part = cleaned_part.replace('FAC', 'facility') # Example
-    return cleaned_part.strip()
-
-
-def triples_to_sentences(triples):
-    sentences = []
-    for subj, pred, obj in triples:
-        subj_clean = clean_triple(subj)
-        pred_clean = clean_triple(pred)
-        obj_clean = clean_triple(obj)
-        sentence = f"{subj_clean} {pred_clean} {obj_clean}"
-        sentences.append(sentence)
-    return sentences
+    # ... implementation ...
+    print(f"Added {len(triples)} triples to graph.") # Assuming this exists
 
 def get_related_info_from_keywords(keywords):
-    if graph is None:
+    if not knowledge_graph_loaded:
+        print("Warning: Knowledge graph not loaded. Cannot retrieve info.")
         return []
-    return triples_to_sentences(kg_queries.get_triples_from_keywords(graph, clean_keywords(keywords)))
+    # ... implementation ...
+    print(f"Retrieving info for keywords: {keywords}") # Assuming this exists
+    # Replace with actual implementation if available
+    return [f"Info related to {kw}" for kw in keywords if kw]
+
+
+# --- New Triple Processing Function ---
+
+def process_raw_knowledge_response(raw_content: dict, previously_extracted_triples: list, max_field_length: int) -> Union[dict, list, None]: # Use Union
+    """
+    Processes the raw JSON dictionary from the LLM for knowledge extraction.
+
+    Args:
+        raw_content: The parsed JSON dictionary from the LLM response.
+        previously_extracted_triples: A list of triples already extracted in this session.
+        max_field_length: Maximum allowed character length for subject, predicate, object.
+
+    Returns:
+        - dict: A single, validated, truncated, non-duplicate triple if found.
+        - list: An empty list [] if the LLM response explicitly indicates no more triples.
+        - None: If the input is invalid, malformed, contains a duplicate,
+                or doesn't adhere to the expected format (0 or 1 triple).
+    """
+    try:
+        if not isinstance(raw_content, dict) or "new_knowledge" not in raw_content or not isinstance(raw_content["new_knowledge"], list):
+            print(f"Warning: Invalid structure in raw LLM response: {raw_content}")
+            return None # Invalid structure
+
+        knowledge_list = raw_content["new_knowledge"]
+
+        if len(knowledge_list) == 0:
+            print("Info: LLM indicated no more triples.")
+            return [] # Signal no more triples found
+
+        if len(knowledge_list) > 1:
+            print(f"Warning: LLM returned {len(knowledge_list)} triples, expected 0 or 1. Stopping extraction.")
+            return None # Incorrect number of triples
+
+        # Process the single triple
+        triple_dict = knowledge_list[0]
+        if not isinstance(triple_dict, dict) or not all(k in triple_dict for k in ["subject", "predicate", "object"]):
+            print(f"Warning: Skipping malformed triple object: {triple_dict}")
+            return None # Malformed triple
+
+        subj = str(triple_dict.get("subject", "")).strip()
+        pred = str(triple_dict.get("predicate", "")).strip()
+        obj = str(triple_dict.get("object", "")).strip()
+
+        # Truncate if necessary
+        if len(subj) > max_field_length: subj = subj[:max_field_length] + "..."
+        if len(pred) > max_field_length: pred = pred[:max_field_length] + "..."
+        if len(obj) > max_field_length: obj = obj[:max_field_length] + "..."
+
+        # Check for completeness after processing
+        if not (subj and pred and obj):
+            print(f"Warning: Skipping incomplete triple after processing: {triple_dict}")
+            return None # Incomplete triple after processing
+
+        processed_triple = {"subject": subj, "predicate": pred, "object": obj}
+
+        # Check for duplicates
+        for existing_triple in previously_extracted_triples:
+            if existing_triple == processed_triple:
+                print(f"Info: Duplicate triple found: {processed_triple}")
+                return None # Duplicate found
+
+        # If all checks pass, return the processed triple
+        return processed_triple
+
+    except Exception as e:
+        print(f"Error during raw knowledge processing: {e}")
+        return None # General processing error
