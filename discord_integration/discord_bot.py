@@ -3,7 +3,6 @@ import os
 import time
 
 import discord
-# Removed QObject and pyqtSignal imports as they are no longer needed for cross-process signals
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -13,17 +12,12 @@ from discord_integration.commands.voice.clear_queue import ClearQueueCommand
 from discord_integration.commands.voice.join import JoinCommand
 from discord_integration.commands.voice.play import PlayCommand
 from discord_integration.commands.voice.skip_song import SkipCommand
-# ... (other imports remain the same) ...
 
 from llm.discord_llm import DiscordLLM
 from models.song_queue import SongQueue
 
 
-class DiscordBot: # Removed QObject inheritance
-    # Removed signal definitions:
-    # bot_ready = pyqtSignal()
-    # bot_stopped = pyqtSignal()
-
+class DiscordBot:
     def __init__(self, ipc_queue=None, config=None):
         # Removed super().__init__()
         load_dotenv()
@@ -59,9 +53,6 @@ class DiscordBot: # Removed QObject inheritance
             print(f"Master Discord ID: {self.master_id}")
         else:
             print("Warning: MASTER_DISCORD_ID not set in .env file.")
-
-
-    # ... (setup_hook, set_guild_id, set_channel_id, get_channel_id remain the same) ...
 
     async def setup_hook(self):
         """Called during the bot setup to run asynchronous tasks."""
@@ -119,9 +110,6 @@ class DiscordBot: # Removed QObject inheritance
                  self.bot._ipc_task = self.bot.loop.create_task(self.ipc_listener_task())
             await self.sync_commands()
 
-
-        # ... (command registrations remain the same) ...
-
         # Register commands
         IQCommand(self.bot)
         GTNHIntelligenceTestCommand(self.bot)
@@ -166,7 +154,8 @@ class DiscordBot: # Removed QObject inheritance
                 # 5. Call LLM
                 try:
                     print(f"Calling LLM for user {message.author.display_name} ({message.author.id})...")
-                    response, _ = self.discordLLM.get_response(
+                    # Add await here as DiscordLLM.get_response is now async
+                    response, _ = await self.discordLLM.get_response(
                         user_message=user_prompt,
                         discord_user_id=message.author.id,
                         discord_user_name=message.author.display_name # Use display name
@@ -199,10 +188,6 @@ class DiscordBot: # Removed QObject inheritance
         if not discord_token:
              print("DISCORD_TOKEN not found in .env file.")
              return
-        # Use asyncio.run() in a way that integrates with PyQt event loop if needed,
-        # but typically bot.run() handles its own loop.
-        # Consider running this in a separate thread if it blocks the main GUI thread.
-        # For now, assuming direct call is okay or handled by the process management.
         try:
             self.bot.run(discord_token)
         except Exception as e:
@@ -219,20 +204,9 @@ class DiscordBot: # Removed QObject inheritance
                 time_since_last_activity = time.time() - self.last_activity_time
                 if time_since_last_activity > self.cooldown_period:
                     print(f"Conversation cooldown expired in channel {self.channel_id}. Resetting state.")
-                    self.last_activity_time = None # Reset activity time, requiring trigger phrase again
-                    # Optionally clear LLM history here if desired
-                    # if self.discordLLM:
-                    #     self.discordLLM.message_history.clear()
-                    #     print("Cleared LLM message history due to inactivity.")
-            # else: # No need to print this every minute
-                # print("No activity time set, waiting for first message.")
-            # Add a small delay even if not running to prevent tight loop on exit
+                    self.last_activity_time = None 
             if not self.is_running:
                  await asyncio.sleep(1)
-
-
-    # ... (ipc_listener_task, async_send_message, sync_commands, stop_bot, send_message remain the same) ...
-    # Make sure stop_bot properly cancels background tasks if needed.
 
     async def ipc_listener_task(self):
         """Listens for messages from the IPC queue and sends them to Discord."""
@@ -332,9 +306,6 @@ class DiscordBot: # Removed QObject inheritance
             print("Bot stop process initiated.")
         else:
             print("Bot is not running or already stopped.")
-
-
-    # ... (if __name__ == '__main__': block remains the same) ...
 
     def send_message(self, channel_id, message):
         """Sends a message to a specified channel."""

@@ -1,7 +1,8 @@
 import os
 import random
 import json
-from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
+# Import the updated functions from tools.py
+from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names, find_tool
 import google.generativeai as genai
 from openai import OpenAI
 from typing import List, Dict, Optional, Any
@@ -156,29 +157,36 @@ class LLMClient:
 
     # --- Tool Interaction Methods ---
 
-    def get_next_action(self, messages: List[Dict]) -> Optional[Dict[str, Any]]:
+    def get_next_action(self, messages: List[Dict], allowed_tools: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """
         Prompts the LLM to decide the next action: use a tool or respond directly.
 
         Args:
             messages: The current conversation history in OpenAI format.
+            allowed_tools: An optional list of tool names allowed in this context. If None, all tools are allowed.
 
         Returns:
             A dictionary like {"action_type": "tool_choice", "tool_name": "tool_name_here" or None},
             or None if an error occurred.
         """
-        tool_list_prompt = get_tool_list_for_prompt()
-        available_tool_names = get_tool_names()
+        # Use the updated functions, passing allowed_tools
+        tool_list_prompt = get_tool_list_for_prompt(allowed_tools=allowed_tools)
+        available_tool_names = get_tool_names(allowed_tools=allowed_tools) # Get only the names of allowed tools
+
+        if not available_tool_names:
+            # If no tools are allowed or available, don't even ask the LLM
+            print("No tools allowed or available in this context. Skipping tool check.")
+            return {"action_type": "tool_choice", "tool_name": None}
 
         system_prompt = (
             "You are an AI assistant that can use tools to help the user. "
             "Analyze the user's latest message and the conversation history. "
-            "Decide if you need to use one of the available tools to fulfill the request. "
-            f"{tool_list_prompt}\n"
+            "Decide if you need to use one of the available tools *from the list below* to fulfill the request. " # Emphasize the provided list
+            f"{tool_list_prompt}\n" # This now contains only allowed tools
             "Respond ONLY with a JSON object containing the key 'tool_name'. "
-            "The value should be the name of the tool you want to use (must be one of "
-            f"{available_tool_names}) or null if no tool is needed and you should respond directly."
-            "Example for using a tool: {\"tool_name\": \"search_web\"}"
+            "The value should be the name of the tool you want to use (must be one of the tools listed above) " # Refer to the list above
+            "or null if no tool is needed and you should respond directly."
+            "Example for using a tool: {\"tool_name\": \"search_web\"}" # Keep example generic
             "Example for not using a tool: {\"tool_name\": null}"
         )
 
@@ -335,7 +343,6 @@ class LLMClient:
             print(f"--- Raw Gemini Final Response Text ---\n{response.text}\n----------------------------------------")
             if response.text:
                 message = response.text.strip()
-                print(f"Final Gemini Response: {message}")
                 return message
             else:
                 feedback = response.prompt_feedback if hasattr(response, 'prompt_feedback') else "Unknown reason"

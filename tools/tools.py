@@ -1,3 +1,6 @@
+from typing import List, Optional
+
+
 class ToolDefinition:
     """Represents an available tool for the LLM."""
     def __init__(self, name: str, description: str, instruction: str, json_schema: dict):
@@ -105,22 +108,37 @@ AVAILABLE_TOOLS = [
             "required": ["query"]
         }
     ),
-    # Add more tools here as needed
+# Add more tools here as needed
 ]
 
-def get_tool_list_for_prompt() -> str:
+# Global map for quick lookup
+_TOOL_MAP = {tool.name: tool for tool in AVAILABLE_TOOLS}
+
+def get_tool_list_for_prompt(allowed_tools: Optional[List[str]] = None) -> str:
     """
-    Formats the list of tools (name and description) for inclusion in the initial LLM prompt.
+    Formats the list of tools (name and description) for inclusion in the initial LLM prompt,
+    optionally filtering by a list of allowed tool names.
+
+    Args:
+        allowed_tools: An optional list of tool names to include. If None, all tools are included.
+
+    Returns:
+        A formatted string describing the available (and allowed) tools.
     """
-    if not AVAILABLE_TOOLS:
-        return "No tools available."
-    
+    tools_to_describe = AVAILABLE_TOOLS
+    if allowed_tools is not None:
+        allowed_set = set(allowed_tools)
+        tools_to_describe = [tool for tool in AVAILABLE_TOOLS if tool.name in allowed_set]
+
+    if not tools_to_describe:
+        return "No tools available or allowed for this context."
+
     tool_descriptions = ["Available Tools:"]
-    for tool in AVAILABLE_TOOLS:
+    for tool in tools_to_describe:
         tool_descriptions.append(f"- {tool.name}: {tool.description}")
     return "\n".join(tool_descriptions)
 
-def find_tool(name: str) -> ToolDefinition | None:
+def find_tool(name: str) -> Optional[ToolDefinition]:
     """
     Finds a tool definition by its name.
 
@@ -130,11 +148,23 @@ def find_tool(name: str) -> ToolDefinition | None:
     Returns:
         The ToolDefinition object if found, otherwise None.
     """
-    for tool in AVAILABLE_TOOLS:
-        if tool.name == name:
-            return tool
-    return None
+    # Use the pre-built map for faster lookup
+    return _TOOL_MAP.get(name)
 
-def get_tool_names() -> list[str]:
-    """Returns a list of names of all available tools."""
-    return [tool.name for tool in AVAILABLE_TOOLS]
+
+def get_tool_names(allowed_tools: Optional[List[str]] = None) -> List[str]:
+    """
+    Returns a list of names of available tools, optionally filtered.
+
+    Args:
+        allowed_tools: An optional list of tool names to include. If None, all tool names are returned.
+
+    Returns:
+        A list of available (and allowed) tool names.
+    """
+    if allowed_tools is None:
+        return list(_TOOL_MAP.keys())
+    else:
+        # Ensure we only return names that actually exist in our defined tools
+        allowed_set = set(allowed_tools)
+        return [name for name in _TOOL_MAP if name in allowed_set]

@@ -249,14 +249,15 @@ class ChatTab(QWidget):
         threading.Thread(target=self._get_response_thread, args=(user_text,), daemon=True).start()
 
     def _get_response_thread(self, user_text):
-        # Assuming get_response might still return action, but we ignore it.
-        # If get_response was updated to only return message, this still works.
-        # Removed the KG checkbox check from the arguments.
-        # TODO: Confirm if ChatBoxLLM.get_response needs other arguments now.
-        message, _ = self.chatBoxLLM.get_response(user_text)
-        # Removed: action_handler.execute_command(action)
-        print(f"Message: {message}")
-        # Removed: print(f"Action: {action}")
+        # Call the async get_response using asyncio.run() within the thread
+        try:
+            # ChatBoxLLM.get_response is now async
+            message, _ = asyncio.run(self.chatBoxLLM.get_response(user_text))
+        except Exception as e:
+            print(f"Error running chatBoxLLM.get_response: {e}")
+            # Emit an error message back to the UI
+            self.updateResponse.emit(user_text, f"Error processing request: {e}")
+            return # Stop processing if LLM call failed
 
         # Call TTS-Provider if enabled
         if self.tts_provider_enabled.isChecked():

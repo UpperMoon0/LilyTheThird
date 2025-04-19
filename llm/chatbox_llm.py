@@ -1,19 +1,15 @@
 import json
 import asyncio
-import inspect
 import os
-import json # Added json import that was missing in the provided content but present in the original logic
 from dotenv import load_dotenv
-from tools.tools import find_tool # Use the unified find_tool
-# Removed memory_tools import
+from tools.tools import find_tool # Import find_tool
 from .history_manager import HistoryManager
 from .llm_client import LLMClient
+from .tool_executor import ToolExecutor # Import the new executor
 from memory.mongo_handler import MongoHandler
-from tools import time_tool, file_tool
-from tools.web_search_tool import perform_web_search # Import the new tool function
+# Tool implementation imports (time_tool, file_tool, web_search_tool) are no longer needed here
 
 load_dotenv()
-
 
 class ChatBoxLLM:
     def __init__(self, provider='openai', model_name=None):
@@ -25,117 +21,29 @@ class ChatBoxLLM:
             model_name: The specific model name to use (optional, defaults handled by LLMClient).
         """
         self.personality = os.getenv('PERSONALITY_TO_MASTER')
-        # Initialize managers and client
+        # Initialize managers and clients in order
         self.history_manager = HistoryManager()
-        # LLMClient handles provider/model logic and client initialization
-        self.llm_client = LLMClient(provider=provider, model_name=model_name)
-        # Store provider and model name locally
-        self.provider = self.llm_client.provider
-        self.model = self.llm_client.get_model_name()
-        # Initialize MongoHandler - memory is always potentially available via tools
+        # Initialize MongoHandler first, as it's needed by ToolExecutor
         self.mongo_handler = MongoHandler()
         if not self.mongo_handler.is_connected():
             print("Warning: MongoDB connection failed. Memory tools will not function.")
-            # We don't disable it entirely, just let tool execution fail if called
+        # LLMClient handles provider/model logic and client initialization
+        self.llm_client = LLMClient(provider=provider, model_name=model_name)
+        # Initialize ToolExecutor, passing dependencies
+        self.tool_executor = ToolExecutor(mongo_handler=self.mongo_handler, llm_client=self.llm_client)
+        # Store provider and model name locally (optional, could get from llm_client)
+        self.provider = self.llm_client.provider
+        self.model = self.llm_client.get_model_name()
+        # No local tool_dispatcher needed anymore
 
-        # Map tool names to their handler functions
-        self.tool_dispatcher = {
-            # General tools
-            "get_current_time": time_tool.get_current_time,
-            "read_file": file_tool.read_file,
-            "write_file": file_tool.write_file,
-            # Web search tool
-            "search_web": perform_web_search,
-            # Memory tools (map to mongo_handler methods if connected)
-            "fetch_memory": self.mongo_handler.retrieve_memories_by_query if self.mongo_handler.is_connected() else self._mongo_unavailable,
-            "save_memory": self.mongo_handler.add_fact if self.mongo_handler.is_connected() else self._mongo_unavailable, # Map to add_fact for arbitrary content
-        }
+    # _execute_tool method is removed, logic moved to ToolExecutor
 
-    def _mongo_unavailable(self, *args, **kwargs):
-        """Placeholder function for when MongoDB is not connected."""
-        return "Error: MongoDB connection is not available. Cannot use memory tool."
-
-    def _execute_tool(self, tool_name: str, arguments: dict) -> str:
-        """Executes the chosen tool and returns the result as a string."""
-        if tool_name not in self.tool_dispatcher:
-            return f"Error: Unknown tool '{tool_name}'."
-
-        action_function = self.tool_dispatcher[tool_name]
-
-        try:
-            # Check if the function is async
-            is_async = inspect.iscoroutinefunction(action_function)
-
-            # Execute the function (sync or async)
-            if is_async:
-                # Run async function using asyncio.run()
-                if arguments:
-                    result = asyncio.run(action_function(**arguments))
-                else:
-                    result = asyncio.run(action_function())
-            else:
-                # Call synchronous function directly
-                if arguments:
-                    result = action_function(**arguments)
-                else:
-                    result = action_function()
-
-            # --- Summarize Web Search Results ---
-            if tool_name == "search_web" and isinstance(result, str) and result and not result.startswith("Error:"):
-                print(f"--- Summarizing web search results for query: {arguments.get('query', 'N/A')} ---")
-                raw_search_results = result # Keep original raw results
-                # Prepare messages for summarization
-                # Use a simple prompt asking for summarization.
-                summarization_prompt = f"Please summarize the following web search results and make them easy to read:\n\n{raw_search_results}"
-                # Use generate_final_response for summarization.
-                # We pass only the summarization prompt and a neutral personality.
-                summary_messages = [{'role': 'user', 'content': summarization_prompt}] # Treat prompt as user request to summarizer
-                summarized_result = self.llm_client.generate_final_response(
-                    messages=summary_messages,
-                    personality_prompt="You are an expert summarization assistant." # Neutral personality for this task
-                )
-
-                if summarized_result and not summarized_result.startswith("Error:"):
-                    print(f"Summarized Result: {summarized_result}")
-                    result = summarized_result # Replace raw result with summary
-                else:
-                    print("Warning: Failed to summarize web search results. Using raw results.")
-                    # Keep the original raw_search_results (already in 'result') if summarization fails
-
-            # Format the result specifically for fetch_memory
-            # retrieve_memories_by_query now returns a list of fact strings
-            if tool_name == "fetch_memory" and isinstance(result, list):
-                if result: # Check if the list is not empty
-                    formatted_string = "Memory Fetch Results:\n\nRelevant Facts:\n"
-                    # The strings in the list are already formatted with "Fact: ..."
-                    formatted_string += "\n---\n".join(result)
-                else:
-                    formatted_string = "Memory Fetch Results:\n\nNo relevant facts found."
-                return formatted_string
-            else:
-                # Ensure result is a string for history for other tools
-                # Handle the case where fetch_memory might return None or error string
-                if tool_name == "fetch_memory" and not isinstance(result, list):
-                     return str(result) # Return error message or "None" as string
-                # Default handling for other tools
-                return str(result) if result is not None else "Tool executed successfully, but returned no output."
-        except TypeError as e:
-             # Handle cases where arguments don't match function signature
-             print(f"Error calling tool '{tool_name}' with args {arguments}: {e}")
-             return f"Error: Invalid arguments provided for tool '{tool_name}'. {e}"
-        except Exception as e:
-            print(f"Error executing tool '{tool_name}': {e}")
-            import traceback
-            traceback.print_exc()
-            return f"Error: Failed to execute tool '{tool_name}'. {e}"
-
-
-    def get_response(self, user_message: str) -> str:
+    async def get_response(self, user_message: str) -> str: # Make method async
         """
         Orchestrates the conversation flow: user message -> potential tool calls -> final response.
+        Now uses LLMClient for decisions and ToolExecutor for execution.
         """
-        # Removed automatic MongoDB context retrieval - now handled by fetch_memory tool
-        tool_interaction_summary = [] # To store tool calls/results for potential MongoDB logging
+        # tool_interaction_summary can be removed if not used elsewhere
 
         # --- Prepare Base System Messages ---
         base_system_messages = [
@@ -161,12 +69,12 @@ class ChatBoxLLM:
                  messages_for_llm.insert(len(base_system_messages), {'role': 'system', 'content': fetch_prompt_content})
                  print("--- Added memory fetch prompt to messages_for_llm ---")
 
-            # 1. Ask LLM for next action (tool or null)
-            # The LLMClient.get_next_action method itself adds the primary tool selection prompt
-            action_decision = self.llm_client.get_next_action(messages_for_llm)
+            # 1. Ask LLM for next action (tool or null) using the centralized client
+            # ChatBoxLLM allows all tools, so allowed_tools=None
+            action_decision = self.llm_client.get_next_action(messages_for_llm, allowed_tools=None)
 
             if not action_decision or action_decision.get("action_type") != "tool_choice":
-                print("Error or invalid format in action decision. Breaking tool loop.")
+                print(f"Error or invalid format in action decision: {action_decision}. Breaking tool loop.")
                 break # Exit loop on error or unexpected format
 
             tool_name = action_decision.get("tool_name")
@@ -180,16 +88,18 @@ class ChatBoxLLM:
                         'role': 'system',
                         'content': "System Instruction: Before finishing, review the conversation. Are there any specific, concise facts derived from this exchange that absolutely *must* be saved to long-term memory using the 'save_memory' tool? Respond ONLY with the tool choice JSON ('{\"tool_name\": \"save_memory\"}' or '{\"tool_name\": null}')."
                     }
+                    # Pass allowed_tools=['save_memory', None] ? Or just let it choose from all? Let's allow all for now.
                     messages_for_save_check = messages_for_llm + [save_check_prompt]
                     print("--- Added final save check prompt ---")
-                    save_decision = self.llm_client.get_next_action(messages_for_save_check)
+                    # Ask LLM again, allowing any tool (though prompt guides towards save/null)
+                    save_decision = self.llm_client.get_next_action(messages_for_save_check, allowed_tools=None)
 
                     if save_decision and save_decision.get("tool_name") == "save_memory":
                         print("LLM decided to perform a final save.")
                         tool_name = "save_memory" # Set tool_name to proceed with save logic
                         # Fall through to the argument/execution block below
                     else:
-                        print("LLM confirmed no final save needed. Proceeding to final response.")
+                        print("LLM confirmed no final save needed or chose other tool unexpectedly. Proceeding to final response.")
                         break # Exit loop, ready for final response
                 else:
                     # MongoDB not connected, cannot save anyway
@@ -199,37 +109,45 @@ class ChatBoxLLM:
             # --- If a tool (including potential final save) was chosen ---
             # 2. Get arguments
             print(f"LLM chose tool: {tool_name}")
-            # Find the tool using the unified find_tool
+            # Find the tool definition using the centralized function
             tool_definition = find_tool(tool_name)
             if not tool_definition:
                 print(f"Error: Tool '{tool_name}' definition not found. Breaking loop.")
-                # Maybe add an error message to history?
                 self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
-                tool_interaction_summary.append({"tool_name": tool_name, "error": "Definition not found"})
+                # tool_interaction_summary.append({"tool_name": tool_name, "error": "Definition not found"}) # Removed summary
                 break
 
+            # Get arguments using the centralized client
             argument_decision = self.llm_client.get_tool_arguments(tool_definition, messages_for_llm)
 
             if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
-                print(f"Error or invalid format getting arguments for {tool_name}. Breaking loop.")
-                # Add error to history?
+                print(f"Error or invalid format getting arguments for {tool_name}: {argument_decision}. Breaking loop.")
                 self.history_manager.add_message('system', f"Error: Failed to get arguments for tool '{tool_name}'.")
-                tool_interaction_summary.append({"tool_name": tool_name, "error": "Argument generation failed"})
+                # tool_interaction_summary.append({"tool_name": tool_name, "error": "Argument generation failed"}) # Removed summary
                 break
 
             arguments = argument_decision.get("arguments", {})
             print(f"Arguments received for {tool_name}: {arguments}")
 
-            # 3. Execute the tool
-            tool_result = self._execute_tool(tool_name, arguments)
+            # 3. Execute the tool using the ToolExecutor (await the async execute method)
+            tool_result = await self.tool_executor.execute(tool_name, arguments)
             print(f"Result from {tool_name}: {tool_result}")
-            tool_interaction_summary.append({"tool_name": tool_name, "arguments": arguments, "result": tool_result})
+            # tool_interaction_summary.append({"tool_name": tool_name, "arguments": arguments, "result": tool_result}) # Removed summary
 
 
             # 4. Add tool result to history
-            self.history_manager.add_message('system', f"Tool Used: {tool_name}\nArguments: {json.dumps(arguments)}\nResult: {tool_result}")
+            # Use a more structured format for tool results in history if desired
+            tool_result_message = {
+                "role": "system", # Or maybe a dedicated 'tool' role if supported/useful
+                "content": json.dumps({ # Store as JSON string for clarity
+                    "tool_used": tool_name,
+                    "arguments": arguments,
+                    "result": tool_result
+                })
+            }
+            self.history_manager.add_message(tool_result_message['role'], tool_result_message['content'])
 
-            # Loop continues to see if another tool is needed based on the result
+            # Loop continues
 
         else: # Executed if the loop completes without break (max_tool_calls reached)
              print("Warning: Maximum tool calls reached. Proceeding to final response.")

@@ -9,13 +9,8 @@ OPENAI_MODELS = [
 
 GEMINI_MODELS = [
     "gemini-2.5-pro-preview-03-25",
+    "gemini-2.5-flash-preview-04-17",
     "gemini-2.0-flash",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
 ]
-
-# You can add more providers and their models here if needed
-# EXAMPLE_PROVIDER_MODELS = [
-#     "example-model-1",
-#     "example-model-2"
-# ]
