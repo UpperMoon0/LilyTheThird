@@ -65,8 +65,24 @@ class ChatBoxLLM:
             else:
                 result = action_function()
 
-            # Ensure result is a string for history
-            return str(result) if result is not None else "Tool executed successfully, but returned no output."
+            # Format the result specifically for fetch_memory
+            if tool_name == "fetch_memory" and isinstance(result, dict):
+                formatted_string = "Memory Fetch Results:\n"
+                if result.get("facts"):
+                    formatted_string += "\nRelevant Facts (max 5):\n"
+                    formatted_string += "\n---\n".join(result["facts"]) # Facts are already formatted strings
+                else:
+                    formatted_string += "\nNo relevant facts found.\n"
+
+                if result.get("conversations"):
+                    formatted_string += "\nRelevant Conversations (max 5):\n"
+                    formatted_string += "\n\n".join(result["conversations"]) # Conversations are already formatted strings
+                else:
+                    formatted_string += "\nNo relevant conversations found.\n"
+                return formatted_string
+            else:
+                # Ensure result is a string for history for other tools
+                return str(result) if result is not None else "Tool executed successfully, but returned no output."
         except TypeError as e:
              # Handle cases where arguments don't match function signature
              print(f"Error calling tool '{tool_name}' with args {arguments}: {e}")

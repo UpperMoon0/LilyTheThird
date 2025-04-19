@@ -107,40 +107,54 @@ class MongoHandler:
             logging.error(f"Failed to retrieve memories from MongoDB: {e}")
             return []
 
-    def retrieve_memories_by_query(self, query: str, limit: int = 5):
+    def retrieve_memories_by_query(self, query: str, fact_limit: int = 5, conversation_limit: int = 5):
         """
-        Searches memories based on a query using a text index.
-        Requires a text index on 'user_input' and 'llm_response' fields in MongoDB.
-        Example Mongo Shell command: db.memories.createIndex({ user_input: "text", llm_response: "text" })
+        Searches memories based on a query using a text index and separates
+        results into facts and conversations.
+        Requires a text index on 'user_input', 'llm_response', and 'content' fields.
         """
         if not self.is_connected():
             logging.warning("MongoDB not connected. Cannot search memories.")
-            return []
+            return {"facts": [], "conversations": []}
+
+        # Fetch more results initially to have enough candidates for both lists
+        initial_fetch_limit = max(fact_limit, conversation_limit) * 2 # Fetch double the max needed, adjust as needed
+
         try:
-            # Ensure you have a text index created in MongoDB:
-            # db.memories.createIndex({ user_input: "text", llm_response: "text" })
             memories = list(self.collection.find(
                 { "$text": { "$search": query } },
-                { "score": { "$meta": "textScore" } } # Optional: score by relevance
-            ).sort({ "score": { "$meta": "textScore" } }).limit(limit))
-            logging.info(f"Found {len(memories)} memories matching query '{query}'.")
-            # Format results, handling both conversation turns and facts
-            formatted_results = []
+                { "score": { "$meta": "textScore" } }
+            ).sort({ "score": { "$meta": "textScore" } }).limit(initial_fetch_limit)) # Fetch more initially
+            logging.info(f"Retrieved {len(memories)} potential memories matching query '{query}'.")
+
+            facts = []
+            conversations = []
+
             for m in memories:
-                if 'user_input' in m and 'llm_response' in m:
-                    formatted_results.append(f"User: {m['user_input']}\nLily: {m['llm_response']}")
-                elif 'content' in m: # Assume it's a fact if content exists
-                    formatted_results.append(f"Fact: {m['content']}")
-                # Add more checks here if other document types are possible
-            return formatted_results
+                # Check for fact type first (using the 'type' field if available, or 'content')
+                is_fact = m.get("type") == "fact" or ('content' in m and 'user_input' not in m and 'llm_response' not in m)
+                is_conversation = 'user_input' in m and 'llm_response' in m
+
+                if is_fact and len(facts) < fact_limit:
+                    facts.append(f"Fact: {m.get('content', 'N/A')}") # Use get for safety
+                elif is_conversation and len(conversations) < conversation_limit:
+                    conversations.append(f"User: {m.get('user_input', 'N/A')}\nLily: {m.get('llm_response', 'N/A')}") # Use get
+
+                # Stop searching if both lists are full
+                if len(facts) >= fact_limit and len(conversations) >= conversation_limit:
+                    break
+
+            logging.info(f"Filtered results: {len(facts)} facts, {len(conversations)} conversations.")
+            return {"facts": facts, "conversations": conversations} # Return a dictionary
+
         except Exception as e:
             # Handle case where text index might not exist
             if "text index required" in str(e).lower():
                  logging.error("Text index not found on 'memories' collection. Please create one for searching.")
-                 logging.error("Mongo Shell: db.memories.createIndex({ user_input: \"text\", llm_response: \"text\", content: \"text\" })") # Updated example command
+                 logging.error("Mongo Shell: db.memories.createIndex({ user_input: \"text\", llm_response: \"text\", content: \"text\" })")
             else:
                 logging.error(f"Failed to search memories in MongoDB: {e}")
-            return []
+            return {"facts": [], "conversations": []} # Return empty lists on error
 
     def _ensure_text_index(self):
         """Checks if the required text index exists and creates it if not."""
