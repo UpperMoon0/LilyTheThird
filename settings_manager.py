@@ -1,6 +1,8 @@
 import os
 import json
 import sys
+# Import model lists
+from config.models import OPENAI_MODELS, GEMINI_MODELS
 
 def get_settings_dir():
     """Gets the application-specific settings directory within AppData."""
@@ -19,10 +21,18 @@ def get_settings_dir():
     return settings_dir
 
 SETTINGS_FILE = os.path.join(get_settings_dir(), 'settings.json')
+# Define default models based on default providers
+DEFAULT_OPENAI_MODEL = OPENAI_MODELS[0] if OPENAI_MODELS else None
+DEFAULT_GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else None
+
 DEFAULT_SETTINGS = {
+    # Chat Tab Settings
     'tts_provider_enabled': False,
     'selected_provider': 'OpenAI',
-    'selected_model': None # Will be populated based on provider
+    'selected_model': DEFAULT_OPENAI_MODEL, # Use default OpenAI model
+    # Discord Tab Settings
+    'discord_selected_provider': 'OpenAI', # Default Discord provider
+    'discord_selected_model': DEFAULT_OPENAI_MODEL # Default Discord model
 }
 
 def save_settings(settings_dict):
@@ -39,17 +49,24 @@ def save_settings(settings_dict):
 
 def load_settings():
     """Loads settings from the JSON file. Returns defaults if file not found or invalid."""
+    # Initialize defaults dynamically based on provider
+    def initialize_defaults(defaults):
+        from config.models import OPENAI_MODELS, GEMINI_MODELS
+        if defaults['selected_provider'] == 'OpenAI':
+            defaults['selected_model'] = OPENAI_MODELS[0] if OPENAI_MODELS else None
+        elif defaults['selected_provider'] == 'Gemini':
+            defaults['selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
+
+        if defaults['discord_selected_provider'] == 'OpenAI':
+            defaults['discord_selected_model'] = OPENAI_MODELS[0] if OPENAI_MODELS else None
+        elif defaults['discord_selected_provider'] == 'Gemini':
+            defaults['discord_selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
+        return defaults
+
     if not os.path.exists(SETTINGS_FILE):
         print(f"Settings file not found at {SETTINGS_FILE}. Using defaults.")
-        # Ensure default model is set based on default provider
-        # (Keep this logic as it's unrelated to memory type)
-        if DEFAULT_SETTINGS['selected_provider'] == 'OpenAI':
-            from config.models import OPENAI_MODELS
-            DEFAULT_SETTINGS['selected_model'] = OPENAI_MODELS[0] if OPENAI_MODELS else None
-        elif DEFAULT_SETTINGS['selected_provider'] == 'Gemini':
-             from config.models import GEMINI_MODELS
-             DEFAULT_SETTINGS['selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
-        return DEFAULT_SETTINGS.copy() # Return a copy
+        # Initialize and return a copy of potentially modified defaults
+        return initialize_defaults(DEFAULT_SETTINGS.copy())
 
     try:
         with open(SETTINGS_FILE, 'r') as f:
@@ -63,38 +80,42 @@ def load_settings():
                 if key in settings:
                     final_settings[key] = settings[key]
 
-            # Ensure 'selected_model' is valid for the loaded 'selected_provider'
-            # (Keep this validation logic)
-            provider = final_settings.get('selected_provider')
-            model = final_settings.get('selected_model')
-            valid_models = []
-            if provider == 'OpenAI':
-                from config.models import OPENAI_MODELS
-                valid_models = OPENAI_MODELS
-            elif provider == 'Gemini':
-                 from config.models import GEMINI_MODELS
-                 valid_models = GEMINI_MODELS
+            # --- Model Validation Logic ---
+            def validate_model(settings, provider_key, model_key):
+                from config.models import OPENAI_MODELS, GEMINI_MODELS
+                provider = settings.get(provider_key)
+                model = settings.get(model_key)
+                valid_models = []
+                default_model = None
 
-            if model not in valid_models:
-                 print(f"Warning: Loaded model '{model}' not valid for provider '{provider}'. Resetting to default.")
-                 final_settings['selected_model'] = valid_models[0] if valid_models else None
-                 # Optionally save the corrected settings back
-                  # save_settings(final_settings)
+                if provider == 'OpenAI':
+                    valid_models = OPENAI_MODELS
+                    default_model = valid_models[0] if valid_models else None
+                elif provider == 'Gemini':
+                    valid_models = GEMINI_MODELS
+                    default_model = valid_models[0] if valid_models else None
+                else: # Handle case where provider might be missing or invalid
+                    print(f"Warning: Invalid or missing provider '{provider}' for key '{provider_key}'. Cannot validate model.")
+                    return # Cannot validate without a valid provider
+
+                if model not in valid_models:
+                    print(f"Warning: Loaded model '{model}' (key: {model_key}) not valid for provider '{provider}' (key: {provider_key}). Resetting to default '{default_model}'.")
+                    settings[model_key] = default_model
+                    # Optionally save the corrected settings back immediately
+                    # save_settings(settings) # Be careful about potential loops if save fails
+
+            # Validate models for both chat and discord settings
+            validate_model(final_settings, 'selected_provider', 'selected_model')
+            validate_model(final_settings, 'discord_selected_provider', 'discord_selected_model')
 
             return final_settings
     except json.JSONDecodeError as e:
         print(f"Error decoding settings file {SETTINGS_FILE}: {e}. Using defaults.")
-        # Return a fresh copy of potentially corrected defaults
-        if DEFAULT_SETTINGS['selected_provider'] == 'OpenAI':
-            from config.models import OPENAI_MODELS
-            DEFAULT_SETTINGS['selected_model'] = OPENAI_MODELS[0] if OPENAI_MODELS else None
-        elif DEFAULT_SETTINGS['selected_provider'] == 'Gemini':
-             from config.models import GEMINI_MODELS
-             DEFAULT_SETTINGS['selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
-        return DEFAULT_SETTINGS.copy()
+        # Initialize and return a copy of potentially modified defaults
+        return initialize_defaults(DEFAULT_SETTINGS.copy())
     except IOError as e:
         print(f"Error reading settings file {SETTINGS_FILE}: {e}. Using defaults.")
-        return DEFAULT_SETTINGS.copy()
+        return initialize_defaults(DEFAULT_SETTINGS.copy())
     except Exception as e:
         print(f"An unexpected error occurred while loading settings: {e}. Using defaults.")
-        return DEFAULT_SETTINGS.copy()
+        return initialize_defaults(DEFAULT_SETTINGS.copy())

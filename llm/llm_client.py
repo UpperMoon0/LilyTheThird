@@ -304,11 +304,6 @@ class LLMClient:
             system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
             history_openai_format = [msg for msg in messages if msg['role'] != 'system']
 
-            # The last message in history_openai_format is the user's most recent message *or* could be a tool result.
-            # Gemini's `start_chat` expects history ending in a 'model' turn if providing history.
-            # The `send_message` content should be the final user prompt.
-            # Let's adapt the history *excluding* the very last message, which we'll send separately.
-
             if not history_openai_format:
                  # Should not happen if called correctly, but handle defensively
                  print("Warning: No user/model messages found for Gemini final response.")
@@ -319,20 +314,15 @@ class LLMClient:
                 temp_history_manager = HistoryManager()
                 gemini_history_to_pass = temp_history_manager.adapt_history_for_gemini(history_openai_format)
 
-
-            # Combine system prompts and the final user message/trigger
-            # Explicitly instruct Gemini to use the full context, including tool results (now present in system_prompts)
             prompt_parts = [
                 f"System Instructions:\n{' '.join(system_prompts)}\n\n"
                 f"User Request/Context:\n{final_user_content}\n\n"
                 f"IMPORTANT: Generate your final response based *only* on the information provided in the System Instructions and the preceding conversation history (including any Tool results shown). Synthesize the information accurately."
             ]
-            # print(f"History sent to Gemini start_chat:\n{json.dumps(gemini_history_to_pass, indent=2)}") # DEBUG
-            # print(f"Prompt parts sent to Gemini send_message:\n{prompt_parts}") # DEBUG
 
             generation_config = genai.types.GenerationConfig(
-                max_output_tokens=500, # Keep original max_tokens
-                temperature=random.uniform(0.2, 0.7), # Keep original temperature range
+                max_output_tokens=1000, 
+                temperature=random.uniform(0.2, 0.7),
             )
 
             chat_session = self.client.start_chat(history=gemini_history_to_pass)

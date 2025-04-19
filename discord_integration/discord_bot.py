@@ -47,8 +47,11 @@ class DiscordBot:
         self.ipc_queue = ipc_queue
 
         print(f"DiscordBot initialized with Guild: {self.guild_id}, Channel: {self.channel_id}")
-        if self.discordLLM:
-            print(f"DiscordBot LLM: Provider={self.discordLLM.provider}, Model={self.discordLLM.model}")
+        if self.discordLLM and self.discordLLM.llm_client: # Check if llm_client exists
+            # Access provider and model via the llm_client attribute, using the get_model_name() method
+            print(f"DiscordBot LLM: Provider={self.discordLLM.llm_client.provider}, Model={self.discordLLM.llm_client.get_model_name()}") # Use get_model_name() method
+        elif self.discordLLM:
+             print("DiscordBot LLM initialized, but llm_client is missing.") # Handle case where llm_client might not be initialized
         if self.master_id:
             print(f"Master Discord ID: {self.master_id}")
         else:
@@ -204,7 +207,7 @@ class DiscordBot:
                 time_since_last_activity = time.time() - self.last_activity_time
                 if time_since_last_activity > self.cooldown_period:
                     print(f"Conversation cooldown expired in channel {self.channel_id}. Resetting state.")
-                    self.last_activity_time = None 
+                    self.last_activity_time = None
             if not self.is_running:
                  await asyncio.sleep(1)
 

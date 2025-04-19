@@ -14,12 +14,16 @@ from dotenv import load_dotenv
 
 # Import models from central config
 from config.models import OPENAI_MODELS, GEMINI_MODELS
+# Import settings manager
+from settings_manager import load_settings, save_settings
 from processes.discord_process import run_discord_bot
 from views.components.color_circle import ColorCircle
 
 class DiscordTab(QWidget):
     def __init__(self):
         super().__init__()
+        self._initializing = True # Flag to prevent signals during setup
+        self.settings = load_settings() # Load settings first
 
         load_dotenv()  # Load environment variables from .env file
 
@@ -27,18 +31,26 @@ class DiscordTab(QWidget):
         self.is_bot_running = False
         self.ipc_queue = None  # Will hold the multiprocessing.Queue for IPC
 
+        # --- UI Setup (Apply loaded settings) ---
+
         # LLM Provider Selector for Discord Bot
         self.discord_provider_label = QLabel("Bot LLM Provider:", self)
         self.discord_provider_selector = QComboBox(self)
-        self.discord_provider_selector.addItems(["OpenAI", "Gemini"]) # Add providers
-        self.discord_provider_selector.currentIndexChanged.connect(self.on_discord_provider_changed)
+        self.discord_provider_selector.addItems(["OpenAI", "Gemini"])
+        # Set loaded provider *before* connecting signals
+        provider_key = 'discord_selected_provider'
+        default_provider = 'OpenAI' # Default if not found
+        provider_index = self.discord_provider_selector.findText(self.settings.get(provider_key, default_provider))
+        if provider_index != -1:
+            self.discord_provider_selector.setCurrentIndex(provider_index)
+        # Connect signal LATER
 
         # LLM Model Selector for Discord Bot
         self.discord_model_label = QLabel("Bot LLM Model:", self)
         self.discord_model_selector = QComboBox(self)
-        # Model selector will be populated based on provider selection
-        # Connect model change signal (optional for now, as LLM is in separate process)
-        # self.discord_model_selector.currentIndexChanged.connect(self.on_discord_model_changed)
+        # Populate models based on the *loaded* provider first
+        self._update_discord_model_selector(set_from_settings=True)
+        # Connect signal LATER
 
         # Replace QLabel status circle with ColorCircle
         self.status_circle = ColorCircle(self)
@@ -172,35 +184,75 @@ class DiscordTab(QWidget):
 
         self.setLayout(main_layout)
 
-        # Populate initial model list
-        self._update_discord_model_selector()
+        # NOW connect the signals that should trigger saving settings
+        self.discord_provider_selector.currentIndexChanged.connect(self.on_discord_provider_changed)
+        self.discord_model_selector.currentIndexChanged.connect(self.on_discord_model_changed)
 
-    def _update_discord_model_selector(self):
+        self._initializing = False # Setup complete
+
+    def _save_discord_settings(self):
+        """Gathers current discord settings and saves them."""
+        if self._initializing: # Don't save during initial setup
+            return
+
+        current_settings = {
+            'discord_selected_provider': self.discord_provider_selector.currentText(),
+            'discord_selected_model': self.discord_model_selector.currentText()
+        }
+        # Update the in-memory settings object as well
+        self.settings.update(current_settings)
+        save_settings(self.settings)
+        print("Discord LLM settings saved.") # Add confirmation
+
+    def _update_discord_model_selector(self, set_from_settings=False):
         """Populates the Discord model selector based on the selected provider."""
         selected_provider = self.discord_provider_selector.currentText().lower()
+        # Block signals during modification to prevent premature triggers
+        self.discord_model_selector.blockSignals(True)
         self.discord_model_selector.clear() # Clear existing items
 
+        model_list = []
         if selected_provider == 'openai':
-            self.discord_model_selector.addItems(OPENAI_MODELS)
+            model_list = OPENAI_MODELS
         elif selected_provider == 'gemini':
-            self.discord_model_selector.addItems(GEMINI_MODELS)
-        else:
-            # Handle unknown provider case if necessary
-            pass
-        # Optionally, save the selection immediately or require clicking "Save"
-        # self.save_discord_llm_config() # Example: save on change
+            model_list = GEMINI_MODELS
+
+        if model_list:
+            self.discord_model_selector.addItems(model_list)
+            if set_from_settings:
+                # Try to set the loaded model
+                model_key = 'discord_selected_model'
+                loaded_model = self.settings.get(model_key)
+                model_index = self.discord_model_selector.findText(loaded_model)
+                if model_index != -1:
+                    self.discord_model_selector.setCurrentIndex(model_index)
+                elif model_list: # Fallback to first if loaded model not found
+                    self.discord_model_selector.setCurrentIndex(0)
+            elif model_list: # Default to first if not setting from saved
+                self.discord_model_selector.setCurrentIndex(0)
+
+        self.discord_model_selector.blockSignals(False) # Unblock signals
+        # Save settings if the model was changed *not* during initial load
+        if not set_from_settings:
+             self._save_discord_settings()
+
 
     def on_discord_provider_changed(self):
         """Handles the change in the Discord LLM provider selection."""
+        if self._initializing:
+            return
         print("Discord LLM Provider selection changed.")
-        self._update_discord_model_selector()
-        # Note: We don't re-initialize the LLM here as it runs in a separate process.
-        # The config will be read when the bot process starts.
+        self._update_discord_model_selector() # Update models (saves settings inside if not initializing)
+        # No need to re-initialize LLM here, settings are saved automatically.
 
-    # Optional: Handler if model change needs immediate action (likely not needed here)
-    # def on_discord_model_changed(self):
-    #     print("Discord LLM Model selection changed.")
-    #     # self.save_discord_llm_config() # Example: save on change
+    def on_discord_model_changed(self):
+        """Handles the change in the Discord LLM model selection."""
+        if self._initializing:
+            return
+        print("Discord LLM Model selection changed.")
+        # Save settings if the model text is valid
+        if self.discord_model_selector.currentText():
+            self._save_discord_settings()
 
 
     def setup_idle_animation(self):
@@ -315,37 +367,37 @@ class DiscordTab(QWidget):
     def on_save_clicked(self):
         guild_id_text = self.guild_id_input.text()
         channel_id_text = self.channel_id_input.text()
-        # --- Save only Guild ID and Channel ID to .env ---
-        # LLM config is now passed directly when starting the bot process
-        guild_id_saved = False
-        channel_id_saved = False
+        # --- Save Guild ID and Channel ID to .env ---
+        # Note: This saves to the *current* environment variables,
+        # but doesn't persist them in the .env file itself unless we write to it.
+        # For simplicity, we'll just update os.environ for the current session.
+        # LLM settings are saved automatically via signals now.
+        guild_id_updated = False
+        channel_id_updated = False
 
         if guild_id_text:
             try:
-                 int(guild_id_text)
-                 # Optional: Save to .env if desired for persistence across app restarts
-                 # but it won't affect the currently running bot.
-                 # os.environ["DISCORD_GUILD_ID"] = guild_id_text
-                 print(f"Guild ID set to: {guild_id_text}")
-                 guild_id_saved = True
+                int(guild_id_text)
+                os.environ["DISCORD_GUILD_ID"] = guild_id_text # Update env var
+                print(f"Guild ID updated in environment: {guild_id_text}")
+                guild_id_updated = True
             except ValueError:
-                 print("Invalid Guild ID entered.")
+                print("Invalid Guild ID entered.")
 
         if channel_id_text:
             try:
-                 int(channel_id_text)
-                 # Optional: Save to .env
-                 # os.environ["DISCORD_CHANNEL_ID"] = channel_id_text
-                 print(f"Channel ID set to: {channel_id_text}")
-                 channel_id_saved = True
+                int(channel_id_text)
+                os.environ["DISCORD_CHANNEL_ID"] = channel_id_text # Update env var
+                print(f"Channel ID updated in environment: {channel_id_text}")
+                channel_id_updated = True
             except ValueError:
-                 print("Invalid Channel ID entered.")
+                print("Invalid Channel ID entered.")
 
-        # Print status based on what was potentially saved or just validated
-        if guild_id_saved or channel_id_saved:
-             print("Guild/Channel IDs updated in UI. LLM settings are passed when starting the bot.")
+        if guild_id_updated or channel_id_updated:
+            print("Guild/Channel IDs updated for this session. LLM settings are saved automatically.")
+            # TODO: Consider writing to .env file here if persistence is needed across restarts.
         else:
-             print("No valid Guild/Channel ID changes detected.")
+            print("No valid Guild/Channel ID changes detected.")
 
 
     def setup_hook(self):
