@@ -193,11 +193,14 @@ class LLMClient:
 
         if json_response and isinstance(json_response, dict) and "tool_name" in json_response:
             tool_name = json_response["tool_name"]
-            if tool_name is None or tool_name in available_tool_names:
-                 return {"action_type": "tool_choice", "tool_name": tool_name}
+            # Check for None (JSON null), the string "null", or a valid tool name
+            if tool_name is None or tool_name == "null" or tool_name in available_tool_names:
+                 # If the tool name is the string "null", treat it as None (no tool)
+                 actual_tool_name = None if tool_name == "null" else tool_name
+                 return {"action_type": "tool_choice", "tool_name": actual_tool_name}
             else:
                  print(f"Error: LLM chose an invalid tool name: {tool_name}")
-                 # Fallback: maybe ask again or default to no tool? Defaulting for now.
+                 # Fallback: Default to no tool if the name is invalid
                  return {"action_type": "tool_choice", "tool_name": None}
         else:
             print(f"Error: Failed to get valid tool selection JSON. Response: {json_response}")

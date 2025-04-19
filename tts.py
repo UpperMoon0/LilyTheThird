@@ -22,10 +22,10 @@ async def generate_speech_from_provider(
     """
     print(f"TTS Request: Text='{text}', Speaker={speaker}, SampleRate={sample_rate}, Model='{model}'")
 
-    # Translate the text first (optional, based on previous logic)
+    # Translate the text to Japanese first
     try:
         translated_text = translate_to_japanese(text)
-        print(f"Translated Text: '{translated_text}'")
+        print(f"Translated Text for TTS: '{translated_text}'")
     except Exception as e:
         print(f"Translation failed: {e}. Using original text.")
         translated_text = text # Fallback to original text if translation fails

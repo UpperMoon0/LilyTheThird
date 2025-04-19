@@ -128,12 +128,20 @@ class ChatBoxLLM:
 
         # --- Tool Interaction Loop ---
         max_tool_calls = 5 # Limit iterations to prevent infinite loops
-        for _ in range(max_tool_calls):
+        for i in range(max_tool_calls): # Use index i for first iteration check
             current_history = self.history_manager.get_history()
             # Combine base system messages with dynamic history for the LLM call
             messages_for_llm = base_system_messages + current_history
 
+            # --- Add Memory Fetch Prompt (First Iteration Only) ---
+            if i == 0 and self.mongo_handler.is_connected():
+                 fetch_prompt_content = "System Instruction: Based on the user's latest message, consider if relevant information (facts or past conversation snippets) might exist in long-term memory. If so, prioritize using the 'fetch_memory' tool with an appropriate query *before* other actions. If not, proceed as normal."
+                 # Insert the prompt after system messages but before the main history
+                 messages_for_llm.insert(len(base_system_messages), {'role': 'system', 'content': fetch_prompt_content})
+                 print("--- Added memory fetch prompt to messages_for_llm ---")
+
             # 1. Ask LLM for next action (tool or null)
+            # The LLMClient.get_next_action method itself adds the primary tool selection prompt
             action_decision = self.llm_client.get_next_action(messages_for_llm)
 
             if not action_decision or action_decision.get("action_type") != "tool_choice":
@@ -142,11 +150,33 @@ class ChatBoxLLM:
 
             tool_name = action_decision.get("tool_name")
 
+            # --- Check if LLM wants to finish OR if it needs a final save ---
             if tool_name is None:
-                print("LLM decided no tool is needed. Proceeding to final response.")
-                break # Exit loop, ready for final response
+                print("LLM initially decided no tool needed. Checking for final save...")
+                # Add specific prompt asking ONLY about saving memory now
+                if self.mongo_handler.is_connected():
+                    save_check_prompt = {
+                        'role': 'system',
+                        'content': "System Instruction: Before finishing, review the conversation. Are there any specific, concise facts derived from this exchange that absolutely *must* be saved to long-term memory using the 'save_memory' tool? Respond ONLY with the tool choice JSON ('{\"tool_name\": \"save_memory\"}' or '{\"tool_name\": null}')."
+                    }
+                    messages_for_save_check = messages_for_llm + [save_check_prompt]
+                    print("--- Added final save check prompt ---")
+                    save_decision = self.llm_client.get_next_action(messages_for_save_check)
 
-            # 2. If tool chosen, get arguments
+                    if save_decision and save_decision.get("tool_name") == "save_memory":
+                        print("LLM decided to perform a final save.")
+                        tool_name = "save_memory" # Set tool_name to proceed with save logic
+                        # Fall through to the argument/execution block below
+                    else:
+                        print("LLM confirmed no final save needed. Proceeding to final response.")
+                        break # Exit loop, ready for final response
+                else:
+                    # MongoDB not connected, cannot save anyway
+                    print("MongoDB not connected, skipping final save check. Proceeding to final response.")
+                    break # Exit loop
+
+            # --- If a tool (including potential final save) was chosen ---
+            # 2. Get arguments
             print(f"LLM chose tool: {tool_name}")
             # Find the tool using the unified find_tool
             tool_definition = find_tool(tool_name)
@@ -156,9 +186,6 @@ class ChatBoxLLM:
                 self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
                 tool_interaction_summary.append({"tool_name": tool_name, "error": "Definition not found"})
                 break
-
-            # Add the LLM's decision to use the tool to history (optional, but good for tracing)
-            # self.history_manager.add_message('assistant', f"Okay, I will use the tool: {tool_name}.") # Example
 
             argument_decision = self.llm_client.get_tool_arguments(tool_definition, messages_for_llm)
 
@@ -189,8 +216,11 @@ class ChatBoxLLM:
 
 
         # --- Final Response Generation ---
+        # This happens *after* the loop breaks (either naturally or after final save check)
         final_history = self.history_manager.get_history()
         messages_for_final_response = base_system_messages + final_history
+        # No need for the extra save prompt here anymore, it's handled in the loop exit condition
+
         final_message = self.llm_client.generate_final_response(
             messages_for_final_response,
             self.personality # Pass the base personality prompt again for the final touch

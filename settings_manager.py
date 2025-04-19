@@ -21,7 +21,6 @@ def get_settings_dir():
 SETTINGS_FILE = os.path.join(get_settings_dir(), 'settings.json')
 DEFAULT_SETTINGS = {
     'tts_provider_enabled': False,
-    # Removed 'enable_mongo_memory' as memory is now tool-based
     'selected_provider': 'OpenAI',
     'selected_model': None # Will be populated based on provider
 }
@@ -50,15 +49,12 @@ def load_settings():
         elif DEFAULT_SETTINGS['selected_provider'] == 'Gemini':
              from config.models import GEMINI_MODELS
              DEFAULT_SETTINGS['selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
-        # Removed migration logic for enable_kg_memory/enable_mongo_memory
         return DEFAULT_SETTINGS.copy() # Return a copy
 
     try:
         with open(SETTINGS_FILE, 'r') as f:
             settings = json.load(f)
             print(f"Settings loaded from {SETTINGS_FILE}")
-
-            # Removed migration logic for enable_kg_memory/enable_mongo_memory
 
             # Validate loaded settings against defaults (add missing keys)
             final_settings = DEFAULT_SETTINGS.copy()
@@ -83,10 +79,9 @@ def load_settings():
                  print(f"Warning: Loaded model '{model}' not valid for provider '{provider}'. Resetting to default.")
                  final_settings['selected_model'] = valid_models[0] if valid_models else None
                  # Optionally save the corrected settings back
-                 # save_settings(final_settings)
+                  # save_settings(final_settings)
 
             return final_settings
-    # Removed duplicate try-except block for JSONDecodeError
     except json.JSONDecodeError as e:
         print(f"Error decoding settings file {SETTINGS_FILE}: {e}. Using defaults.")
         # Return a fresh copy of potentially corrected defaults
