@@ -90,6 +90,21 @@ AVAILABLE_TOOLS = [
             "required": ["content"]
         }
     ),
+    ToolDefinition(
+        name="search_web",
+        description="Searches the web for information based on a query and summarizes the findings from multiple relevant pages.",
+        instruction="Provide a clear and concise search query. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"latest advancements in AI research\"}",
+        json_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to use for finding information on the web."
+                }
+            },
+            "required": ["query"]
+        }
+    ),
     # Add more tools here as needed
 ]
 

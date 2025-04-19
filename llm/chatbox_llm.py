@@ -1,4 +1,6 @@
 import json
+import asyncio
+import inspect
 import os
 import json # Added json import that was missing in the provided content but present in the original logic
 from dotenv import load_dotenv
@@ -7,7 +9,8 @@ from tools.tools import find_tool # Use the unified find_tool
 from .history_manager import HistoryManager
 from .llm_client import LLMClient
 from memory.mongo_handler import MongoHandler
-from tools import time_tool, file_tool 
+from tools import time_tool, file_tool
+from tools.web_search_tool import perform_web_search # Import the new tool function
 
 load_dotenv()
 
@@ -41,6 +44,8 @@ class ChatBoxLLM:
             "get_current_time": time_tool.get_current_time,
             "read_file": file_tool.read_file,
             "write_file": file_tool.write_file,
+            # Web search tool
+            "search_web": perform_web_search,
             # Memory tools (map to mongo_handler methods if connected)
             "fetch_memory": self.mongo_handler.retrieve_memories_by_query if self.mongo_handler.is_connected() else self._mongo_unavailable,
             "save_memory": self.mongo_handler.add_fact if self.mongo_handler.is_connected() else self._mongo_unavailable, # Map to add_fact for arbitrary content
@@ -58,14 +63,24 @@ class ChatBoxLLM:
         action_function = self.tool_dispatcher[tool_name]
 
         try:
-            # Some actions might not need arguments (like get_current_time)
-            if arguments:
-                 # Pass arguments using **kwargs for flexibility
-                result = action_function(**arguments)
-            else:
-                result = action_function()
+            # Check if the function is async
+            is_async = inspect.iscoroutinefunction(action_function)
 
-            # Format the result specifically for fetch_memory
+            # Execute the function (sync or async)
+            if is_async:
+                # Run async function using asyncio.run()
+                if arguments:
+                    result = asyncio.run(action_function(**arguments))
+                else:
+                    result = asyncio.run(action_function())
+            else:
+                # Call synchronous function directly
+                if arguments:
+                    result = action_function(**arguments)
+                else:
+                    result = action_function()
+
+            # Format the result specifically for fetch_memory (remains the same)
             if tool_name == "fetch_memory" and isinstance(result, dict):
                 formatted_string = "Memory Fetch Results:\n"
                 if result.get("facts"):
