@@ -45,6 +45,12 @@ class MongoHandler:
             # --- Automatically create text index if it doesn't exist ---
             self._ensure_text_index()
 
+            # --- Automatically clean up duplicate facts on startup ---
+            self.cleanup_duplicate_facts()
+
+            # --- Automatically clean up duplicate conversations on startup ---
+            self.cleanup_duplicate_conversations()
+
         except ConfigurationError as e:
             logging.error(f"MongoDB configuration error: {e}. Please check your MONGO_URI format.")
             self.client = None # Ensure client is None on error
@@ -207,6 +213,162 @@ class MongoHandler:
         except Exception as e:
             logging.error(f"Failed to add fact to MongoDB: {e}")
             return None
+
+    def cleanup_duplicate_facts(self):
+        """
+        Removes duplicate 'fact' documents based on the 'content' field,
+        keeping only the oldest entry for each unique content.
+        """
+        if not self.is_connected():
+            logging.warning("MongoDB not connected. Cannot perform cleanup.")
+            return
+
+        logging.info("Starting duplicate fact cleanup...")
+        ids_to_delete = []
+        try:
+            # Aggregation pipeline to find duplicate facts
+            pipeline = [
+                {
+                    "$match": { "type": "fact" } # Only consider documents marked as facts
+                },
+                {
+                    "$group": {
+                        "_id": "$content",  # Group by the fact content
+                        "ids": { "$push": "$_id" }, # Collect all ObjectIds for this content
+                        "first_timestamp": { "$min": "$timestamp" }, # Find the earliest timestamp
+                        "count": { "$sum": 1 } # Count documents per content
+                    }
+                },
+                {
+                    "$match": { "count": { "$gt": 1 } } # Filter for groups with more than one document (duplicates)
+                }
+            ]
+
+            duplicate_groups = list(self.collection.aggregate(pipeline))
+            logging.info(f"Found {len(duplicate_groups)} fact content groups with duplicates.")
+
+            if not duplicate_groups:
+                logging.info("No duplicate facts found.")
+                return
+
+            # Find the ID of the document with the minimum timestamp for each group
+            ids_to_keep = set()
+            for group in duplicate_groups:
+                content = group['_id']
+                first_timestamp = group['first_timestamp']
+                # Find the specific document matching the content and the earliest timestamp
+                # There might be multiple docs with the *exact* same earliest timestamp,
+                # in which case we arbitrarily keep one. find_one is sufficient.
+                doc_to_keep = self.collection.find_one(
+                    {"type": "fact", "content": content, "timestamp": first_timestamp},
+                    {"_id": 1} # Only fetch the ID
+                )
+                if doc_to_keep:
+                    ids_to_keep.add(doc_to_keep['_id'])
+
+
+            # Collect IDs to delete (all IDs in duplicate groups MINUS the ones we keep)
+            for group in duplicate_groups:
+                for doc_id in group['ids']:
+                    if doc_id not in ids_to_keep:
+                        ids_to_delete.append(doc_id)
+
+            if ids_to_delete:
+                logging.info(f"Identified {len(ids_to_delete)} duplicate fact documents to remove.")
+                delete_result = self.collection.delete_many({"_id": {"$in": ids_to_delete}})
+                logging.info(f"Successfully removed {delete_result.deleted_count} duplicate fact documents.")
+            else:
+                # This case might happen if all duplicates shared the exact same earliest timestamp
+                # and find_one picked one from each group correctly.
+                logging.info("No documents needed deletion after identifying keepers (possibly due to identical timestamps).")
+
+
+        except Exception as e:
+            logging.error(f"An error occurred during duplicate fact cleanup: {e}")
+
+    def cleanup_duplicate_conversations(self):
+        """
+        Removes duplicate conversation documents based on the combination of
+        'user_input' and 'llm_response' fields, keeping only the oldest entry
+        for each unique pair.
+        """
+        if not self.is_connected():
+            logging.warning("MongoDB not connected. Cannot perform conversation cleanup.")
+            return
+
+        logging.info("Starting duplicate conversation cleanup...")
+        ids_to_delete = []
+        try:
+            # Aggregation pipeline to find duplicate conversations
+            pipeline = [
+                {
+                    # Match documents likely representing conversations
+                    # Ensure both fields exist, and optionally exclude 'fact' type if necessary
+                    "$match": {
+                        "user_input": { "$exists": True },
+                        "llm_response": { "$exists": True },
+                        # "type": { "$ne": "fact" } # Uncomment if facts might wrongly have user/llm fields
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": { # Group by the combination of user input and llm response
+                            "user": "$user_input",
+                            "lily": "$llm_response"
+                        },
+                        "ids": { "$push": "$_id" }, # Collect all ObjectIds for this pair
+                        "first_timestamp": { "$min": "$timestamp" }, # Find the earliest timestamp
+                        "count": { "$sum": 1 } # Count documents per pair
+                    }
+                },
+                {
+                    "$match": { "count": { "$gt": 1 } } # Filter for groups with more than one document
+                }
+            ]
+
+            duplicate_groups = list(self.collection.aggregate(pipeline))
+            logging.info(f"Found {len(duplicate_groups)} conversation content groups with duplicates.")
+
+            if not duplicate_groups:
+                logging.info("No duplicate conversations found.")
+                return
+
+            # Find the ID of the document with the minimum timestamp for each group
+            ids_to_keep = set()
+            for group in duplicate_groups:
+                user_input = group['_id']['user']
+                llm_response = group['_id']['lily']
+                first_timestamp = group['first_timestamp']
+
+                # Find the specific document matching the pair and the earliest timestamp
+                doc_to_keep = self.collection.find_one(
+                    {
+                        "user_input": user_input,
+                        "llm_response": llm_response,
+                        "timestamp": first_timestamp
+                        # "type": { "$ne": "fact" } # Add if needed for disambiguation
+                    },
+                    {"_id": 1} # Only fetch the ID
+                )
+                if doc_to_keep:
+                    ids_to_keep.add(doc_to_keep['_id'])
+
+            # Collect IDs to delete (all IDs in duplicate groups MINUS the ones we keep)
+            for group in duplicate_groups:
+                for doc_id in group['ids']:
+                    if doc_id not in ids_to_keep:
+                        ids_to_delete.append(doc_id)
+
+            if ids_to_delete:
+                logging.info(f"Identified {len(ids_to_delete)} duplicate conversation documents to remove.")
+                delete_result = self.collection.delete_many({"_id": {"$in": ids_to_delete}})
+                logging.info(f"Successfully removed {delete_result.deleted_count} duplicate conversation documents.")
+            else:
+                logging.info("No conversation documents needed deletion after identifying keepers.")
+
+        except Exception as e:
+            logging.error(f"An error occurred during duplicate conversation cleanup: {e}")
+
 
     def close_connection(self):
         """Closes the MongoDB connection."""
