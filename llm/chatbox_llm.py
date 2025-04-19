@@ -1,25 +1,13 @@
 import json
 import os
-import random
-from datetime import datetime # Keep datetime import for potential future use, though not directly used now
+import json # Added json import that was missing in the provided content but present in the original logic
 from dotenv import load_dotenv
-# Removed direct OpenAI/Gemini imports, pydantic validation
-# Removed KG imports, action/knowledge extractors
-# Import keyword extraction function (might be used for future Mongo search)
-# from .keyword_extractor import extract_keywords
-# Import tool definitions and finders from both tool files
-from tools.tools import find_tool as find_general_tool, AVAILABLE_TOOLS as GENERAL_TOOLS
-from tools.memory_tools import find_tool as find_memory_tool, AVAILABLE_TOOLS as MEMORY_TOOLS
-# Import the history manager
+from tools.tools import find_tool # Use the unified find_tool
+# Removed memory_tools import
 from .history_manager import HistoryManager
-# Import the LLM client
 from .llm_client import LLMClient
-# Import MongoHandler
 from memory.mongo_handler import MongoHandler
-# Import settings loader (no longer needed for memory toggle)
-# from settings_manager import load_settings
-# Import tool implementation handlers from the tools directory
-from tools import time_tool, file_tool # Use absolute imports
+from tools import time_tool, file_tool 
 
 load_dotenv()
 
@@ -56,9 +44,6 @@ class ChatBoxLLM:
             # Memory tools (map to mongo_handler methods if connected)
             "fetch_memory": self.mongo_handler.retrieve_memories_by_query if self.mongo_handler.is_connected() else self._mongo_unavailable,
             "save_memory": self.mongo_handler.add_memory_from_tool if self.mongo_handler.is_connected() else self._mongo_unavailable,
-            # TODO: Implement retrieve_memories_by_query and add_memory_from_tool in MongoHandler
-            # retrieve_memories_by_query should accept a 'query' string argument
-            # add_memory_from_tool should accept a 'content' string argument and maybe generate a standard user_input/llm_response structure
         }
     
     def _mongo_unavailable(self, *args, **kwargs):
@@ -132,10 +117,10 @@ class ChatBoxLLM:
 
             # 2. If tool chosen, get arguments
             print(f"LLM chose tool: {tool_name}")
-            # Try finding the tool in general tools first, then memory tools
-            tool_definition = find_general_tool(tool_name) or find_memory_tool(tool_name)
+            # Find the tool using the unified find_tool
+            tool_definition = find_tool(tool_name)
             if not tool_definition:
-                print(f"Error: Tool '{tool_name}' definition not found in general or memory tools. Breaking loop.")
+                print(f"Error: Tool '{tool_name}' definition not found. Breaking loop.")
                 # Maybe add an error message to history?
                 self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
                 tool_interaction_summary.append({"tool_name": tool_name, "error": "Definition not found"})
@@ -163,15 +148,7 @@ class ChatBoxLLM:
 
 
             # 4. Add tool result to history
-            # Use a specific 'tool' role if supported, otherwise 'system' or 'assistant' context
-            # OpenAI supports 'tool' role. Let's assume HistoryManager can handle it.
-            # Need tool_call_id if using OpenAI's official tool format, but we are simulating.
-            # Let's use a structured message in the 'assistant' or a dedicated 'tool' role.
-            # For simplicity, adding result as a 'tool' message. HistoryManager needs update if it doesn't support 'tool'.
-            # Assuming HistoryManager is updated or we use 'system'/'assistant' for now.
-            # Let's use 'system' as a safe bet for broad compatibility.
-            # self.history_manager.add_message('tool', tool_result, tool_call_id=...) # Ideal OpenAI
-            self.history_manager.add_message('system', f"Tool Used: {tool_name}\nArguments: {json.dumps(arguments)}\nResult: {tool_result}") # Simple system message approach
+            self.history_manager.add_message('system', f"Tool Used: {tool_name}\nArguments: {json.dumps(arguments)}\nResult: {tool_result}")
 
             # Loop continues to see if another tool is needed based on the result
 
@@ -191,19 +168,11 @@ class ChatBoxLLM:
         # Handle potential errors from the final call
         if final_message is None or final_message.startswith("Error:"):
             print(f"Failed to get final response: {final_message}")
-            # Don't update history with the error message itself as assistant response
-            # The error is already logged. Return the error or a generic message.
             final_message = final_message if final_message else "Sorry, I encountered an error generating the final response."
             # Don't save to MongoDB on final error
         else:
             # --- Update Short-Term History with Final Response ---
             self.history_manager.add_message('assistant', final_message)
-
-            # --- Store Interaction in MongoDB (if connected and save_memory wasn't explicitly called) ---
-            # Decide if implicit saving is desired or only via save_memory tool.
-            # For now, let's assume saving only happens via the save_memory tool.
-            # If implicit saving is needed, add logic here similar to before,
-            # checking self.mongo_handler.is_connected().
             print("Interaction finished. Saving only occurs via explicit 'save_memory' tool call.")
 
         # --- Return Final Generated Message ---

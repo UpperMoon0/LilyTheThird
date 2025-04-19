@@ -60,7 +60,37 @@ AVAILABLE_TOOLS = [
             "required": ["file_path", "content"]
         }
     ),
-    # Add more tools here as needed, mirroring functionalities in actions/
+    ToolDefinition(
+        name="fetch_memory",
+        description="Fetches relevant information from long-term memory based on a query.",
+        instruction="Provide a query describing the information you need from long-term memory. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"details about project X discussed last week\"}",
+        json_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Keywords or description of the information to retrieve from memory."
+                }
+            },
+            "required": ["query"]
+        }
+    ),
+    ToolDefinition(
+        name="save_memory",
+        description="Saves a piece of information to long-term memory for future recall.",
+        instruction="Provide the specific information you want to save to long-term memory. Respond with a JSON object containing the 'content' key. Example: {\"content\": \"User prefers concise answers.\"}",
+        json_schema={
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The information to store in long-term memory."
+                }
+            },
+            "required": ["content"]
+        }
+    ),
+    # Add more tools here as needed
 ]
 
 def get_tool_list_for_prompt() -> str:
