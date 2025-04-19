@@ -256,19 +256,6 @@ class ChatBoxLLM:
             # --- Update Short-Term History with Final Response ---
             self.history_manager.add_message('assistant', final_message)
 
-            # --- Save Conversation Turn to Long-Term Memory (MongoDB) ---
-            if self.mongo_handler.is_connected():
-                # try:
-                    # Use the original user_message and the final_message
-                    # self.mongo_handler.add_memory(user_input=user_message, llm_response=final_message) # <-- Commented out as requested
-                    # print("Conversation turn saved to MongoDB.")
-                # except Exception as e:
-                    # print(f"Error saving conversation turn to MongoDB: {e}")
-                # --- Conversation saving disabled ---
-                print("Conversation turn saving to MongoDB is disabled.") # Add a log message
-            else:
-                print("MongoDB not connected. Conversation turn not saved.")
-
         # --- Return Final Generated Message ---
         # Return two values as expected by chat_tab.py
         return final_message, None
