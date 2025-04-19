@@ -7,23 +7,24 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import google.generativeai as genai
 from pydantic import ValidationError # Import ValidationError
-# Import the specific function needed, or keep importing the handler
-from kg import kg_handler # Import kg_handler
+# Removed KG imports
 # Import schemas from the new module
 from .schemas import (
-    KnowledgeTriple, KeywordSchema, ActionExtractionSchema,
-    SentenceExtractionSchema, KnowledgeExtractionSchema, PydanticSchemaType
+    ActionExtractionSchema, PydanticSchemaType # Removed KG-related schemas
 )
 # Import the action extractor function
 from .action_extractor import extract_action
-# Import knowledge extraction functions
-from .knowledge_extractor import extract_knowledge_sentences, convert_sentences_to_triples
-# Import keyword extraction function
-from .keyword_extractor import extract_keywords
+# Removed knowledge extraction import
+# Import keyword extraction function (might be used for future Mongo search)
+# from .keyword_extractor import extract_keywords
 # Import the history manager
 from .history_manager import HistoryManager
 # Import the LLM client
 from .llm_client import LLMClient
+# Import MongoHandler
+from ..memory.mongo_handler import MongoHandler
+# Import settings loader
+from ..settings_manager import load_settings
 
 load_dotenv()
 
@@ -43,40 +44,37 @@ class ChatBoxLLM:
         self.history_manager = HistoryManager()
         # LLMClient handles provider/model logic and client initialization
         self.llm_client = LLMClient(provider=provider, model_name=model_name)
-        # Store provider and model name locally for convenience if needed elsewhere
-        self.provider = self.llm_client.provider # Get actual provider used
-        self.model = self.llm_client.get_model_name() # Get actual model used
+        # Store provider and model name locally
+        self.provider = self.llm_client.provider
+        self.model = self.llm_client.get_model_name()
+        # Load settings to check if MongoDB memory is enabled
+        self.settings = load_settings()
+        self.mongo_memory_enabled = self.settings.get('enable_mongo_memory', False)
+        # Initialize MongoHandler only if enabled
+        self.mongo_handler = MongoHandler() if self.mongo_memory_enabled else None
+        if self.mongo_memory_enabled and not self.mongo_handler.is_connected():
+            print("Warning: MongoDB memory is enabled in settings, but connection failed. Disabling for this session.")
+            self.mongo_memory_enabled = False # Disable if connection failed
 
-    def get_response(self, user_message, disable_kg_memory=False):
-        related_info_sentences = []
-        # Disable KG if not loaded
-        # Check if kg_handler and its attribute exist before accessing
-        kg_loaded = hasattr(kg_handler, 'knowledge_graph_loaded') and kg_handler.knowledge_graph_loaded
-        if not kg_loaded:
-            if not disable_kg_memory:
-                 print("Knowledge graph not loaded or handler unavailable, disabling KG memory for this request.")
-            disable_kg_memory = True
+    def get_response(self, user_message):
+        """
+        Generates a response to the user message, potentially using MongoDB for context
+        and storing the conversation turn if enabled.
+        """
+        mongo_context_sentences = []
 
-        # --- Keyword extraction ---
-        keywords: list[str] = []
-        if not disable_kg_memory:
-            keywords = extract_keywords(
-                provider=self.llm_client.provider,
-                client=self.llm_client.client, # Pass the actual client object
-                model_name=self.llm_client.get_model_name(),
-                user_message=user_message
-            )
-
-            # --- Get KG Info ---
-            if keywords and hasattr(kg_handler, 'get_related_info_from_keywords'): # Check method existence
-                related_info_sentences = kg_handler.get_related_info_from_keywords(keywords)
-                for sentence in related_info_sentences:
-                    print(f"KG Info: {sentence}") # Log retrieved info
-            elif not keywords:
-                 print("No keywords extracted for KG lookup.")
-            else:
-                 print("KG handler or get_related_info_from_keywords method not available.")
-
+        # --- Retrieve Context from MongoDB (if enabled) ---
+        if self.mongo_memory_enabled and self.mongo_handler:
+            # Retrieve recent memories (adjust limit as needed)
+            recent_memories = self.mongo_handler.retrieve_recent_memories(limit=5)
+            if recent_memories:
+                print(f"Retrieved {len(recent_memories)} recent memories from MongoDB.")
+                # Format memories for context (simple approach: use user input and response)
+                for mem in reversed(recent_memories): # Add oldest first
+                    mongo_context_sentences.append(f"Past interaction: User said '{mem['user_input']}', You responded '{mem['llm_response']}'")
+            # Future: Implement keyword-based search here using mongo_handler.search_memories(keywords)
+            # keywords = extract_keywords(...) # If needed
+            # search_results = self.mongo_handler.search_memories(keywords) ... add to context
 
         # --- Prepare Base System Messages ---
         self.current_time = datetime.now()
@@ -86,16 +84,15 @@ class ChatBoxLLM:
             {'role': 'system', 'content': self.personality},
             {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"},
         ]
-        # Add KG context if available and enabled
-        if not disable_kg_memory and related_info_sentences:
-            base_system_messages.append({'role': 'system', 'content': "Consider the following facts from the Knowledge Graph when formulating your response. Prioritize information directly related to the user's query. Use this context to provide more informed and accurate answers:"})
-            for sentence in related_info_sentences:
-                base_system_messages.append({'role': 'system', 'content': f"- {sentence}"}) # Prefix KG sentences
 
+        # Add MongoDB context if available and enabled
+        if self.mongo_memory_enabled and mongo_context_sentences:
+            base_system_messages.append({'role': 'system', 'content': "Consider the following recent interactions from your long-term memory when formulating your response:"})
+            for sentence in mongo_context_sentences:
+                base_system_messages.append({'role': 'system', 'content': f"- {sentence}"})
 
         # --- First Call: Generate Message ---
-        # Include personality, time, KG context, history for message generation
-        # Get current history from the manager
+        # Include personality, time, MongoDB context, history for message generation
         current_history = self.history_manager.get_history()
         message_generation_messages = base_system_messages + \
                                       current_history + \
@@ -105,17 +102,26 @@ class ChatBoxLLM:
         message = self.llm_client.generate_message_response(message_generation_messages)
 
         # Handle potential errors from the first call
-        # generate_message_response returns None or an error string
         if message is None or message.startswith("Error:"):
             print(f"Failed to get message response: {message}")
-            # Update history via manager even on error (adds user message)
-            self.history_manager.update_history(user_message, None)
-            return message if message else "Sorry, I encountered an error.", "none" # Return error and default action
+            self.history_manager.update_history(user_message, None) # Still update history
+            # Don't save to MongoDB on error
+            return message if message else "Sorry, I encountered an error.", "none"
 
-        # --- Update History ---
-        # Update history *after* getting the message, before action/knowledge calls
-        # Use the history manager to update
+        # --- Update Short-Term History ---
         self.history_manager.update_history(user_message, message)
+
+        # --- Store Interaction in MongoDB (if enabled) ---
+        if self.mongo_memory_enabled and self.mongo_handler:
+            print("Attempting to add conversation turn to MongoDB.")
+            # Add metadata if needed, e.g., timestamp is added automatically by handler
+            metadata = {"provider": self.provider, "model": self.model}
+            self.mongo_handler.add_memory(user_input=user_message, llm_response=message, metadata=metadata)
+        elif self.mongo_memory_enabled:
+            print("MongoDB memory enabled but handler not available, skipping storage.")
+        else:
+            print("MongoDB memory is disabled, skipping storage.")
+
 
         # --- Second Call: Extract Action ---
         action = extract_action(
@@ -125,52 +131,14 @@ class ChatBoxLLM:
             user_message=user_message,
             assistant_message=message
         )
-        # The function already defaults to "none", so no need for the check below
-        # action = action if action is not None else "none" # Ensure action is not None
+        # action defaults to "none" if extraction fails
 
-        # --- Third Call: Extract Knowledge Sentences ---
-        # --- Fourth Call: Convert Sentences to Triples ---
-        # --- Store New Knowledge in KG ---
-        if not disable_kg_memory:
-            kg_available = hasattr(kg_handler, 'knowledge_graph_loaded') and kg_handler.knowledge_graph_loaded
-            if not kg_available:
-                 print("Knowledge graph not loaded or handler unavailable, skipping knowledge extraction.")
-            else:
-                # Step 3: Extract sentences using the imported function
-                learned_sentences = extract_knowledge_sentences(
-                    provider=self.llm_client.provider,
-                    client=self.llm_client.client,
-                    model_name=self.llm_client.get_model_name(),
-                    user_message=user_message,
-                    assistant_message=message
-                )
-
-                if learned_sentences:
-                    # Step 4: Convert sentences to triples using the imported function
-                    new_knowledge_triples = convert_sentences_to_triples(
-                        provider=self.llm_client.provider,
-                        client=self.llm_client.client,
-                        model_name=self.llm_client.get_model_name(),
-                        sentences=learned_sentences
-                    )
-
-                    # Step 5: Store triples
-                    if new_knowledge_triples: # Check if list is not empty after conversion/validation
-                        try:
-                            if hasattr(kg_handler, 'add_triples_to_graph'):
-                                print(f"Attempting to add {len(new_knowledge_triples)} new triple(s) to KG.")
-                                kg_handler.add_triples_to_graph(new_knowledge_triples) # Pass the list of validated triple dicts
-                            else:
-                                print("Warning: kg_handler.add_triples_to_graph function not found. Cannot store new knowledge.")
-                        except Exception as e:
-                            print(f"Error adding new knowledge to KG: {e}")
-                    else:
-                        print("No valid triples were converted from the extracted sentences.")
-                else:
-                    print("No new knowledge sentences were extracted from the conversation turn.")
-        else:
-            print("Knowledge Graph memory is disabled, skipping knowledge extraction and storage.")
-
+        # --- Removed Knowledge Graph Extraction/Storage Logic ---
 
         # --- Return Generated Message and Extracted Action ---
         return message, action
+
+    def __del__(self):
+        # Ensure MongoDB connection is closed when the object is destroyed
+        if hasattr(self, 'mongo_handler') and self.mongo_handler:
+            self.mongo_handler.close_connection()

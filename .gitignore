@@ -1,9 +1,6 @@
 /.env
 /response.mp3
 **/__pycache__/
-kg/knowledge_graph.html
-kg/knowledge_graph.rdf
-/kg/data
 /outputs
 /downloads
 *.pyc

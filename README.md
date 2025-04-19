@@ -1,7 +1,7 @@
 # Project Documentation
 
 ## Overview
-Lily is a comprehensive unified platform that integrates multiple powerful tools into one seamless experience. As a single entity, Lily unifies an LLM-powered chatbot, a feature-rich Discord bot, interactive Knowledge Graph visualization, and VTube Studio integration for virtual avatar control. Lily also supports translation and speech synthesis, providing an all-in-one interface for communication, development, and multimedia interaction.
+Lily is a comprehensive unified platform that integrates multiple powerful tools into one seamless experience. As a single entity, Lily unifies an LLM-powered chatbot, a feature-rich Discord bot, and VTube Studio integration for virtual avatar control. Lily also supports translation and speech synthesis, providing an all-in-one interface for communication, development, and multimedia interaction. Long-term memory is handled via MongoDB.
 
 ## Technologies Used
 - Python
@@ -11,23 +11,21 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
 - External TTS-Provider (for Text-to-Speech via WebSocket) - Requires separate server.
 - Deep Translator (for translation)
 - OpenAI API (for large language model)
-- spaCy and rdflib (for knowledge graph processing)
+- pymongo (for MongoDB interaction)
 - websockets (for VTube Studio integration)
 
 **Note:** Text-to-Speech functionality requires the [TTS-Provider](https://github.com/UpperMoon0/TTS-Provider.git) server to be running locally (default: `ws://localhost:9000`).
+**Note:** MongoDB memory requires a running MongoDB instance and the `MONGO_URI` set in the `.env` file.
 
 ## Features
 - **Chat Tab**: 
   - Interact with a chatbot powered by the OpenAI API.
   - Translate chatbot responses into Japanese using Deep Translator.
   - Convert Japanese responses into speech via an external TTS-Provider server.
-  - Short-term memory: Maintains a prompt history.
-  - Long-term memory: Stores information in a Knowledge Graph.
-  
-- **Knowledge Graph Tab**:
-  - Visualize and interact with the Knowledge Graph built from user interactions.
-  
-- **Discord Tab**: 
+  - Short-term memory: Maintains a prompt history (in-memory).
+  - Long-term memory: Stores conversation turns (user input, LLM response, timestamp, metadata) in a MongoDB database (if enabled and configured).
+
+- **Discord Tab**:
   - Start and stop a Discord bot that responds to messages.
   
 - **VTube Studio Integration (VTube Tab)**:
@@ -46,6 +44,7 @@ You will need to set the following variables in your .env file for Lily to funct
 - `DISCORD_CHANNEL_ID`: The Discord channel ID for communication.
 - `MASTER_DISCORD_ID`: Your Discord user ID as Lily's master.
 - `LILY_DISCORD_ID`: Lily's assigned Discord user ID.
+- `MONGO_URI`: The connection string for your MongoDB database (required for long-term memory). Example: `mongodb+srv://user:pass@cluster.mongodb.net/myDatabase?retryWrites=true&w=majority`
 
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more details.

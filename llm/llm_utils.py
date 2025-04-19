@@ -16,7 +16,8 @@ def call_llm_for_json(
     pydantic_schema: PydanticSchemaType,
     schema_name: str, # Name for logging/error messages
     max_tokens: int = 150,
-    temperature: float = 0.2
+    temperature: float = 0.2,
+    skip_validation: bool = False # Add parameter to skip validation
 ) -> Optional[Dict]:
     """
     Calls the appropriate LLM provider, requesting a JSON response that conforms
@@ -114,7 +115,12 @@ def call_llm_for_json(
 
             try:
                 # Parse the JSON string
+                # Parse the JSON string
                 parsed_json = json.loads(response_text)
+
+                if skip_validation:
+                    print(f"Skipping Pydantic validation for {schema_name}.")
+                    return parsed_json # Return raw parsed JSON
 
                 # Validate with Pydantic
                 validated_data = pydantic_schema(**parsed_json)
