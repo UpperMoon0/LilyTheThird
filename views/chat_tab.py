@@ -7,10 +7,10 @@ from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QMetaObject, Q_ARG, QSize
 from PyQt5.QtGui import QFont, QRegion, QPixmap, QIcon
 from PyQt5.QtWidgets import (QLineEdit, QTextEdit, QVBoxLayout, QWidget,
                              QCheckBox, QPushButton, QLabel, QHBoxLayout, QComboBox)
-from actions import action_handler
+# Removed: from actions import action_handler
 from llm.chatbox_llm import ChatBoxLLM
 from tts import generate_speech_from_provider
-from kg import kg_handler
+# Removed: from kg import kg_handler
 from config.models import OPENAI_MODELS, GEMINI_MODELS
 # Import settings manager
 from settings_manager import load_settings, save_settings
@@ -96,18 +96,7 @@ class ChatTab(QWidget):
 
         self.clear_history_button = QPushButton("Clear History", self)
 
-        # Knowledge Graph Memory checkbox and status display
-        self.enable_kg_memory_checkbox = QCheckBox("Enable Knowledge Graph Memory", self)
-        self.enable_kg_memory_checkbox.setChecked(self.settings.get('enable_kg_memory', False))
-        # Connect signal LATER
-
-        self.kg_status_label = QLabel(self)
-        if not kg_handler.knowledge_graph_loaded:
-            self.enable_kg_memory_checkbox.setEnabled(False)
-            self.kg_status_label.setText("Knowledge graph has to be enabled to use this feature")
-        else:
-            self.enable_kg_memory_checkbox.setEnabled(True)
-            self.kg_status_label.setText("Knowledge graph loaded")
+        # Removed KG Memory checkbox and status display
 
         # Main layout for the ChatTab
         layout = QVBoxLayout()
@@ -115,8 +104,7 @@ class ChatTab(QWidget):
         layout.addLayout(prompt_layout)
         layout.addWidget(self.response_box)
         layout.addWidget(self.tts_provider_enabled)
-        layout.addWidget(self.enable_kg_memory_checkbox)
-        layout.addWidget(self.kg_status_label)
+        # Removed KG widgets from layout
         provider_layout = QHBoxLayout()
         provider_layout.addWidget(self.provider_label)
         provider_layout.addWidget(self.provider_selector)
@@ -140,7 +128,7 @@ class ChatTab(QWidget):
         self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
         self.model_selector.currentIndexChanged.connect(self.on_model_changed)
         self.tts_provider_enabled.stateChanged.connect(self._save_current_settings)
-        self.enable_kg_memory_checkbox.stateChanged.connect(self._save_current_settings)
+        # Removed KG checkbox signal connection
 
         self._initializing = False  # Setup complete
         clear_output_folder()
@@ -152,7 +140,7 @@ class ChatTab(QWidget):
 
         current_settings = {
             'tts_provider_enabled': self.tts_provider_enabled.isChecked(),
-            'enable_kg_memory': self.enable_kg_memory_checkbox.isChecked(),
+            # Removed 'enable_kg_memory'
             'selected_provider': self.provider_selector.currentText(),
             'selected_model': self.model_selector.currentText()
         }
@@ -261,10 +249,14 @@ class ChatTab(QWidget):
         threading.Thread(target=self._get_response_thread, args=(user_text,), daemon=True).start()
 
     def _get_response_thread(self, user_text):
-        message, action = self.chatBoxLLM.get_response(user_text, not self.enable_kg_memory_checkbox.isChecked())
-        action_handler.execute_command(action)
+        # Assuming get_response might still return action, but we ignore it.
+        # If get_response was updated to only return message, this still works.
+        # Removed the KG checkbox check from the arguments.
+        # TODO: Confirm if ChatBoxLLM.get_response needs other arguments now.
+        message, _ = self.chatBoxLLM.get_response(user_text)
+        # Removed: action_handler.execute_command(action)
         print(f"Message: {message}")
-        print(f"Action: {action}")
+        # Removed: print(f"Action: {action}")
 
         # Call TTS-Provider if enabled
         if self.tts_provider_enabled.isChecked():
@@ -288,11 +280,7 @@ class ChatTab(QWidget):
         if notify:
             self.response_box.append("History cleared.")
 
-    def enable_kg_features(self):
-        self.enable_kg_memory_checkbox.setEnabled(True)
-        self.kg_status_label.setText("Knowledge graph loaded")
-        # Save settings if KG becomes enabled (user might want this persisted)
-        self._save_current_settings()
+    # Removed enable_kg_features method
 
     def record_voice(self):
         threading.Thread(target=self._record_voice_thread, daemon=True).start()

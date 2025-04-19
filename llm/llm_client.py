@@ -1,7 +1,7 @@
 import os
 import random
 import json
-from LilyTheThird.tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
+from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
 import google.generativeai as genai
 from openai import OpenAI
 from typing import List, Dict, Optional, Any

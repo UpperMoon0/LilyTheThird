@@ -115,7 +115,6 @@ def call_llm_for_json(
 
             try:
                 # Parse the JSON string
-                # Parse the JSON string
                 parsed_json = json.loads(response_text)
 
                 if skip_validation:

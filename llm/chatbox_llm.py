@@ -7,18 +7,19 @@ from dotenv import load_dotenv
 # Removed KG imports, action/knowledge extractors
 # Import keyword extraction function (might be used for future Mongo search)
 # from .keyword_extractor import extract_keywords
-# Import tool definitions and finder
-from ..tools.tools import find_tool
+# Import tool definitions and finders from both tool files
+from tools.tools import find_tool as find_general_tool, AVAILABLE_TOOLS as GENERAL_TOOLS
+from tools.memory_tools import find_tool as find_memory_tool, AVAILABLE_TOOLS as MEMORY_TOOLS
 # Import the history manager
 from .history_manager import HistoryManager
 # Import the LLM client
 from .llm_client import LLMClient
 # Import MongoHandler
-from ..memory.mongo_handler import MongoHandler
-# Import settings loader
-from ..settings_manager import load_settings
+from memory.mongo_handler import MongoHandler
+# Import settings loader (no longer needed for memory toggle)
+# from settings_manager import load_settings
 # Import tool implementation handlers from the tools directory
-from ..tools import time_tool, file_tool # Import the moved and renamed tool modules
+from tools import time_tool, file_tool # Use absolute imports
 
 load_dotenv()
 
@@ -40,21 +41,29 @@ class ChatBoxLLM:
         # Store provider and model name locally
         self.provider = self.llm_client.provider
         self.model = self.llm_client.get_model_name()
-        # Load settings to check if MongoDB memory is enabled
-        self.settings = load_settings()
-        self.mongo_memory_enabled = self.settings.get('enable_mongo_memory', False)
-        # Initialize MongoHandler only if enabled
-        self.mongo_handler = MongoHandler() if self.mongo_memory_enabled else None
-        if self.mongo_memory_enabled and not self.mongo_handler.is_connected():
-            print("Warning: MongoDB memory is enabled in settings, but connection failed. Disabling for this session.")
-            self.mongo_memory_enabled = False # Disable if connection failed
+        # Initialize MongoHandler - memory is always potentially available via tools
+        self.mongo_handler = MongoHandler()
+        if not self.mongo_handler.is_connected():
+            print("Warning: MongoDB connection failed. Memory tools will not function.")
+            # We don't disable it entirely, just let tool execution fail if called
 
         # Map tool names to their handler functions
         self.tool_dispatcher = {
+            # General tools
             "get_current_time": time_tool.get_current_time,
             "read_file": file_tool.read_file,
             "write_file": file_tool.write_file,
+            # Memory tools (map to mongo_handler methods if connected)
+            "fetch_memory": self.mongo_handler.retrieve_memories_by_query if self.mongo_handler.is_connected() else self._mongo_unavailable,
+            "save_memory": self.mongo_handler.add_memory_from_tool if self.mongo_handler.is_connected() else self._mongo_unavailable,
+            # TODO: Implement retrieve_memories_by_query and add_memory_from_tool in MongoHandler
+            # retrieve_memories_by_query should accept a 'query' string argument
+            # add_memory_from_tool should accept a 'content' string argument and maybe generate a standard user_input/llm_response structure
         }
+    
+    def _mongo_unavailable(self, *args, **kwargs):
+        """Placeholder function for when MongoDB is not connected."""
+        return "Error: MongoDB connection is not available. Cannot use memory tool."
 
     def _execute_tool(self, tool_name: str, arguments: dict) -> str:
         """Executes the chosen tool and returns the result as a string."""
@@ -88,28 +97,14 @@ class ChatBoxLLM:
         """
         Orchestrates the conversation flow: user message -> potential tool calls -> final response.
         """
-        mongo_context_sentences = []
+        # Removed automatic MongoDB context retrieval - now handled by fetch_memory tool
         tool_interaction_summary = [] # To store tool calls/results for potential MongoDB logging
 
-        # --- Retrieve Context from MongoDB (if enabled) ---
-        if self.mongo_memory_enabled and self.mongo_handler:
-            # (Keep existing MongoDB retrieval logic)
-            recent_memories = self.mongo_handler.retrieve_recent_memories(limit=5)
-            if recent_memories:
-                print(f"Retrieved {len(recent_memories)} recent memories from MongoDB.")
-                for mem in reversed(recent_memories):
-                    mongo_context_sentences.append(f"Past interaction: User said '{mem['user_input']}', You responded '{mem['llm_response']}'")
-
         # --- Prepare Base System Messages ---
-        # Removed manual time injection; LLM can use get_current_time tool if needed.
         base_system_messages = [
             {'role': 'system', 'content': self.personality},
-            # {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"}, # Removed
         ]
-        if self.mongo_memory_enabled and mongo_context_sentences:
-            base_system_messages.append({'role': 'system', 'content': "Consider the following recent interactions from your long-term memory:"})
-            for sentence in mongo_context_sentences:
-                base_system_messages.append({'role': 'system', 'content': f"- {sentence}"})
+        # Removed automatic addition of mongo context sentences
 
         # --- Add User Message to History ---
         # We add it *before* the loop so the LLM sees it when deciding the first action
@@ -137,9 +132,10 @@ class ChatBoxLLM:
 
             # 2. If tool chosen, get arguments
             print(f"LLM chose tool: {tool_name}")
-            tool_definition = find_tool(tool_name)
+            # Try finding the tool in general tools first, then memory tools
+            tool_definition = find_general_tool(tool_name) or find_memory_tool(tool_name)
             if not tool_definition:
-                print(f"Error: Tool '{tool_name}' definition not found. Breaking loop.")
+                print(f"Error: Tool '{tool_name}' definition not found in general or memory tools. Breaking loop.")
                 # Maybe add an error message to history?
                 self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
                 tool_interaction_summary.append({"tool_name": tool_name, "error": "Definition not found"})
@@ -203,26 +199,14 @@ class ChatBoxLLM:
             # --- Update Short-Term History with Final Response ---
             self.history_manager.add_message('assistant', final_message)
 
-            # --- Store Interaction in MongoDB (if enabled) ---
-            if self.mongo_memory_enabled and self.mongo_handler:
-                print("Attempting to add full conversation turn to MongoDB.")
-                metadata = {
-                    "provider": self.provider,
-                    "model": self.model,
-                    "tool_interactions": tool_interaction_summary # Store tool steps
-                }
-                self.mongo_handler.add_memory(
-                    user_input=user_message,
-                    llm_response=final_message, # Store the final response
-                    metadata=metadata
-                )
-            elif self.mongo_memory_enabled:
-                print("MongoDB memory enabled but handler not available, skipping storage.")
-            else:
-                print("MongoDB memory is disabled, skipping storage.")
+            # --- Store Interaction in MongoDB (if connected and save_memory wasn't explicitly called) ---
+            # Decide if implicit saving is desired or only via save_memory tool.
+            # For now, let's assume saving only happens via the save_memory tool.
+            # If implicit saving is needed, add logic here similar to before,
+            # checking self.mongo_handler.is_connected().
+            print("Interaction finished. Saving only occurs via explicit 'save_memory' tool call.")
 
         # --- Return Final Generated Message ---
-        # The second element (action) is removed from the return tuple
         return final_message
 
 

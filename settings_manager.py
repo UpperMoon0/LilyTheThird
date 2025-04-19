@@ -21,7 +21,7 @@ def get_settings_dir():
 SETTINGS_FILE = os.path.join(get_settings_dir(), 'settings.json')
 DEFAULT_SETTINGS = {
     'tts_provider_enabled': False,
-    'enable_mongo_memory': False, # Replaced enable_kg_memory
+    # Removed 'enable_mongo_memory' as memory is now tool-based
     'selected_provider': 'OpenAI',
     'selected_model': None # Will be populated based on provider
 }
@@ -50,13 +50,7 @@ def load_settings():
         elif DEFAULT_SETTINGS['selected_provider'] == 'Gemini':
              from config.models import GEMINI_MODELS
              DEFAULT_SETTINGS['selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
-        # Migrate old setting if present
-        temp_settings = DEFAULT_SETTINGS.copy()
-        if 'enable_kg_memory' in temp_settings:
-            print("Migrating 'enable_kg_memory' setting to 'enable_mongo_memory'.")
-            temp_settings['enable_mongo_memory'] = temp_settings.pop('enable_kg_memory', False)
-            save_settings(temp_settings) # Save migrated defaults
-            return temp_settings
+        # Removed migration logic for enable_kg_memory/enable_mongo_memory
         return DEFAULT_SETTINGS.copy() # Return a copy
 
     try:
@@ -64,32 +58,44 @@ def load_settings():
             settings = json.load(f)
             print(f"Settings loaded from {SETTINGS_FILE}")
 
-            # Migrate old setting if present in loaded file
-            migrated = False
-            if 'enable_kg_memory' in settings:
-                print("Migrating 'enable_kg_memory' setting in loaded file.")
-                settings['enable_mongo_memory'] = settings.pop('enable_kg_memory')
-                migrated = True
+            # Removed migration logic for enable_kg_memory/enable_mongo_memory
 
             # Validate loaded settings against defaults (add missing keys)
             final_settings = DEFAULT_SETTINGS.copy()
-            final_settings.update(settings) # Overwrite defaults with loaded values
+            # Only update with keys that exist in defaults to avoid loading old settings
+            for key in DEFAULT_SETTINGS:
+                if key in settings:
+                    final_settings[key] = settings[key]
 
-            # If migration happened, save the updated settings back
-            if migrated:
-                save_settings(final_settings)
+            # Ensure 'selected_model' is valid for the loaded 'selected_provider'
+            # (Keep this validation logic)
+            provider = final_settings.get('selected_provider')
+            model = final_settings.get('selected_model')
+            valid_models = []
+            if provider == 'OpenAI':
+                from config.models import OPENAI_MODELS
+                valid_models = OPENAI_MODELS
+            elif provider == 'Gemini':
+                 from config.models import GEMINI_MODELS
+                 valid_models = GEMINI_MODELS
+
+            if model not in valid_models:
+                 print(f"Warning: Loaded model '{model}' not valid for provider '{provider}'. Resetting to default.")
+                 final_settings['selected_model'] = valid_models[0] if valid_models else None
+                 # Optionally save the corrected settings back
+                 # save_settings(final_settings)
 
             return final_settings
-    except json.JSONDecodeError as e:
-        with open(SETTINGS_FILE, 'r') as f:
-            settings = json.load(f)
-            print(f"Settings loaded from {SETTINGS_FILE}")
-            # Validate loaded settings against defaults (add missing keys)
-            final_settings = DEFAULT_SETTINGS.copy()
-            final_settings.update(settings) # Overwrite defaults with loaded values
-            return final_settings
+    # Removed duplicate try-except block for JSONDecodeError
     except json.JSONDecodeError as e:
         print(f"Error decoding settings file {SETTINGS_FILE}: {e}. Using defaults.")
+        # Return a fresh copy of potentially corrected defaults
+        if DEFAULT_SETTINGS['selected_provider'] == 'OpenAI':
+            from config.models import OPENAI_MODELS
+            DEFAULT_SETTINGS['selected_model'] = OPENAI_MODELS[0] if OPENAI_MODELS else None
+        elif DEFAULT_SETTINGS['selected_provider'] == 'Gemini':
+             from config.models import GEMINI_MODELS
+             DEFAULT_SETTINGS['selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
         return DEFAULT_SETTINGS.copy()
     except IOError as e:
         print(f"Error reading settings file {SETTINGS_FILE}: {e}. Using defaults.")
