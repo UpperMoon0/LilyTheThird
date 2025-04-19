@@ -1,7 +1,7 @@
 import json
 import os
 import random
-from datetime import datetime
+from datetime import datetime # Keep datetime import for potential future use, though not directly used now
 from dotenv import load_dotenv
 # Removed direct OpenAI/Gemini imports, pydantic validation
 # Removed KG imports, action/knowledge extractors
@@ -60,9 +60,9 @@ class ChatBoxLLM:
         """Executes the chosen tool and returns the result as a string."""
         if tool_name not in self.tool_dispatcher:
             return f"Error: Unknown tool '{tool_name}'."
-        
+
         action_function = self.tool_dispatcher[tool_name]
-        
+
         try:
             # Some actions might not need arguments (like get_current_time)
             if arguments:
@@ -101,11 +101,10 @@ class ChatBoxLLM:
                     mongo_context_sentences.append(f"Past interaction: User said '{mem['user_input']}', You responded '{mem['llm_response']}'")
 
         # --- Prepare Base System Messages ---
-        self.current_time = datetime.now()
-        self.current_date_time = self.current_time.strftime("%Y-%m-%d %H:%M:%S")
+        # Removed manual time injection; LLM can use get_current_time tool if needed.
         base_system_messages = [
             {'role': 'system', 'content': self.personality},
-            {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"},
+            # {'role': 'system', 'content': f"Current date and time: {self.current_date_time}"}, # Removed
         ]
         if self.mongo_memory_enabled and mongo_context_sentences:
             base_system_messages.append({'role': 'system', 'content': "Consider the following recent interactions from your long-term memory:"})

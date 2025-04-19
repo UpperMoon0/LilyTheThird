@@ -1,13 +1,13 @@
 import os
 import random
 import json
+from LilyTheThird.tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
 import google.generativeai as genai
 from openai import OpenAI
 from typing import List, Dict, Optional, Any
 
 # Assuming history manager is in the same directory or adjust import path
 from .history_manager import HistoryManager
-from ..tools.tools import ToolDefinition, get_tool_list_for_prompt, find_tool, get_tool_names
 
 class LLMClient:
     """Handles communication with the underlying LLM provider (OpenAI or Gemini)."""
@@ -339,7 +339,3 @@ class LLMClient:
             import traceback
             traceback.print_exc() # Print stack trace for Gemini errors
             return f"Error: Could not get final response from Gemini. {e}"
-
-# Note: The call_llm_for_json function in llm_utils.py might become redundant
-# if this internal _call_llm_for_json proves sufficient, or it could be adapted
-# to use this client's method. For now, we leave llm_utils.py as is.
