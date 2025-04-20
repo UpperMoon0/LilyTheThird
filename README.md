@@ -31,7 +31,8 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
   - The bot utilizes an LLM (configurable via `.env`) to understand and generate responses.
   - The LLM can use specific tools to enhance its replies, including:
     - `save_memory`: Stores information semantically in the MongoDB database.
-    - `fetch_memory`: Retrieves relevant information from memory using semantic search.
+    - `fetch_memory`: Retrieves relevant information from memory using semantic search, returning facts with their unique IDs.
+    - `update_memory`: Updates an existing memory fact using its unique ID.
     - `search_web`: Performs web searches.
     - `get_current_time`: Gets the current time.
     - `read_file` / `write_file`: Interacts with the local filesystem (use with caution).

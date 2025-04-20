@@ -41,10 +41,13 @@ class ToolExecutor:
             # Use semantic search (similarity) for fetching memory
             "fetch_memory": (lambda query: self.mongo_handler.retrieve_memories_by_similarity(query_text=query))
                            if self.mongo_handler.is_connected() and self.mongo_handler.embedding_model
-                           else self._memory_fetch_unavailable,
-            "save_memory": self.mongo_handler.add_fact if self.mongo_handler.is_connected() else self._mongo_unavailable, # Saving still uses add_fact (which now includes embedding)
-        }
-        # Filter out unavailable tools (like memory if mongo isn't connected)
+                            else self._memory_fetch_unavailable,
+            "update_memory": (lambda memory_id, new_content: self.mongo_handler.update_fact(memory_id=memory_id, new_content=new_content))
+                        if self.mongo_handler.is_connected() and self.mongo_handler.embedding_model
+                        else self._memory_update_unavailable, # Added update tool
+            "save_memory": self.mongo_handler.add_fact if self.mongo_handler.is_connected() else self._mongo_unavailable, 
+         }
+         # Filter out unavailable tools (like memory if mongo isn't connected)
         # Although the functions handle it, this makes the available set clearer if needed later.
         # For now, we keep the placeholders.
         return dispatcher
@@ -63,8 +66,20 @@ class ToolExecutor:
             logging.warning("Attempted to use fetch_memory tool, but the embedding model is not loaded.")
             return "Error: Embedding model is not available. Cannot use fetch_memory tool."
         else: # Should not happen with the current logic, but for completeness
-             logging.warning("Attempted to use fetch_memory tool, but it's unavailable for an unknown reason.")
-             return "Error: fetch_memory tool is currently unavailable."
+         logging.warning("Attempted to use fetch_memory tool, but it's unavailable for an unknown reason.")
+         return "Error: fetch_memory tool is currently unavailable." # Corrected indentation
+
+    def _memory_update_unavailable(self, *args, **kwargs) -> str:
+        """Placeholder function for when memory update is unavailable (DB or model issue)."""
+        if not self.mongo_handler.is_connected():
+            logging.warning("Attempted to use update_memory tool, but MongoDB is not connected.")
+            return "Error: MongoDB connection is not available. Cannot use update_memory tool."
+        elif not self.mongo_handler.embedding_model:
+            logging.warning("Attempted to use update_memory tool, but the embedding model is not loaded.")
+            return "Error: Embedding model is not available. Cannot use update_memory tool."
+        else: # Should not happen with the current logic, but for completeness
+             logging.warning("Attempted to use update_memory tool, but it's unavailable for an unknown reason.")
+             return "Error: update_memory tool is currently unavailable."
 
     def get_all_tool_names(self) -> List[str]:
         """Returns a list of names of all tools configured in the dispatcher."""
@@ -132,7 +147,7 @@ class ToolExecutor:
         if tool_name == "search_web" and isinstance(result, str) and result and not result.startswith("Error:"):
             logging.info(f"--- Summarizing web search results for query: {arguments.get('query', 'N/A')} ---")
             raw_search_results = result
-            summarization_prompt = f"Please summarize the following web search results and make them easy to read:\n\n{raw_search_results}"
+            summarization_prompt = f"Provide a detailed analysis of the information contained within this search result.:\n\n{raw_search_results}"
             summary_messages = [{'role': 'user', 'content': summarization_prompt}]
             # Use the stored LLM client to generate the summary
             summarized_result = self.llm_client.generate_final_response(
@@ -141,25 +156,43 @@ class ToolExecutor:
             )
 
             if summarized_result and not summarized_result.startswith("Error:"):
-                logging.info(f"Summarized Result: {summarized_result[:200]}...")
+                logging.info(f"Result: {summarized_result[:200]}...")
                 return summarized_result # Return summary
             else:
                 logging.warning("Failed to summarize web search results. Using raw results.")
                 return raw_search_results # Return raw results if summarization fails
-
+ 
         # --- Format Memory Fetch Results ---
         elif tool_name == "fetch_memory":
-            if isinstance(result, list):
-                if result:
-                    formatted_string = "Memory Fetch Results:\n\nRelevant Facts:\n"
-                    formatted_string += "\n---\n".join(result) # Assumes result is list of strings
-                else:
-                    formatted_string = "Memory Fetch Results:\n\nNo relevant facts found."
-                return formatted_string
-            else:
-                # Handle error string or unexpected type from retrieve_memories_by_query
-                logging.warning(f"Unexpected result type for fetch_memory: {type(result)}. Content: {result}")
-                return str(result) # Return the error or unexpected result as string
+             if isinstance(result, list):
+                 if result:
+                     # Check if the first item is a dictionary (new format)
+                     if result and isinstance(result[0], dict) and "_id" in result[0] and "content" in result[0]:
+                         formatted_string = "Memory Fetch Results:\n\n"
+                         fact_strings = [f"ID: {fact['_id']} | Content: {fact['content']}" for fact in result]
+                         formatted_string += "\n---\n".join(fact_strings)
+                     else:
+                         # Fallback for old format or unexpected list content (shouldn't happen ideally)
+                         logging.warning("fetch_memory returned a list, but not in the expected format (list of dicts with _id/content).")
+                         formatted_string = "Memory Fetch Results:\n\nRelevant Facts:\n"
+                         formatted_string += "\n---\n".join(map(str, result)) # Convert all items to string
+                 else:
+                     formatted_string = "Memory Fetch Results:\n\nNo relevant facts found."
+                 return formatted_string
+             else:
+                 # Handle error string or unexpected type from retrieve_memories_by_similarity
+                 logging.warning(f"Unexpected result type for fetch_memory: {type(result)}. Content: {result}")
+                 return str(result) # Return the error or unexpected result as string
+
+        # --- Format Memory Update Results ---
+        elif tool_name == "update_memory": # Corrected indentation to 8 spaces
+             # update_fact now returns the new ObjectId on success, None on failure
+             if result is not None:
+                 # Can optionally check isinstance(result, bson.ObjectId) if bson is imported here
+                 return f"Memory replaced successfully. New ID: {str(result)}"
+             else: # This else corresponds to 'if result is not None:'
+                 return "Memory replacement failed (original ID not found or error occurred during delete/insert)."
+         # Removed the misplaced 'else:' and its content here. The logic is handled by the if/else above.
 
         # --- Default Formatting ---
         else:

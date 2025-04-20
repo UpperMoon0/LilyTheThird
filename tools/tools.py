@@ -65,8 +65,8 @@ AVAILABLE_TOOLS = [
     ),
     ToolDefinition(
         name="fetch_memory",
-        description="Fetches relevant information from long-term memory based on a query.",
-        instruction="Provide a query describing the information you need from long-term memory. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"details about project X discussed last week\"}",
+        description="Fetches relevant information from long-term memory based on a query, returning facts with their unique IDs.",
+        instruction="Provide a query describing the information you need from long-term memory. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"details about project X discussed last week\"}. The tool will return a list of matching facts, each with a 'memory_id' and 'content'.",
         json_schema={
             "type": "object",
             "properties": {
@@ -76,6 +76,25 @@ AVAILABLE_TOOLS = [
                 }
             },
             "required": ["query"]
+        }
+    ),
+    ToolDefinition(
+        name="update_memory",
+        description="Updates the content of an existing memory fact using its unique ID.",
+        instruction="Provide the unique 'memory_id' of the fact to update (obtained from 'fetch_memory') and the 'new_content'. Example: {\"memory_id\": \"60b8d295f1d2a5e6f3e4b5c6\", \"new_content\": \"The project deadline is now next Friday.\"}",
+        json_schema={
+            "type": "object",
+            "properties": {
+                "memory_id": {
+                    "type": "string",
+                    "description": "The unique ID of the memory fact to update."
+                },
+                "new_content": {
+                    "type": "string",
+                    "description": "The new content for the memory fact."
+                }
+            },
+            "required": ["memory_id", "new_content"]
         }
     ),
     ToolDefinition(

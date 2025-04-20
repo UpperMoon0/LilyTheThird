@@ -1,5 +1,6 @@
 import os
 import os
+import bson # Added for ObjectId
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ConfigurationError
 from dotenv import load_dotenv
@@ -115,8 +116,9 @@ class MongoHandler:
             limit (int): The maximum number of similar facts to retrieve. Defaults to 5.
 
         Returns:
-            list: A list of fact strings (content only) ordered by similarity,
-                  or an empty list if not connected, model not loaded, or error occurs.
+            list: A list of dictionaries, each containing '_id' (as string) and 'content',
+                  ordered by similarity. Returns an empty list if not connected,
+                  model not loaded, or error occurs.
         """
         if not self.is_connected():
             logging.warning("MongoDB not connected. Cannot perform similarity search.")
@@ -138,11 +140,14 @@ class MongoHandler:
             # 2. Fetch all 'fact' documents containing embeddings
             #    Note: For large collections, consider fetching in batches or adding filters.
             logging.debug("Fetching facts with embeddings from local MongoDB...")
+            # 2. Fetch all 'fact' documents containing embeddings and _id
+            #    Note: For large collections, consider fetching in batches or adding filters.
+            logging.debug("Fetching facts with embeddings and IDs from local MongoDB...")
             all_facts = list(self.collection.find(
                 {"type": "fact", "content_embedding": {"$exists": True}},
-                {"content": 1, "content_embedding": 1} # Project only needed fields
+                {"_id": 1, "content": 1, "content_embedding": 1} # Project needed fields
             ))
-            logging.debug(f"Fetched {len(all_facts)} facts with embeddings.")
+            logging.debug(f"Fetched {len(all_facts)} facts with embeddings and IDs.")
 
             if not all_facts:
                 logging.info("No facts with embeddings found in the database.")
@@ -161,6 +166,7 @@ class MongoHandler:
                 # Cosine Similarity = dot(A, B) / (norm(A) * norm(B))
                 similarity = np.dot(query_embedding, fact_embedding) / (query_norm * fact_norm)
                 results.append({
+                    "_id": str(fact.get("_id")), # Convert ObjectId to string
                     "content": fact.get("content", "N/A"),
                     "score": similarity
                 })
@@ -173,9 +179,9 @@ class MongoHandler:
 
             logging.info(f"Retrieved {len(top_results)} facts similar to query '{query_text}' (calculated locally).")
 
-            # Format the results as strings (content only)
-            facts = [m["content"] for m in top_results]
-            return facts
+            # Format the results as list of dicts with _id and content
+            facts_with_ids = [{"_id": m["_id"], "content": m["content"]} for m in top_results]
+            return facts_with_ids
 
         except Exception as e:
             logging.error(f"Failed to perform local similarity search: {e}", exc_info=True)
@@ -412,6 +418,70 @@ class MongoHandler:
             logging.error(f"An error occurred during semantic duplicate fact cleanup: {e}", exc_info=True)
 
     # --- cleanup_duplicate_conversations method removed ---
+
+    def update_fact(self, memory_id: str, new_content: str) -> bool:
+        """
+        Updates the content and embedding of an existing fact document.
+
+        Args:
+            memory_id (str): The string representation of the MongoDB ObjectId of the fact to update.
+            new_content (str): The new content for the fact.
+
+        Returns:
+            ObjectId | None: The ObjectId of the newly inserted fact if successful, None otherwise.
+        """
+        if not self.is_connected():
+            logging.warning("MongoDB not connected. Cannot replace fact.")
+            return None
+        if not self.embedding_model:
+            logging.error("Embedding model not loaded. Cannot generate embedding for replacement fact.")
+            return None
+
+        try:
+            # 1. Validate the ObjectId string for deletion
+            try:
+                object_id_to_delete = bson.ObjectId(memory_id)
+            except bson.errors.InvalidId:
+                logging.error(f"Invalid memory_id format provided: '{memory_id}'. Cannot find document to delete.")
+                return None # Cannot proceed without a valid ID to delete
+
+            # 2. Attempt to delete the old document
+            logging.debug(f"Attempting to delete fact with ID: {memory_id}")
+            delete_result = self.collection.delete_one({"_id": object_id_to_delete, "type": "fact"})
+
+            if delete_result.deleted_count == 0:
+                logging.warning(f"Fact replacement failed: No fact found with ID '{memory_id}' to delete.")
+                # Decide if we should still insert? For now, let's say no, as the intent was to *replace*.
+                return None
+            else:
+                logging.info(f"Successfully deleted old fact with ID: {memory_id}")
+
+            # 3. Generate embedding for the new content
+            logging.debug(f"Generating embedding for replacement fact content...")
+            new_embedding = np.array(self.embedding_model.encode(new_content))
+            new_norm = np.linalg.norm(new_embedding)
+            if new_norm == 0:
+                logging.warning("New fact embedding has zero norm. Skipping insertion.")
+                # Even though deletion succeeded, insertion failed. Return None.
+                return None
+            logging.debug("New embedding generated.")
+
+            # 4. Insert the new document (no similarity check needed here, as we are explicitly replacing)
+            fact_unit = {
+                "type": "fact",
+                "content": new_content,
+                "content_embedding": new_embedding.tolist(),
+                "timestamp": datetime.utcnow(),
+                "metadata": {} # Start with empty metadata for the replacement
+            }
+            insert_result = self.collection.insert_one(fact_unit)
+            new_id = insert_result.inserted_id
+            logging.info(f"Successfully inserted replacement fact with new ID: {new_id}")
+            return new_id # Return the ID of the newly inserted document
+
+        except Exception as e:
+            logging.error(f"Failed during fact replacement process for old ID '{memory_id}': {e}", exc_info=True)
+            return None
 
 
     def close_connection(self):
