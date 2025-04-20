@@ -185,14 +185,17 @@ class ToolExecutor:
                  return str(result) # Return the error or unexpected result as string
 
         # --- Format Memory Update Results ---
-        elif tool_name == "update_memory": # Corrected indentation to 8 spaces
-             # update_fact now returns the new ObjectId on success, None on failure
+        elif tool_name == "update_memory":
+             # update_fact returns the new ObjectId on success, None on failure
              if result is not None:
-                 # Can optionally check isinstance(result, bson.ObjectId) if bson is imported here
+                 # Successfully updated
                  return f"Memory replaced successfully. New ID: {str(result)}"
-             else: # This else corresponds to 'if result is not None:'
-                 return "Memory replacement failed (original ID not found or error occurred during delete/insert)."
-         # Removed the misplaced 'else:' and its content here. The logic is handled by the if/else above.
+             else:
+                 # Failed - likely due to invalid/unknown memory_id
+                 failed_id = arguments.get('memory_id', 'unknown') # Get the ID that was attempted
+                 error_msg = f"Memory replacement failed. The provided memory_id '{failed_id}' was not found or an error occurred during the update process."
+                 logging.error(error_msg) # Log the specific error with the failed ID
+                 return error_msg # Return the specific error message
 
         # --- Default Formatting ---
         else:

@@ -1,7 +1,9 @@
 import asyncio
 import requests
+import time # Added for sleep on retry
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+from duckduckgo_search import DDGS # Keep DDGS import
+from duckduckgo_search.exceptions import RatelimitException # Correct import path for RatelimitException
 from typing import List, Dict, Optional
 import logging # Added for better error logging
 
@@ -59,18 +61,34 @@ async def perform_web_search(query: str, max_results: int = 5) -> str:
     logging.info(f"Performing web search for: '{query}' (max_results={max_results}, attempting detail fetch for all)")
     results_str = f"Web search results for '{query}':\n\n"
     try:
-        # Define a helper function to run DDGS().text within the thread
-        # This ensures a fresh DDGS instance is potentially used each time
-        def _ddgs_search_in_thread(q: str, mr: int):
-            try:
-                # Instantiate DDGS inside the thread function
-                with DDGS() as ddgs: # Use context manager if available (check library docs)
-                    # If DDGS() doesn't support context manager, just instantiate: ddgs = DDGS()
-                    return ddgs.text(q, max_results=mr)
-            except Exception as thread_ddg_exc:
-                # Log the error from within the thread if possible, or re-raise
-                logging.error(f"Error inside DDGS search thread for '{q}': {thread_ddg_exc}")
-                raise # Re-raise the exception to be caught outside
+        # Define a helper function to run DDGS().text within the thread with retry logic
+        def _ddgs_search_in_thread(q: str, mr: int, retry_delay: int = 5):
+            attempt = 1
+            max_attempts = 2 # Initial attempt + 1 retry
+            while attempt <= max_attempts:
+                try:
+                    # Instantiate DDGS inside the thread function for each attempt
+                    with DDGS() as ddgs:
+                        logging.info(f"Attempt {attempt}: Performing DDGS search for '{q}'")
+                        results = ddgs.text(q, max_results=mr)
+                        logging.info(f"Attempt {attempt}: DDGS search successful for '{q}'")
+                        return results
+                except RatelimitException as rate_limit_exc:
+                    logging.warning(f"Attempt {attempt}: Encountered DDGS rate limit for '{q}': {rate_limit_exc}")
+                    if attempt < max_attempts:
+                        logging.info(f"Waiting {retry_delay} seconds before retrying...")
+                        time.sleep(retry_delay)
+                        attempt += 1
+                    else:
+                        logging.error(f"Attempt {attempt}: DDGS rate limit persisted after retry for '{q}'. Raising exception.")
+                        raise rate_limit_exc # Re-raise after final attempt fails
+                except Exception as thread_ddg_exc:
+                    # Log other errors from within the thread and re-raise
+                    logging.error(f"Attempt {attempt}: Error inside DDGS search thread for '{q}': {thread_ddg_exc}")
+                    raise # Re-raise the exception to be caught outside
+            # Should not be reached if logic is correct, but added for safety
+            logging.error(f"Exited DDGS search loop unexpectedly for query '{q}' after {attempt-1} attempts.")
+            return None # Or raise an error
 
         try:
             # Run the helper function in a separate thread

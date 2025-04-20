@@ -114,49 +114,7 @@ class BaseLLMOrchestrator(ABC):
             print(f"Error retrieving memories by similarity: {e}")
             return None # Return None on error
 
-    async def _execute_tool_step(self, tool_name: str, messages_for_llm: List[Dict]) -> bool:
-        """
-        Helper function to get arguments for and execute a specific tool.
-
-        Args:
-            tool_name: The name of the tool to execute.
-            messages_for_llm: The current message history to provide context.
-
-        Returns:
-            True if the tool executed successfully, False otherwise.
-        """
-        print(f"[{self.__class__.__name__}] Attempting to execute tool: {tool_name}")
-        tool_definition = find_tool(tool_name)
-        if not tool_definition:
-            print(f"[{self.__class__.__name__}] Error: Tool '{tool_name}' definition not found.")
-            self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
-            return False
-
-        # Get arguments
-        argument_decision = self.llm_client.get_tool_arguments(tool_definition, messages_for_llm)
-        if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
-            print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for {tool_name}: {argument_decision}.")
-            self.history_manager.add_message('system', f"Error: Failed to get arguments for tool '{tool_name}'.")
-            return False
-
-        arguments = argument_decision.get("arguments", {})
-
-        # Execute the tool
-        tool_result = await self.tool_executor.execute(tool_name, arguments)
-        print(f"[{self.__class__.__name__}] Result from {tool_name}: {tool_result}")
-
-        # Add tool result to history
-        tool_result_message = {
-            "role": "system", # Using 'system' role for tool results
-            "content": json.dumps({
-                "tool_used": tool_name,
-                "arguments": arguments,
-                "result": tool_result
-            })
-        }
-        self.history_manager.add_message(tool_result_message['role'], tool_result_message['content'])
-        return True
-
+    # Removed _execute_tool_step as its logic is integrated into _process_message loops
 
     async def _process_message(self, user_message: str, **kwargs) -> str:
         """
@@ -226,18 +184,87 @@ class BaseLLMOrchestrator(ABC):
                 print(f"[{self.__class__.__name__}] LLM decided no further tools needed in main loop.")
                 break # Exit main loop gracefully
 
-            # Execute the chosen tool
+            # --- Argument Generation & Execution with Retry for update_memory ---
             print(f"[{self.__class__.__name__}] Main loop: LLM chose tool: {tool_name}")
-            success = await self._execute_tool_step(tool_name, messages_for_loop)
-            if success:
-                tool_calls_made += 1
+            max_retries = 1 if tool_name == 'update_memory' else 0
+            retry_count = 0
+            arguments = None
+            tool_result = None
+            tool_definition = find_tool(tool_name)
+
+            if not tool_definition:
+                print(f"[{self.__class__.__name__}] Error: Tool '{tool_name}' definition not found.")
+                tool_result = f"Error: Could not find definition for tool '{tool_name}'."
+                # Add error result to history below and break outer loop
             else:
-                print(f"[{self.__class__.__name__}] Tool execution failed for {tool_name}. Breaking main loop.")
-                break # Exit main loop on execution failure
+                while retry_count <= max_retries:
+                    # Prepare messages for argument generation (get fresh history each time)
+                    messages_for_args = base_system_messages + self.history_manager.get_history()
+                    # Add memory context specifically for update_memory retries
+                    if tool_name == 'update_memory' and retry_count > 0 and retrieved_facts_context_string:
+                        retry_context = (
+                            "RETRY CONTEXT: Previous attempt to update memory failed due to an invalid ID. "
+                            "Please select a valid ID from the retrieved facts below to update.\n"
+                            f"{retrieved_facts_context_string}" # retrieved_facts_context_string already includes header
+                        )
+                        messages_for_args.append({'role': 'system', 'content': retry_context})
+                        print(f"[{self.__class__.__name__}] Added retry context for {tool_name} argument generation.")
+
+                    # Get arguments
+                    argument_decision = self.llm_client.get_tool_arguments(tool_definition, messages_for_args)
+
+                    if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
+                        print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for {tool_name} (Attempt {retry_count + 1}): {argument_decision}.")
+                        tool_result = f"Error: Failed to get arguments for tool '{tool_name}'."
+                        arguments = None # Ensure arguments is None if generation failed
+                        break # Break the while loop
+
+                    arguments = argument_decision.get("arguments", {})
+
+                    # Execute the tool
+                    tool_result = await self.tool_executor.execute(tool_name, arguments)
+                    print(f"[{self.__class__.__name__}] Result from {tool_name} (Attempt {retry_count + 1}): {tool_result}")
+
+                    # Check for retry condition
+                    is_update_memory_failure = tool_name == 'update_memory' and isinstance(tool_result, str) and "Memory replacement failed. The provided memory_id" in tool_result
+
+                    if is_update_memory_failure and retry_count < max_retries:
+                        print(f"[{self.__class__.__name__}] Retrying {tool_name} due to invalid memory ID.")
+                        retry_count += 1
+                        continue # Go to next iteration of while loop
+                    else:
+                        # Success, non-retryable failure, or max retries reached
+                        break # Exit the while loop
+
+            # --- After the while loop (or if definition not found) ---
+            # Add the final tool result (or argument/definition error) to history
+            tool_result_message_content = {
+                "tool_used": tool_name,
+                "arguments": arguments if arguments is not None else "N/A (argument generation failed)",
+                "result": tool_result if tool_result is not None else "Error: Tool execution did not produce a result."
+            }
+            self.history_manager.add_message('system', json.dumps(tool_result_message_content))
+
+            # Increment tool calls *only* if execution was attempted (i.e., arguments were generated)
+            if arguments is not None:
+                tool_calls_made += 1
+                # Check if the final result was an error and break the outer loop if needed
+                if tool_result and isinstance(tool_result, str) and tool_result.startswith("Error:"):
+                    # Don't break on the specific retryable error if max retries were reached,
+                    # allow final response generation. But break on others.
+                    is_retryable_final_failure = tool_name == 'update_memory' and "Memory replacement failed. The provided memory_id" in tool_result
+                    if not is_retryable_final_failure:
+                        print(f"[{self.__class__.__name__}] Tool execution failed for {tool_name}. Breaking main loop.")
+                        break # Break outer for loop
+            else:
+                # Argument generation or definition finding failed, break outer loop
+                print(f"[{self.__class__.__name__}] Argument generation or definition finding failed for {tool_name}. Breaking main loop.")
+                break # Break outer for loop
+
 
         # 5. Final Save Memory Step (Optional)
         print(f"--- Step 5: Final Memory Save Check ---")
-        current_history_save = self.history_manager.get_history()
+        current_history_save = self.history_manager.get_history() # Get history before save check
         messages_for_save = base_system_messages + current_history_save
         save_decision = self.llm_client.get_next_action(
             messages_for_save,
@@ -246,9 +273,39 @@ class BaseLLMOrchestrator(ABC):
             force_tool_options=['save_memory'] # Force choice: save_memory or null
         )
         if save_decision and save_decision.get("tool_name") == 'save_memory':
+            tool_name = 'save_memory'
             print(f"[{self.__class__.__name__}] LLM decided to save memory finally.")
-            await self._execute_tool_step('save_memory', messages_for_save)
-            # Note: We don't increment tool_calls_made here
+            # --- Argument Generation & Execution for save_memory ---
+            tool_definition = find_tool(tool_name)
+            if not tool_definition:
+                 print(f"[{self.__class__.__name__}] Error: Tool '{tool_name}' definition not found.")
+                 self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
+            else:
+                 # Prepare messages for argument generation (use history *before* save check)
+                 messages_for_args = messages_for_save # Use the already prepared list
+
+                 # Get arguments
+                 argument_decision = self.llm_client.get_tool_arguments(tool_definition, messages_for_args)
+
+                 if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
+                     print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for {tool_name}: {argument_decision}.")
+                     tool_result = f"Error: Failed to get arguments for tool '{tool_name}'."
+                     arguments = None
+                 else:
+                     arguments = argument_decision.get("arguments", {})
+                     # Execute the tool
+                     tool_result = await self.tool_executor.execute(tool_name, arguments)
+                     print(f"[{self.__class__.__name__}] Result from final {tool_name}: {tool_result}")
+
+                 # Add the final tool result (or argument/definition error) to history
+                 tool_result_message_content = {
+                     "tool_used": tool_name,
+                     "arguments": arguments if arguments is not None else "N/A (argument generation failed)",
+                     "result": tool_result if tool_result is not None else "Error: Tool execution did not produce a result."
+                 }
+                 # Add result AFTER the final response is generated? No, add it here so LLM knows it happened.
+                 self.history_manager.add_message('system', json.dumps(tool_result_message_content))
+                 # Note: We don't increment tool_calls_made for this final optional step.
         else:
              print(f"[{self.__class__.__name__}] LLM decided *not* to save memory finally.")
 
