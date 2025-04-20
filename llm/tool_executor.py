@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # Import tool implementation functions
 from tools import time_tool, file_tool
