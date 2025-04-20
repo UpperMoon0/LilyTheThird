@@ -26,8 +26,10 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
   - Long-term memory: Stores conversation history (user input, LLM response, timestamp, metadata) in a MongoDB database, requiring the `MONGO_URI` to be set in the `.env` file.
 
 - **Discord Tab**:
-  - Start and stop a Discord bot that responds to messages.
-  
+  - Start and stop a Discord bot that responds to messages in a designated channel.
+  - The bot utilizes an LLM (configurable via `.env`) to understand and generate responses.
+  - The LLM can use specific tools (`fetch_memory`, `search_web`, `get_current_time`) to access information and enhance its replies.
+
 - **VTube Studio Integration (VTube Tab)**:
   - Connect to VTube Studio via websockets to control virtual characters.
   
