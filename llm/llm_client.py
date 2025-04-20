@@ -228,6 +228,13 @@ class LLMClient:
             or None if an error occurred or arguments are invalid.
             The arguments dictionary should match the tool's json_schema.
         """
+        # --- Check if the tool requires arguments ---
+        # If the schema defines no properties and no required fields, assume no arguments needed.
+        if not tool.json_schema.get("properties") and not tool.json_schema.get("required"):
+            print(f"Tool '{tool.name}' requires no arguments. Returning empty dict.")
+            return {"action_type": "tool_arguments", "arguments": {}}
+
+        # --- If arguments are needed, prompt the LLM ---
         system_prompt = (
             f"You have decided to use the '{tool.name}' tool.\n"
             f"Tool Description: {tool.description}\n"
