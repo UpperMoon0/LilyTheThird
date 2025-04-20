@@ -32,9 +32,6 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
 
 - **VTube Studio Integration (VTube Tab)**:
   - Connect to VTube Studio via websockets to control virtual characters.
-  
-- **Browser Action**: 
-  - Open a web browser to search for keywords.
 
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more details.
