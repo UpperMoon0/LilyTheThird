@@ -38,8 +38,11 @@ class ToolExecutor:
             # Web search tool
             "search_web": perform_web_search,
             # Memory tools (map to mongo_handler methods if connected)
-            "fetch_memory": self.mongo_handler.retrieve_memories_by_query if self.mongo_handler.is_connected() else self._mongo_unavailable,
-            "save_memory": self.mongo_handler.add_fact if self.mongo_handler.is_connected() else self._mongo_unavailable,
+            # Use semantic search (similarity) for fetching memory
+            "fetch_memory": (lambda query: self.mongo_handler.retrieve_memories_by_similarity(query_text=query))
+                           if self.mongo_handler.is_connected() and self.mongo_handler.embedding_model
+                           else self._memory_fetch_unavailable,
+            "save_memory": self.mongo_handler.add_fact if self.mongo_handler.is_connected() else self._mongo_unavailable, # Saving still uses add_fact (which now includes embedding)
         }
         # Filter out unavailable tools (like memory if mongo isn't connected)
         # Although the functions handle it, this makes the available set clearer if needed later.
@@ -47,9 +50,27 @@ class ToolExecutor:
         return dispatcher
 
     def _mongo_unavailable(self, *args, **kwargs) -> str:
-        """Placeholder function for when MongoDB is not connected."""
-        logging.warning("Attempted to use memory tool, but MongoDB is not connected.")
-        return "Error: MongoDB connection is not available. Cannot use memory tool."
+        """Placeholder function for when MongoDB is not connected for saving."""
+        logging.warning("Attempted to use save_memory tool, but MongoDB is not connected.")
+        return "Error: MongoDB connection is not available. Cannot use save_memory tool."
+
+    def _memory_fetch_unavailable(self, *args, **kwargs) -> str:
+        """Placeholder function for when memory fetch is unavailable (DB or model issue)."""
+        if not self.mongo_handler.is_connected():
+            logging.warning("Attempted to use fetch_memory tool, but MongoDB is not connected.")
+            return "Error: MongoDB connection is not available. Cannot use fetch_memory tool."
+        elif not self.mongo_handler.embedding_model:
+            logging.warning("Attempted to use fetch_memory tool, but the embedding model is not loaded.")
+            return "Error: Embedding model is not available. Cannot use fetch_memory tool."
+        else: # Should not happen with the current logic, but for completeness
+             logging.warning("Attempted to use fetch_memory tool, but it's unavailable for an unknown reason.")
+             return "Error: fetch_memory tool is currently unavailable."
+
+    def get_all_tool_names(self) -> List[str]:
+        """Returns a list of names of all tools configured in the dispatcher."""
+        # Ensure keys are strings if needed, though they should be
+        return list(map(str, self._tool_dispatcher.keys()))
+
 
     async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """

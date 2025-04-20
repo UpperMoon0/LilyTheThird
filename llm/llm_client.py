@@ -162,38 +162,71 @@ class LLMClient:
 
     # --- Tool Interaction Methods ---
 
-    def get_next_action(self, messages: List[Dict], allowed_tools: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    def get_next_action(
+        self,
+        messages: List[Dict],
+        allowed_tools: Optional[List[str]] = None,
+        context_type: Optional[str] = None,
+        force_tool_options: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         Prompts the LLM to decide the next action: use a tool or respond directly.
+        Can be forced to consider only specific tools.
 
         Args:
             messages: The current conversation history in OpenAI format.
-            allowed_tools: An optional list of tool names allowed in this context. If None, all tools are allowed.
+            allowed_tools: List of tool names allowed in the *overall* context. If None, all tools are allowed.
+            context_type: Optional string identifying the context (e.g., 'chatbox', 'discord').
+            force_tool_options: Optional list of tool names. If provided, the LLM MUST choose one of these or null.
 
         Returns:
             A dictionary like {"action_type": "tool_choice", "tool_name": "tool_name_here" or None},
             or None if an error occurred.
         """
-        # Use the updated functions, passing allowed_tools
-        tool_list_prompt = get_tool_list_for_prompt(allowed_tools=allowed_tools)
-        available_tool_names = get_tool_names(allowed_tools=allowed_tools) # Get only the names of allowed tools
+        # Determine the actual tools the LLM can choose from in this specific call
+        if force_tool_options is not None:
+            # Filter forced options against tools actually available/allowed in the context
+            all_available_context_tools = set(get_tool_names(allowed_tools=allowed_tools))
+            valid_forced_options = [tool for tool in force_tool_options if tool in all_available_context_tools]
+            if not valid_forced_options:
+                print(f"Warning: Forced tool options {force_tool_options} are not available/allowed in this context. Skipping tool check.")
+                return {"action_type": "tool_choice", "tool_name": None}
+            choosable_tool_names = valid_forced_options
+            tool_list_prompt = get_tool_list_for_prompt(allowed_tools=choosable_tool_names) # Prompt only shows forced tools
+            prompt_instruction = f"You MUST choose one of the tools listed below or null:"
+        else:
+            # Standard case: choose from all allowed tools in the context
+            choosable_tool_names = get_tool_names(allowed_tools=allowed_tools)
+            if not choosable_tool_names:
+                print("No tools allowed or available in this context. Skipping tool check.")
+                return {"action_type": "tool_choice", "tool_name": None}
+            tool_list_prompt = get_tool_list_for_prompt(allowed_tools=choosable_tool_names)
+            prompt_instruction = "Decide if you need to use one of the available tools *from the list below* to fulfill the request."
 
-        if not available_tool_names:
-            # If no tools are allowed or available, don't even ask the LLM
-            print("No tools allowed or available in this context. Skipping tool check.")
-            return {"action_type": "tool_choice", "tool_name": None}
+        # --- Build the System Prompt ---
+        system_prompt_lines = [
+            "You are an AI assistant deciding the next step.",
+            "Analyze the conversation history.",
+            prompt_instruction,
+            f"{tool_list_prompt}"
+        ]
 
-        system_prompt = (
-            "You are an AI assistant that can use tools to help the user. "
-            "Analyze the user's latest message and the conversation history. "
-            "Decide if you need to use one of the available tools *from the list below* to fulfill the request. " # Emphasize the provided list
-            f"{tool_list_prompt}\n" # This now contains only allowed tools
-            "Respond ONLY with a JSON object containing the key 'tool_name'. "
-            "The value should be the name of the tool you want to use (must be one of the tools listed above) " # Refer to the list above
-            "or null if no tool is needed and you should respond directly."
-            "Example for using a tool: {\"tool_name\": \"search_web\"}" # Keep example generic
+        # Add context-specific encouragement for saving, ONLY if 'save_memory' is a forced option
+        if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
+            system_prompt_lines.append(
+                "IMPORTANT (ChatBox Context - Final Save Check): Review the entire conversation. If you learned any new, specific, and potentially useful facts (e.g., user preferences, project details, key information) that haven't been saved yet, you SHOULD use the 'save_memory' tool now."
+            )
+
+        # Add JSON formatting instructions
+        system_prompt_lines.extend([
+            "Respond ONLY with a JSON object containing the key 'tool_name'.",
+            f"The value must be the name of one of the tools listed above ({', '.join(choosable_tool_names)}) or null.",
+            f"Example for using a tool: {{\"tool_name\": \"{choosable_tool_names[0] if choosable_tool_names else 'example_tool'}\"}}",
             "Example for not using a tool: {\"tool_name\": null}"
-        )
+        ])
+
+        system_prompt = "\n".join(system_prompt_lines)
+        # print(f"--- Tool Selection Prompt ---\n{system_prompt}\n--------------------------") # DEBUG
 
         # Prepare messages for the LLM
         request_messages = [msg for msg in messages] # Create a copy
@@ -206,10 +239,11 @@ class LLMClient:
 
         if json_response and isinstance(json_response, dict) and "tool_name" in json_response:
             tool_name = json_response["tool_name"]
-            # Check for None (JSON null), the string "null", or a valid tool name
-            if tool_name is None or tool_name == "null" or tool_name in available_tool_names:
+            # Check for None (JSON null), the string "null", or a valid tool name from the choosable list
+            if tool_name is None or tool_name == "null" or tool_name in choosable_tool_names:
                  # If the tool name is the string "null", treat it as None (no tool)
                  actual_tool_name = None if tool_name == "null" else tool_name
+                 # print(f"LLM decided action: {actual_tool_name}") # DEBUG
                  return {"action_type": "tool_choice", "tool_name": actual_tool_name}
             else:
                  print(f"Error: LLM chose an invalid tool name: {tool_name}")

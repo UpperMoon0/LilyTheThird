@@ -1,37 +1,38 @@
 import os
-import json
-import asyncio
 from datetime import datetime
+from typing import List, Dict, Optional
 from dotenv import load_dotenv
 
-from .history_manager import HistoryManager
-from .llm_client import LLMClient
-from .tool_executor import ToolExecutor
-from memory.mongo_handler import MongoHandler
-from tools.tools import find_tool # Import find_tool
+# Import the base class and necessary components
+from .base_llm import BaseLLMOrchestrator
+# HistoryManager, LLMClient, ToolExecutor, MongoHandler are initialized in Base
 
 load_dotenv()
 
-# Define the tools allowed for the Discord context
-DISCORD_ALLOWED_TOOLS = ['fetch_memory', 'search_web', 'get_current_time']
+# Define the tools allowed specifically for the Discord context
+DISCORD_ALLOWED_TOOLS = ['fetch_memory', 'save_memory', 'search_web', 'get_current_time']
 
-class DiscordLLM:
-    def __init__(self, provider=None, model=None):
-        # Prioritize passed arguments, then environment variables, then defaults
-        llm_provider = (provider or os.getenv('DISCORD_LLM_PROVIDER', 'openai')).lower()
-        llm_model = model or os.getenv('DISCORD_LLM_MODEL', 'gpt-4o-mini')
+class DiscordLLM(BaseLLMOrchestrator):
+    """
+    LLM Orchestrator specifically for the Discord interface.
+    Inherits common logic from BaseLLMOrchestrator.
+    """
+    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
+        """
+        Initializes the DiscordLLM orchestrator.
 
-        print(f"Initializing DiscordLLM - Provider: {llm_provider}, Model: {llm_model}")
+        Args:
+            provider: The LLM provider ('openai' or 'gemini'). Defaults handled by Base.
+            model: The specific model name to use. Defaults handled by Base.
+        """
+        # Determine provider and model using Discord-specific env vars or defaults
+        discord_provider = (provider or os.getenv('DISCORD_LLM_PROVIDER', 'openai')).lower()
+        discord_model = model or os.getenv('DISCORD_LLM_MODEL') # Let LLMClient handle default if None
 
-        # Initialize shared components
-        self.history_manager = HistoryManager()
-        self.mongo_handler = MongoHandler() # Needed for ToolExecutor
-        if not self.mongo_handler.is_connected():
-            print("Warning: MongoDB connection failed for DiscordLLM. Memory tools will not function.")
-        self.llm_client = LLMClient(provider=llm_provider, model_name=llm_model)
-        self.tool_executor = ToolExecutor(mongo_handler=self.mongo_handler, llm_client=self.llm_client)
+        # Call the parent constructor
+        super().__init__(provider=discord_provider, model_name=discord_model)
 
-        # Store master ID for personality check
+        # Store master ID for personality check (Discord specific)
         self.master_id = os.getenv('MASTER_DISCORD_ID')
         if self.master_id:
             try:
@@ -41,119 +42,79 @@ class DiscordLLM:
                 self.master_id = None
         else:
             print("Warning: MASTER_DISCORD_ID not found in .env. Master check will fail.")
+        print(f"DiscordLLM initialized. Master ID check configured.")
 
-    # Removed _adapt_history_for_gemini and update_history
 
-    async def get_response(self, user_message, discord_user_id, discord_user_name):
-        """
-        Orchestrates the Discord conversation flow using shared components and restricted tools.
-        """
-        current_date_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # --- Implement Abstract Methods and Hooks from Base Class ---
 
-        # --- Determine Personality ---
+    @property
+    def context_name(self) -> str:
+        """Identifier for the Discord context."""
+        return "discord"
+
+    def _get_base_system_messages(self, **kwargs) -> List[Dict[str, str]]:
+        """Provides the base system messages including personality, time, and user context."""
+        discord_user_id = kwargs.get('discord_user_id')
+        discord_user_name = kwargs.get('discord_user_name', 'User') # Default name if not provided
+
+        # Determine Personality
         is_master = self.master_id is not None and discord_user_id == self.master_id
         if is_master:
-            personality = os.getenv('PERSONALITY_TO_MASTER', "You are a helpful assistant.") # Default personality
+            personality = os.getenv('PERSONALITY_TO_MASTER', "You are a helpful assistant.")
         else:
             p1 = os.getenv('PERSONALITY_TO_STRANGER_1', "You are a polite AI. I'm ")
             p2 = os.getenv('PERSONALITY_TO_STRANGER_2', ", you will talk to me politely.")
             personality = p1 + discord_user_name + p2
 
-        # --- Prepare Base System Messages ---
-        base_system_messages = [
+        # Prepare Base System Messages
+        current_date_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        base_messages = [
             {'role': 'system', 'content': personality},
             {'role': 'system', 'content': f"Current date and time: {current_date_time}"},
-            # Add context about the user if needed
             {'role': 'system', 'content': f"You are interacting with user '{discord_user_name}' (ID: {discord_user_id}). They are {'your Master' if is_master else 'not your Master'}."}
         ]
+        return base_messages
 
-        # --- Add User Message to History ---
-        # Use standard 'user' role. Include user's name in the content for context.
-        self.history_manager.add_message('user', f"{discord_user_name} said: {user_message}")
+    def _get_allowed_tools(self) -> Optional[List[str]]:
+        """Returns the list of tools allowed for Discord."""
+        return DISCORD_ALLOWED_TOOLS
 
-        # --- Tool Interaction Loop ---
-        max_tool_calls = 3 # Limit tool calls for Discord context
-        for _ in range(max_tool_calls):
-            current_history = self.history_manager.get_history()
-            messages_for_llm = base_system_messages + current_history
+    def _get_max_tool_calls(self) -> int:
+        """Sets the maximum tool calls for the Discord context."""
+        # Can be configured via env var or default
+        try:
+            return int(os.getenv('DISCORD_MAX_TOOL_CALLS', 3))
+        except ValueError:
+            print("Warning: Invalid DISCORD_MAX_TOOL_CALLS in .env, using default 3.")
+            return 3
 
-            # 1. Ask LLM for next action, restricting tools
-            action_decision = self.llm_client.get_next_action(messages_for_llm, allowed_tools=DISCORD_ALLOWED_TOOLS)
+    def _prepare_user_message_for_history(self, user_message: str, **kwargs) -> str:
+        """Prepends the Discord user's name to the message."""
+        discord_user_name = kwargs.get('discord_user_name', 'User')
+        return f"{discord_user_name} said: {user_message}"
 
-            if not action_decision or action_decision.get("action_type") != "tool_choice":
-                print(f"Error or invalid format in Discord action decision: {action_decision}. Breaking tool loop.")
-                break
+    # --- Public Method ---
 
-            tool_name = action_decision.get("tool_name")
+    async def get_response(self, user_message: str, discord_user_id: int, discord_user_name: str) -> tuple[str, None]:
+        """
+        Processes the user message from Discord using the core logic from the base class.
 
-            if tool_name is None:
-                print("Discord LLM decided no tool needed. Proceeding to final response.")
-                # No final save check for Discord context for simplicity
-                break
+        Args:
+            user_message: The message content from Discord.
+            discord_user_id: The Discord ID of the user.
+            discord_user_name: The Discord display name of the user.
 
-            # --- If a tool was chosen ---
-            print(f"Discord LLM chose tool: {tool_name}")
-            tool_definition = find_tool(tool_name)
-            if not tool_definition:
-                print(f"Error: Discord Tool '{tool_name}' definition not found. Breaking loop.")
-                self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
-                break
-
-            # 2. Get arguments
-            argument_decision = self.llm_client.get_tool_arguments(tool_definition, messages_for_llm)
-            if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
-                print(f"Error or invalid format getting arguments for Discord tool {tool_name}: {argument_decision}. Breaking loop.")
-                self.history_manager.add_message('system', f"Error: Failed to get arguments for tool '{tool_name}'.")
-                break
-
-            arguments = argument_decision.get("arguments", {})
-
-            # 3. Execute the tool
-            tool_result = await self.tool_executor.execute(tool_name, arguments)
-            print(f"Result from Discord tool {tool_name}: {tool_result}")
-
-            # 4. Add tool result to history
-            tool_result_message = {
-                "role": "system",
-                "content": json.dumps({
-                    "tool_used": tool_name,
-                    "arguments": arguments,
-                    "result": tool_result
-                })
-            }
-            self.history_manager.add_message(tool_result_message['role'], tool_result_message['content'])
-            # Loop continues
-
-        else: # Max tool calls reached
-             print("Warning: Maximum tool calls reached for Discord context.")
-             self.history_manager.add_message('system', "Maximum tool calls reached. Generating response based on current information.")
-
-        # --- Final Response Generation ---
-        final_history = self.history_manager.get_history()
-        messages_for_final_response = base_system_messages + final_history
-
-        final_message = self.llm_client.generate_final_response(
-            messages_for_final_response,
-            personality # Pass the determined personality
+        Returns:
+            A tuple containing the final response string and None (as expected by discord_bot.py).
+        """
+        print(f"--- Processing Discord message from {discord_user_name} ({discord_user_id}) ---")
+        # Pass Discord-specific context to the core processing method
+        final_response = await self._process_message(
+            user_message,
+            discord_user_id=discord_user_id,
+            discord_user_name=discord_user_name
         )
+        # Return format expected by discord_bot.py
+        return final_response, None
 
-        # Handle potential errors
-        if final_message is None or final_message.startswith("Error:"):
-            print(f"Failed to get final Discord response: {final_message}")
-            final_message = final_message if final_message else "Sorry, I encountered an error generating the final response."
-        else:
-            # Update history with the final assistant message
-            self.history_manager.add_message('assistant', final_message)
-
-        # Print history for debugging (optional)
-        print("Discord Message History:")
-        for msg in self.history_manager.get_history():
-            print(f"- {msg['role']}: {msg['content']}")
-
-        # Return format expected by discord_bot.py (message, None)
-        return final_message, None
-
-    def __del__(self):
-        # Ensure MongoDB connection is closed
-        if hasattr(self, 'mongo_handler') and self.mongo_handler:
-            self.mongo_handler.close_connection()
+    # __del__ is inherited from BaseLLMOrchestrator

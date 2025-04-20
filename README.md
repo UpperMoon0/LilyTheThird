@@ -23,7 +23,7 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
   - Translate chatbot responses into Japanese using Deep Translator.
   - Convert Japanese responses into speech via an external TTS-Provider server.
   - Short-term memory: Maintains a prompt history (in-memory).
-  - Long-term memory: Stores conversation history (user input, LLM response, timestamp, metadata) in a MongoDB database, requiring the `MONGO_URI` to be set in the `.env` file.
+  - Long-term memory: Stores facts in a MongoDB database, requiring the `MONGO_URI` to be set in the `.env` file.
 
 - **Discord Tab**:
   - Start and stop a Discord bot that responds to messages in a designated channel.
