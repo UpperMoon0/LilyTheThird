@@ -77,26 +77,42 @@ class BaseLLMOrchestrator(ABC):
         """
         return user_message
 
-    async def _retrieve_and_add_memory_context(self, query_text: str, base_system_messages: List[Dict[str, str]]) -> None:
+    async def _retrieve_and_add_memory_context(self, query_text: str) -> Optional[str]:
         """
-        Retrieves relevant facts from memory based on query_text and adds them
-        to the base_system_messages list if found.
+        Retrieves relevant facts from memory based on query_text and returns
+        a formatted string containing the facts and a prioritization instruction,
+        or None if no relevant facts are found or an error occurs.
         """
-        if self.mongo_handler.is_connected() and self.mongo_handler.embedding_model:
-            try:
-                # Use similarity search based on the query text
-                relevant_facts = self.mongo_handler.retrieve_memories_by_similarity(query_text, limit=3) # Limit to 3 for context space
-                if relevant_facts:
-                    print(f"[{self.__class__.__name__}] Retrieved {len(relevant_facts)} relevant facts from memory.")
-                    # Add facts as system messages for context
-                    facts_context = "Relevant information from memory:\n" + "\n".join([f"- {fact}" for fact in relevant_facts])
-                    base_system_messages.append({'role': 'system', 'content': facts_context})
-                else:
-                    print(f"[{self.__class__.__name__}] No relevant facts found in memory for query: '{query_text[:50]}...'")
-            except Exception as e:
-                print(f"Error retrieving memories by similarity: {e}")
-        else:
+        if not self.mongo_handler.is_connected() or not self.mongo_handler.embedding_model:
             print(f"[{self.__class__.__name__}] Memory retrieval skipped: MongoDB not connected or embedding model not loaded.")
+            return None
+
+        try:
+            # Use similarity search based on the query text
+            relevant_facts = self.mongo_handler.retrieve_memories_by_similarity(query_text, limit=3) # Limit to 3 for context space
+            if relevant_facts:
+                print(f"[{self.__class__.__name__}] Retrieved {len(relevant_facts)} relevant facts from memory:")
+                # Log the content of each retrieved fact (Corrected indentation)
+                for i, fact in enumerate(relevant_facts):
+                    print(f"  Fact {i+1}: {fact}")
+                # Prepare facts context string WITH STRONG INSTRUCTION (Corrected indentation)
+                facts_context = (
+                    "CRITICAL INSTRUCTION: The following information was retrieved from memory and is highly relevant to the user's query. "
+                    "You MUST prioritize using these facts in your response if they directly answer the query. "
+                    "Do NOT rely solely on your general knowledge if these facts provide the specific answer.\n\n"
+                    "Relevant information from memory:\n" +
+                    "\n".join([f"- {fact}" for fact in relevant_facts])
+                )
+                print(f"[{self.__class__.__name__}] Prepared facts context WITH integrated prioritization instruction.")
+                return facts_context # Return the formatted string
+            else:
+                # Corrected indentation
+                print(f"[{self.__class__.__name__}] No relevant facts found in memory for query: '{query_text[:50]}...'")
+                return None # Return None if no facts found
+        # Added missing except block
+        except Exception as e:
+            print(f"Error retrieving memories by similarity: {e}")
+            return None # Return None on error
 
     async def _execute_tool_step(self, tool_name: str, messages_for_llm: List[Dict]) -> bool:
         """
@@ -152,8 +168,9 @@ class BaseLLMOrchestrator(ABC):
         base_system_messages = self._get_base_system_messages(**kwargs)
 
         # 2. Retrieve relevant memories automatically based on the raw user message
-        #    (This provides initial context before the LLM decides on further actions)
-        await self._retrieve_and_add_memory_context(user_message, base_system_messages)
+        #    Store the potential context string.
+        retrieved_facts_context_string = await self._retrieve_and_add_memory_context(user_message)
+        # Note: We no longer add it directly to base_system_messages here.
 
         # 3. Prepare and add user message to history
         prepared_user_message = self._prepare_user_message_for_history(user_message, **kwargs)
@@ -239,17 +256,37 @@ class BaseLLMOrchestrator(ABC):
         # 6. Final Response Generation
         print(f"--- Step 6: Final Response Generation ---")
         final_history = self.history_manager.get_history() # Get history *after* all tool steps
-        # Use only the *first* system message (primary personality) for the final generation prompt
-        final_personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
 
-        # Prepare messages, ensuring the personality is first, then the full history
-        messages_for_final_response = [{'role': 'system', 'content': final_personality_prompt}]
-        # Add the rest of the history (which includes other system messages like retrieved facts, tool results)
+        # Prepare messages for final response generation
+        messages_for_final_response = []
+
+        # Add primary personality (first message from base_system_messages)
+        if base_system_messages:
+            messages_for_final_response.append(base_system_messages[0])
+        else:
+            # Fallback personality if none provided by subclass
+            messages_for_final_response.append({'role': 'system', 'content': "You are a helpful assistant."})
+
+        # Add the rest of the base system messages (excluding the primary personality)
+        # These might include things like date/time, user info, etc.
+        if len(base_system_messages) > 1:
+             messages_for_final_response.extend(base_system_messages[1:]) # Add other base system messages
+
+        # Add the main conversation history (user messages, previous assistant replies, tool results)
         messages_for_final_response.extend(final_history)
 
+        # Add the retrieved facts context *just before* the final call, if it exists
+        if retrieved_facts_context_string:
+            messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
+            print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt.")
+
+
+        # Extract original personality prompt (still needed for Gemini adaptation potentially)
+        final_personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
+
         final_message = self.llm_client.generate_final_response(
-            messages_for_final_response, # Pass combined list
-            personality_prompt=final_personality_prompt # Pass separately for Gemini adaptation if needed
+            messages_for_final_response, # Pass the fully constructed list
+            personality_prompt=final_personality_prompt # Pass original personality separately
         )
 
         # Handle potential errors

@@ -10,7 +10,7 @@ from .base_llm import BaseLLMOrchestrator
 load_dotenv()
 
 # Define the tools allowed specifically for the Discord context
-DISCORD_ALLOWED_TOOLS = ['fetch_memory', 'save_memory', 'search_web', 'get_current_time']
+DISCORD_ALLOWED_TOOLS = ['fetch_memory', 'search_web', 'get_current_time']
 
 class DiscordLLM(BaseLLMOrchestrator):
     """
