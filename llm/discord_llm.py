@@ -107,7 +107,6 @@ class DiscordLLM:
                 break
 
             arguments = argument_decision.get("arguments", {})
-            print(f"Arguments received for Discord tool {tool_name}: {arguments}")
 
             # 3. Execute the tool
             tool_result = await self.tool_executor.execute(tool_name, arguments)

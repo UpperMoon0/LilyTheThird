@@ -127,7 +127,6 @@ class ChatBoxLLM:
                 break
 
             arguments = argument_decision.get("arguments", {})
-            print(f"Arguments received for {tool_name}: {arguments}")
 
             # 3. Execute the tool using the ToolExecutor (await the async execute method)
             tool_result = await self.tool_executor.execute(tool_name, arguments)

@@ -138,6 +138,11 @@ class LLMClient:
                     if content.endswith("```"):
                         content = content[:-3]
                     content = content.strip() # Clean again after removing fences
+                    # --> Add check for empty content before parsing <--
+                    if not content:
+                        print(f"Warning: Received empty content from Gemini for {purpose} (Attempt {attempt + 1}). Retrying if possible.")
+                        continue # Skip to the next retry attempt
+                    # --> End Add check <--
                     return json.loads(content)
                 except json.JSONDecodeError as e:
                     print(f"Error decoding Gemini JSON response for {purpose} (Attempt {attempt + 1}): {e}\nRaw content: {content}")
