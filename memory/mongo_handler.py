@@ -260,19 +260,64 @@ class MongoHandler:
             logging.warning("MongoDB not connected. Cannot add fact.")
             return None
         if not self.embedding_model:
-             logging.error("Embedding model not loaded. Cannot generate embedding for fact.")
-             return None
+            logging.error("Embedding model not loaded. Cannot generate embedding for fact.")
+            return None
+
+        # --- Similarity Check Threshold ---
+        SIMILARITY_THRESHOLD = 0.95 # Facts with similarity >= this value will be considered duplicates
 
         try:
-            # Generate embedding for the content
-            logging.debug(f"Generating embedding for fact content: '{content[:50]}...'")
-            content_embedding = self.embedding_model.encode(content).tolist()
-            logging.debug(f"Fact embedding generated (first few dims): {content_embedding[:5]}...")
+            # 1. Generate embedding for the new content
+            logging.debug(f"Generating embedding for potential new fact: '{content[:50]}...'")
+            new_embedding = np.array(self.embedding_model.encode(content))
+            new_norm = np.linalg.norm(new_embedding)
+            if new_norm == 0:
+                logging.warning("New fact embedding has zero norm. Cannot calculate similarity. Skipping insertion.")
+                return None
+            logging.debug(f"New fact embedding generated (first few dims): {new_embedding[:5]}...")
 
+            # 2. Fetch existing fact embeddings
+            logging.debug("Fetching existing fact embeddings for similarity check...")
+            existing_facts = list(self.collection.find(
+                {"type": "fact", "content_embedding": {"$exists": True}},
+                {"content": 1, "content_embedding": 1, "_id": 1} # Include content and ID for logging
+            ))
+            logging.debug(f"Fetched {len(existing_facts)} existing facts with embeddings.")
+
+            # 3. Calculate similarity and find the maximum
+            max_similarity = 0.0
+            most_similar_fact_content = None
+            most_similar_fact_id = None
+
+            if existing_facts:
+                for fact in existing_facts:
+                    fact_embedding = np.array(fact.get("content_embedding", []))
+                    fact_norm = np.linalg.norm(fact_embedding)
+
+                    if fact_embedding.size == 0 or fact_norm == 0:
+                        continue # Skip facts with invalid embeddings
+
+                    # Calculate cosine similarity
+                    similarity = np.dot(new_embedding, fact_embedding) / (new_norm * fact_norm)
+
+                    if similarity > max_similarity:
+                        max_similarity = similarity
+                        most_similar_fact_content = fact.get("content", "N/A")
+                        most_similar_fact_id = fact.get("_id", "N/A")
+
+                logging.debug(f"Maximum similarity found: {max_similarity:.4f} with fact ID: {most_similar_fact_id}")
+
+            # 4. Check against threshold
+            if max_similarity >= SIMILARITY_THRESHOLD:
+                logging.info(f"Skipping insertion. New fact is too similar (score: {max_similarity:.4f}) to existing fact (ID: {most_similar_fact_id}): '{most_similar_fact_content[:100]}...'")
+                return None # Indicate that the fact was not added due to similarity
+
+            # 5. If not too similar, proceed with insertion
+            logging.debug("New fact passed similarity check. Proceeding with insertion.")
             fact_unit = {
                 "type": "fact", # Differentiate from conversation turns
                 "content": content,
-                "content_embedding": content_embedding, # Store the embedding
+                "content_embedding": new_embedding.tolist(), # Store the embedding (already generated)
                 "timestamp": datetime.utcnow(),
                 "metadata": metadata or {}
             }
@@ -286,75 +331,85 @@ class MongoHandler:
 
     def cleanup_duplicate_facts(self):
         """
-        Removes duplicate 'fact' documents based on the 'content' field,
-        keeping only the oldest entry for each unique content.
+        Removes semantically similar 'fact' documents based on vector embeddings,
+        keeping only the oldest entry for each group of similar facts.
         """
         if not self.is_connected():
-            logging.warning("MongoDB not connected. Cannot perform cleanup.")
+            logging.warning("MongoDB not connected. Cannot perform semantic cleanup.")
+            return
+        if not self.embedding_model:
+            logging.error("Embedding model not loaded. Cannot perform semantic cleanup.")
             return
 
-        logging.info("Starting duplicate fact cleanup...")
-        ids_to_delete = []
+        # --- Similarity Threshold for Cleanup ---
+        # Consider if this should be the same or different from the add_fact threshold
+        SIMILARITY_THRESHOLD = 0.95
+
+        logging.info("Starting semantic duplicate fact cleanup...")
+        ids_to_delete = set()
         try:
-            # Aggregation pipeline to find duplicate facts
-            pipeline = [
-                {
-                    "$match": { "type": "fact" } # Only consider documents marked as facts
-                },
-                {
-                    "$group": {
-                        "_id": "$content",  # Group by the fact content
-                        "ids": { "$push": "$_id" }, # Collect all ObjectIds for this content
-                        "first_timestamp": { "$min": "$timestamp" }, # Find the earliest timestamp
-                        "count": { "$sum": 1 } # Count documents per content
-                    }
-                },
-                {
-                    "$match": { "count": { "$gt": 1 } } # Filter for groups with more than one document (duplicates)
-                }
-            ]
+            # 1. Fetch all facts with necessary fields, sorted by timestamp (oldest first)
+            logging.debug("Fetching all facts with embeddings and timestamps for cleanup...")
+            all_facts = list(self.collection.find(
+                {"type": "fact", "content_embedding": {"$exists": True}},
+                {"_id": 1, "timestamp": 1, "content_embedding": 1, "content": 1} # Include content for logging
+            ).sort("timestamp", 1)) # Sort ascending by timestamp
+            logging.info(f"Fetched {len(all_facts)} facts for semantic cleanup check.")
 
-            duplicate_groups = list(self.collection.aggregate(pipeline))
-            logging.info(f"Found {len(duplicate_groups)} fact content groups with duplicates.")
-
-            if not duplicate_groups:
-                logging.info("No duplicate facts found.")
+            if len(all_facts) < 2:
+                logging.info("Not enough facts to compare for semantic duplicates.")
                 return
 
-            # Find the ID of the document with the minimum timestamp for each group
-            ids_to_keep = set()
-            for group in duplicate_groups:
-                content = group['_id']
-                first_timestamp = group['first_timestamp']
-                # Find the specific document matching the content and the earliest timestamp
-                # There might be multiple docs with the *exact* same earliest timestamp,
-                # in which case we arbitrarily keep one. find_one is sufficient.
-                doc_to_keep = self.collection.find_one(
-                    {"type": "fact", "content": content, "timestamp": first_timestamp},
-                    {"_id": 1} # Only fetch the ID
-                )
-                if doc_to_keep:
-                    ids_to_keep.add(doc_to_keep['_id'])
+            # Convert embeddings to numpy arrays and calculate norms once
+            fact_data = []
+            for fact in all_facts:
+                embedding = np.array(fact.get("content_embedding", []))
+                norm = np.linalg.norm(embedding)
+                if embedding.size > 0 and norm > 0:
+                    fact_data.append({
+                        "_id": fact["_id"],
+                        "embedding": embedding,
+                        "norm": norm,
+                        "content": fact.get("content", "N/A") # For logging
+                    })
+                else:
+                     logging.warning(f"Skipping fact ID {fact['_id']} in cleanup due to invalid embedding.")
 
+            # 2. Compare each fact with subsequent facts
+            num_facts = len(fact_data)
+            for i in range(num_facts):
+                if fact_data[i]["_id"] in ids_to_delete:
+                    continue # Skip if already marked for deletion
 
-            # Collect IDs to delete (all IDs in duplicate groups MINUS the ones we keep)
-            for group in duplicate_groups:
-                for doc_id in group['ids']:
-                    if doc_id not in ids_to_keep:
-                        ids_to_delete.append(doc_id)
+                fact_i = fact_data[i]
 
+                for j in range(i + 1, num_facts):
+                    if fact_data[j]["_id"] in ids_to_delete:
+                        continue # Skip if already marked for deletion
+
+                    fact_j = fact_data[j]
+
+                    # Calculate cosine similarity
+                    similarity = np.dot(fact_i["embedding"], fact_j["embedding"]) / (fact_i["norm"] * fact_j["norm"])
+
+                    # 3. If similar, mark the newer one (fact_j) for deletion
+                    if similarity >= SIMILARITY_THRESHOLD:
+                        logging.debug(f"Marking fact ID {fact_j['_id']} for deletion (similarity {similarity:.4f} with older fact ID {fact_i['_id']}).")
+                        logging.debug(f"  - Older Content: '{fact_i['content'][:100]}...'")
+                        logging.debug(f"  - Newer Content: '{fact_j['content'][:100]}...'")
+                        ids_to_delete.add(fact_j["_id"])
+
+            # 4. Perform deletion
             if ids_to_delete:
-                logging.info(f"Identified {len(ids_to_delete)} duplicate fact documents to remove.")
-                delete_result = self.collection.delete_many({"_id": {"$in": ids_to_delete}})
-                logging.info(f"Successfully removed {delete_result.deleted_count} duplicate fact documents.")
+                ids_list = list(ids_to_delete)
+                logging.info(f"Identified {len(ids_list)} semantically duplicate fact documents to remove.")
+                delete_result = self.collection.delete_many({"_id": {"$in": ids_list}})
+                logging.info(f"Successfully removed {delete_result.deleted_count} semantically duplicate fact documents.")
             else:
-                # This case might happen if all duplicates shared the exact same earliest timestamp
-                # and find_one picked one from each group correctly.
-                logging.info("No documents needed deletion after identifying keepers (possibly due to identical timestamps).")
-
+                logging.info("No semantically duplicate facts found requiring cleanup.")
 
         except Exception as e:
-            logging.error(f"An error occurred during duplicate fact cleanup: {e}")
+            logging.error(f"An error occurred during semantic duplicate fact cleanup: {e}", exc_info=True)
 
     # --- cleanup_duplicate_conversations method removed ---
 
