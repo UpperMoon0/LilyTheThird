@@ -262,52 +262,67 @@ class BaseLLMOrchestrator(ABC):
                 break # Break outer for loop
 
 
-        # 5. Final Save Memory Step (Optional)
-        print(f"--- Step 5: Final Memory Save Check ---")
-        current_history_save = self.history_manager.get_history() # Get history before save check
+        # 5. Final Memory Operation Step (Optional: Save or Update)
+        print(f"--- Step 5: Final Memory Save/Update Check ---")
+        current_history_save = self.history_manager.get_history() # Get history before save/update check
         messages_for_save = base_system_messages + current_history_save
-        save_decision = self.llm_client.get_next_action(
+
+        # Add guidance for choosing save vs update
+        memory_guidance_prompt = (
+            "Based on the conversation history and retrieved facts (if any), decide if a final memory operation is needed. "
+            "Use 'save_memory' for new information not previously stored. "
+            "Use 'update_memory' to modify existing information, ensuring you provide a valid 'memory_id' from the retrieved facts. "
+            "If no memory operation is needed, choose null."
+        )
+        if retrieved_facts_context_string:
+             memory_guidance_prompt += f"\n\nRetrieved facts that might be relevant for updating:\n{retrieved_facts_context_string}"
+        messages_for_save.append({'role': 'system', 'content': memory_guidance_prompt})
+        print(f"[{self.__class__.__name__}] Added guidance prompt for final memory operation.")
+
+        save_or_update_decision = self.llm_client.get_next_action(
             messages_for_save,
             allowed_tools=allowed_tools_overall, # Check against all allowed tools
             context_type=self.context_name, # Pass context for potential encouragement
-            force_tool_options=['save_memory'] # Force choice: save_memory or null
+            force_tool_options=['save_memory', 'update_memory'] # Force choice: save, update, or null
         )
-        if save_decision and save_decision.get("tool_name") == 'save_memory':
-            tool_name = 'save_memory'
-            print(f"[{self.__class__.__name__}] LLM decided to save memory finally.")
-            # --- Argument Generation & Execution for save_memory ---
-            tool_definition = find_tool(tool_name)
+
+        chosen_tool_name = save_or_update_decision.get("tool_name") if save_or_update_decision else None
+
+        if chosen_tool_name in ['save_memory', 'update_memory']:
+            print(f"[{self.__class__.__name__}] LLM decided final memory operation: {chosen_tool_name}")
+            # --- Argument Generation & Execution for save_memory or update_memory ---
+            tool_definition = find_tool(chosen_tool_name)
             if not tool_definition:
-                 print(f"[{self.__class__.__name__}] Error: Tool '{tool_name}' definition not found.")
-                 self.history_manager.add_message('system', f"Error: Could not find definition for tool '{tool_name}'.")
+                 print(f"[{self.__class__.__name__}] Error: Tool '{chosen_tool_name}' definition not found.")
+                 self.history_manager.add_message('system', f"Error: Could not find definition for tool '{chosen_tool_name}'.")
             else:
-                 # Prepare messages for argument generation (use history *before* save check)
+                 # Prepare messages for argument generation (use history *before* save/update check, including guidance)
                  messages_for_args = messages_for_save # Use the already prepared list
 
                  # Get arguments
                  argument_decision = self.llm_client.get_tool_arguments(tool_definition, messages_for_args)
 
                  if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
-                     print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for {tool_name}: {argument_decision}.")
-                     tool_result = f"Error: Failed to get arguments for tool '{tool_name}'."
+                     print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for {chosen_tool_name}: {argument_decision}.")
+                     tool_result = f"Error: Failed to get arguments for tool '{chosen_tool_name}'."
                      arguments = None
                  else:
                      arguments = argument_decision.get("arguments", {})
                      # Execute the tool
-                     tool_result = await self.tool_executor.execute(tool_name, arguments)
-                     print(f"[{self.__class__.__name__}] Result from final {tool_name}: {tool_result}")
+                     tool_result = await self.tool_executor.execute(chosen_tool_name, arguments)
+                     print(f"[{self.__class__.__name__}] Result from final {chosen_tool_name}: {tool_result}")
 
                  # Add the final tool result (or argument/definition error) to history
                  tool_result_message_content = {
-                     "tool_used": tool_name,
+                     "tool_used": chosen_tool_name,
                      "arguments": arguments if arguments is not None else "N/A (argument generation failed)",
                      "result": tool_result if tool_result is not None else "Error: Tool execution did not produce a result."
                  }
-                 # Add result AFTER the final response is generated? No, add it here so LLM knows it happened.
+                 # Add result here so LLM knows it happened before final response generation.
                  self.history_manager.add_message('system', json.dumps(tool_result_message_content))
                  # Note: We don't increment tool_calls_made for this final optional step.
         else:
-             print(f"[{self.__class__.__name__}] LLM decided *not* to save memory finally.")
+             print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
 
 
         # 6. Final Response Generation

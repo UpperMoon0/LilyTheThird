@@ -65,7 +65,7 @@ AVAILABLE_TOOLS = [
     ),
     ToolDefinition(
         name="fetch_memory",
-        description="Fetches relevant information from long-term memory based on a query, returning facts with their unique IDs.",
+        description="Fetches relevant information from long-term memory based on a query, returning facts with their unique IDs. Priotize using this over 'search_web' and your general knowledge.",
         instruction="Provide a query describing the information you need from long-term memory. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"details about project X discussed last week\"}. The tool will return a list of matching facts, each with a 'memory_id' and 'content'.",
         json_schema={
             "type": "object",
@@ -80,7 +80,7 @@ AVAILABLE_TOOLS = [
     ),
     ToolDefinition(
         name="update_memory",
-        description="Updates the content of an existing memory fact using its unique ID.",
+        description="Updates the content of an existing memory fact using its unique ID. Prioritize using this over 'save_memory' for existing facts.",
         instruction="Provide the unique 'memory_id' of the fact to update (obtained from 'fetch_memory') and the 'new_content'. Example: {\"memory_id\": \"60b8d295f1d2a5e6f3e4b5c6\", \"new_content\": \"The project deadline is now next Friday.\"}",
         json_schema={
             "type": "object",
@@ -99,7 +99,7 @@ AVAILABLE_TOOLS = [
     ),
     ToolDefinition(
         name="save_memory",
-        description="Saves a piece of information to long-term memory for future recall.",
+        description="Saves a piece of information to long-term memory for future recall. This is only for new facts.",
         instruction="Provide the specific information you want to save to long-term memory. Respond with a JSON object containing the 'content' key. Example: {\"content\": \"User prefers concise answers.\"}",
         json_schema={
             "type": "object",
@@ -114,7 +114,7 @@ AVAILABLE_TOOLS = [
     ),
     ToolDefinition(
         name="search_web",
-        description="Searches the web for information based on a query and summarizes the findings from multiple relevant pages.",
+        description="Searches the web for information based on a query and summarizes the findings from multiple relevant pages. Only use this if the information is not available in memory or your general knowledge.",
         instruction="Provide a clear and concise search query. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"latest advancements in AI research\"}",
         json_schema={
             "type": "object",
