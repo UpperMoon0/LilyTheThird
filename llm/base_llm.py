@@ -464,9 +464,8 @@ class BaseLLMOrchestrator(ABC):
 
         return final_message
 
-
-    def __del__(self):
-        # Ensure MongoDB connection is closed when the object is destroyed
+    def close(self):
+        """Closes resources, like the MongoDB connection."""
         if hasattr(self, 'mongo_handler') and self.mongo_handler:
             self.mongo_handler.close_connection()
-            print(f"[{self.__class__.__name__}] MongoDB connection closed.")
+            print(f"[{self.__class__.__name__}] MongoDB connection closed via explicit close().")

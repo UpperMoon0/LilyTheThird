@@ -29,13 +29,11 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
 - **Discord Tab**:
   - Start and stop a Discord bot that responds to messages in a designated channel.
   - The bot utilizes an LLM (configurable via `.env`) to understand and generate responses.
-  - The LLM can use specific tools to enhance its replies, including:
-    - `save_memory`: Stores information semantically in the MongoDB database.
+  - The LLM can use specific tools (defined in `llm/discord_llm.py`) to enhance its replies during the main interaction loop, including:
     - `fetch_memory`: Retrieves relevant information from memory using semantic search, returning facts with their unique IDs.
-    - `update_memory`: Updates an existing memory fact using its unique ID.
     - `search_web`: Performs web searches.
     - `get_current_time`: Gets the current time.
-    - `read_file` / `write_file`: Interacts with the local filesystem (use with caution).
+    - *Note*: While not available in the main loop, the underlying system might still use `save_memory` or `update_memory` in a final step based on the conversation context (see `docs/llm.md`).
 
 - **VTube Studio Integration (VTube Tab)**:
   - Connect to VTube Studio via websockets to control virtual characters.

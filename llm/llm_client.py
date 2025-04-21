@@ -395,7 +395,7 @@ class LLMClient:
         return message
 
 
-    def _generate_gemini_response(self, messages: List[Dict]) -> str:
+    async def _generate_gemini_response(self, messages: List[Dict]) -> str:
         """Handles the actual Gemini API call for message generation. Assumes retry logic is handled by caller."""
         # Note: No try/except here, handled by the calling loop in generate_final_response
         print(f"--- Calling Gemini API for Final Response ---")
