@@ -1,0 +1,152 @@
+#:kivy 2.0.0
+#:import os os
+
+<ChatTab>:
+    orientation: 'vertical'
+    padding: dp(20)
+    spacing: dp(15)
+    # background_color: (0.97, 0.97, 0.97, 1) # Match CSS #f8f8f8
+
+    # Avatar Section (Centered)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(300) # Fixed height for avatar
+        padding: [0, dp(20), 0, dp(20)] # Padding top/bottom
+        pos_hint: {'center_x': 0.5}
+        canvas.before:
+            StencilPush
+            Ellipse:
+                pos: self.center_x - dp(150), self.center_y - dp(150) # Centered position
+                size: dp(300), dp(300) # Match fixed size
+            StencilUse
+        Image:
+            source: 'assets/avatar.png' # Ensure this path is correct relative to main.py
+            size_hint: None, None
+            size: dp(300), dp(300)
+            pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+            allow_stretch: True
+            keep_ratio: False # Allow stretching if needed, or True to maintain aspect ratio
+            canvas.after:
+                StencilUnUse
+                Ellipse:
+                    pos: self.center_x - dp(150), self.center_y - dp(150)
+                    size: dp(300), dp(300)
+                StencilPop
+
+    # Prompt Input Section
+    BoxLayout:
+        size_hint_y: None
+        height: dp(40) # Fixed height for input row
+        spacing: dp(10)
+        TextInput:
+            id: prompt_input
+            text: root.prompt_text
+            hint_text: "Enter your prompt..."
+            size_hint_x: 0.9 # Take most of the width
+            multiline: False
+            font_size: '14sp' # Match CSS
+            # font_name: 'Arial' # Kivy might need the font file specified
+            on_text_validate: root.send_prompt() # Send on Enter key
+        Button:
+            id: record_button
+            size_hint_x: None
+            width: dp(50) # Match CSS width
+            on_press: root.toggle_recording()
+            background_normal: '' # Remove default button background
+            background_color: (0.94, 0.94, 0.94, 1) if not root.is_recording else (1, 0.86, 0.86, 1) # Match CSS colors
+            Image:
+                source: root.record_button_icon # Dynamically update icon
+                size: dp(30), dp(30)
+                center_x: self.parent.center_x
+                center_y: self.parent.center_y
+                allow_stretch: True
+
+    # Response Box Section
+    ScrollView:
+        size_hint_y: 1 # Take remaining vertical space
+        do_scroll_x: False
+        Label:
+            id: response_box_label
+            text: root.response_text
+            markup: True # Enable Kivy markup (like [b]...[/b])
+            size_hint_y: None
+            height: self.texture_size[1] # Adjust height to text content
+            padding: dp(10), dp(10)
+            font_size: '14sp'
+            text_size: self.width, None # Enable text wrapping
+            valign: 'top' # Align text to the top
+
+    # Controls Section
+    BoxLayout:
+        size_hint_y: None
+        height: self.minimum_height # Adjust height based on content
+        orientation: 'vertical'
+        spacing: dp(10)
+        padding: [dp(10), dp(10)] # Padding around controls
+
+        # LLM Provider Row
+        BoxLayout:
+            size_hint_y: None
+            height: dp(30)
+            Label:
+                text: "LLM Provider:"
+                size_hint_x: 0.4
+                text_size: self.width, None
+                halign: 'right'
+                valign: 'middle'
+            Spinner:
+                id: provider_spinner
+                text: root.selected_provider
+                values: root.llm_providers
+                size_hint_x: 0.6
+                on_text: root.selected_provider = self.text; root.update_models()
+
+        # LLM Model Row
+        BoxLayout:
+            size_hint_y: None
+            height: dp(30)
+            Label:
+                text: "LLM Model:"
+                size_hint_x: 0.4
+                text_size: self.width, None
+                halign: 'right'
+                valign: 'middle'
+            Spinner:
+                id: model_spinner
+                text: root.selected_model
+                values: root.llm_models
+                size_hint_x: 0.6
+                disabled: not root.llm_models # Disable if no models available
+                on_text: root.selected_model = self.text
+
+        # TTS Checkbox Row
+        BoxLayout:
+            size_hint_y: None
+            height: dp(30)
+            CheckBox:
+                id: tts_checkbox
+                active: root.tts_enabled
+                size_hint_x: None
+                width: dp(40)
+                on_active: root.tts_enabled = self.active
+            Label:
+                text: "Enable TTS (TTS-Provider)" # Add provider name dynamically if needed
+                size_hint_x: 1
+                text_size: self.width, None
+                halign: 'left'
+                valign: 'middle'
+
+        # Clear History Button Row
+        BoxLayout:
+            size_hint_y: None
+            height: dp(40)
+            padding: [0, dp(10), 0, 0] # Add some top padding
+            Button:
+                id: clear_history_button
+                text: "Clear History"
+                size_hint_x: None
+                width: dp(200)
+                pos_hint: {'center_x': 0.5}
+                on_press: root.clear_history()
+                font_size: '16sp'
+                # background_color: (0, 0.47, 1, 1) # Match CSS #007bff (approx)

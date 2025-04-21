@@ -1,0 +1,35 @@
+#:kivy 2.0.0
+
+<VTubeTab>:
+    orientation: 'vertical'
+    padding: dp(20)  # Add padding around the layout
+    spacing: dp(15)  # Space between widgets
+    size_hint_y: None # Take only needed vertical space
+    height: self.minimum_height # Adjust height to content
+
+    BoxLayout: # Use another BoxLayout to center the content vertically within the tab space if needed
+        orientation: 'vertical'
+        size_hint_y: None
+        height: self.minimum_height
+        pos_hint: {'center_x': 0.5, 'center_y': 0.5} # Center this inner box
+
+        Button:
+            id: connect_button
+            text: root.button_text
+            size_hint_x: None # Disable horizontal size hint to use fixed width
+            size_hint_y: None # Disable vertical size hint to use fixed height
+            width: dp(200)    # Match PyQt width (using dp for density independence)
+            height: dp(40)   # Match PyQt height
+            pos_hint: {'center_x': 0.5} # Center button horizontally
+            on_press: root.toggle_connection()
+            font_size: '16sp' # Match CSS font size
+
+        Label:
+            id: status_label
+            text: root.status_text
+            size_hint_y: None # Disable vertical size hint
+            height: self.texture_size[1] + dp(10) # Height based on text content + padding
+            halign: 'center' # Center text horizontally
+            valign: 'middle' # Center text vertically
+            font_size: '14sp' # Match CSS font size
+            color: (0.33, 0.33, 0.33, 1) # Match CSS color #555

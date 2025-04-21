@@ -330,11 +330,20 @@ if __name__ == '__main__':
     import multiprocessing
     multiprocessing.freeze_support()
 
-    from PyQt5.QtWidgets import QApplication
-    from views.discord_tab import DiscordTab
-    import sys
+    # Removed PyQt5 related code for standalone execution
+    # If you need to run this file directly for testing,
+    # you might need a different approach or a simple placeholder.
+    print("Discord bot script executed directly. Normally run via main_kivy.py")
+    # Example: Start the bot directly if needed for testing,
+    # but this might require adjustments depending on dependencies.
+    # bot_instance = DiscordBot()
+    # bot_instance.start_bot()
 
-    app = QApplication(sys.argv)
-    win = DiscordTab()
-    win.show()
-    sys.exit(app.exec_())
+    # Original PyQt5 code removed:
+    # from PyQt5.QtWidgets import QApplication
+    # from views.discord_tab import DiscordTab
+    # import sys
+    # app = QApplication(sys.argv)
+    # win = DiscordTab()
+    # win.show()
+    # sys.exit(app.exec_())

@@ -1,0 +1,45 @@
+#:kivy 2.0.0
+
+<AttachmentChip>:
+    orientation: 'horizontal'
+    size_hint: None, None # Don't stretch, use defined size
+    height: dp(30)       # Define a height for the chip
+    width: self.minimum_width # Adjust width based on content
+    padding: [dp(5), 0, dp(5), 0] # Horizontal padding
+    spacing: dp(5)       # Space between label and button
+
+    canvas.before:
+        Color:
+            rgba: (0.88, 0.88, 0.88, 1) # Match CSS #e0e0e0 background
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(15),] # Rounded corners
+
+    Label:
+        id: chip_label
+        text: root.filename
+        size_hint_x: None
+        width: self.texture_size[0] # Width based on text content
+        font_size: '12sp'
+        color: (0.2, 0.2, 0.2, 1) # Darker text color for readability
+        valign: 'middle'
+
+    Button:
+        id: remove_button
+        text: 'x'
+        size_hint: None, None
+        size: dp(20), dp(20) # Match fixed size
+        font_size: '12sp'
+        bold: True
+        on_press: root.remove_chip()
+        background_normal: '' # Remove default background
+        background_color: (0.66, 0.66, 0.66, 1) # Match CSS #aaa
+        # Make the button circular using canvas instructions
+        canvas.before:
+            Color:
+                rgba: self.background_color
+            Ellipse:
+                pos: self.pos
+                size: self.size
+        color: (1, 1, 1, 1) # White text color

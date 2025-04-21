@@ -1,314 +1,105 @@
-import asyncio
+from kivy.uix.boxlayout import BoxLayout
+from kivy.properties import StringProperty, ListProperty, BooleanProperty, ObjectProperty
+from kivy.lang import Builder
+from kivy.clock import Clock
 import os
-import threading
-import speech_recognition as sr
 
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QMetaObject, Q_ARG, QSize
-from PyQt5.QtGui import QFont, QRegion, QPixmap, QIcon
-from PyQt5.QtWidgets import (QLineEdit, QTextEdit, QVBoxLayout, QWidget,
-                             QCheckBox, QPushButton, QLabel, QHBoxLayout, QComboBox)
-# Removed: from actions import action_handler
-from llm.chatbox_llm import ChatBoxLLM
-from tts import generate_speech_from_provider
-# Removed: from kg import kg_handler
-from config.models import OPENAI_MODELS, GEMINI_MODELS
-# Import settings manager
-from settings_manager import load_settings, save_settings
+# Load the corresponding kv file
+Builder.load_file('views/chat_tab.kv')
 
+class ChatTab(BoxLayout):
+    """
+    Kivy equivalent of the ChatTab QWidget.
+    """
+    prompt_text = StringProperty("")
+    response_text = StringProperty("") # For displaying chat history
+    llm_providers = ListProperty(["OpenAI", "Gemini"]) # Example providers
+    llm_models = ListProperty([]) # Models will depend on the selected provider
+    selected_provider = StringProperty("OpenAI") # Default provider
+    selected_model = StringProperty("")
+    tts_enabled = BooleanProperty(False)
+    is_recording = BooleanProperty(False)
+    record_button_icon = StringProperty("assets/mic_idle.png") # Path to icon
 
-def clear_output_folder():
-    # Remove old audio files from the outputs folder
-    output_folder = "outputs"
-    if os.path.exists(output_folder):
-        for filename in os.listdir(output_folder):
-            if filename.startswith("audio"):
-                file_path = os.path.join(output_folder, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        print(f"Deleted {file_path}")
-                except Exception as e:
-                    pass
+    # Object properties to hold references to widgets if needed (optional)
+    # prompt_input = ObjectProperty(None)
+    # response_box_layout = ObjectProperty(None) # Reference to the layout inside ScrollView
 
-class ChatTab(QWidget):
-    # Signal to update the chat with user input and assistant response
-    updateResponse = pyqtSignal(str, str)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Orientation is set in the kv file
+        Clock.schedule_once(self._post_init) # Schedule updates after widgets are loaded
 
-    def __init__(self):
-        super().__init__()
-        self._initializing = True # Flag to prevent signals during setup
-        self.settings = load_settings() # Load settings first
+    def _post_init(self, dt):
+        # Initial population of models based on default provider
+        self.update_models()
+        # Add some initial placeholder text to the response box
+        self.add_message("System", "Chat initialized. Enter your prompt below.")
 
-        # --- UI Setup (largely the same, but apply loaded settings) ---
-
-        # LLM Provider Selector
-        self.provider_label = QLabel("Select LLM Provider:", self)
-        self.provider_selector = QComboBox(self)
-        self.provider_selector.addItems(["OpenAI", "Gemini"])
-        # Set loaded provider *before* connecting signals
-        provider_index = self.provider_selector.findText(self.settings.get('selected_provider', 'OpenAI'))
-        if provider_index != -1:
-            self.provider_selector.setCurrentIndex(provider_index)
-        # Connect signal LATER
-
-        # LLM Model Selector
-        self.model_label = QLabel("Select Model:", self)
-        self.model_selector = QComboBox(self)
-        # Populate models based on the *loaded* provider first
-        self._update_model_selector(set_from_settings=True)
-        # Connect signal LATER
-
-        # Avatar setup
-        self.avatar_label = QLabel(self)
-        self.avatar_label.setFixedSize(300, 300)
-        self.avatar_label.setAlignment(Qt.AlignCenter)
-        avatar_pixmap = QPixmap("assets/avatar.png")
-        avatar_pixmap = avatar_pixmap.scaled(self.avatar_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.avatar_label.setPixmap(avatar_pixmap)
-        mask_region = QRegion(0, 0, self.avatar_label.width(), self.avatar_label.height(), QRegion.Ellipse)
-        self.avatar_label.setMask(mask_region)
-        avatar_layout = QHBoxLayout()
-        avatar_layout.setAlignment(Qt.AlignCenter)
-        avatar_layout.addWidget(self.avatar_label)
-
-        # Prompt input field and voice record button setup
-        self.prompt_input = QLineEdit(self)
-        font = QFont("Arial", 14)
-        self.prompt_input.setFont(font)
-
-        self.record_button = QPushButton(self)
-        self.record_button.setStyleSheet("width: 100px; height: 30px;")
-        self.record_button.setIcon(QIcon("assets/mic_idle.png"))
-        self.record_button.setIconSize(QSize(30, 30))
-        self.record_button.clicked.connect(self.record_voice)
-
-        # Layout for text input and record button
-        prompt_layout = QHBoxLayout()
-        prompt_layout.addWidget(self.prompt_input)
-        prompt_layout.addWidget(self.record_button)
-
-        # Create response box and other controls
-        self.response_box = QTextEdit(self)
-        self.response_box.setReadOnly(True)
-        self.tts_provider_enabled = QCheckBox("Enable TTS (TTS-Provider)", self)
-        self.tts_provider_enabled.setChecked(self.settings.get('tts_provider_enabled', False))
-        # Connect signal LATER
-
-        self.clear_history_button = QPushButton("Clear History", self)
-
-        # Removed KG Memory checkbox and status display
-
-        # Main layout for the ChatTab
-        layout = QVBoxLayout()
-        layout.addLayout(avatar_layout)
-        layout.addLayout(prompt_layout)
-        layout.addWidget(self.response_box)
-        layout.addWidget(self.tts_provider_enabled)
-        # Removed KG widgets from layout
-        provider_layout = QHBoxLayout()
-        provider_layout.addWidget(self.provider_label)
-        provider_layout.addWidget(self.provider_selector)
-        model_layout = QHBoxLayout()
-        model_layout.addWidget(self.model_label)
-        model_layout.addWidget(self.model_selector)
-        layout.addLayout(provider_layout)
-        layout.addLayout(model_layout)
-        layout.addWidget(self.clear_history_button)
-        self.setLayout(layout)
-
-        # Connect other signals
-        self.prompt_input.returnPressed.connect(self.get_response)
-        self.clear_history_button.clicked.connect(self.clear_history)
-        self.updateResponse.connect(self.on_update_response)
-
-        # Initialize LLM based on loaded settings
-        self._initialize_llm()
-
-        # NOW connect the signals that should trigger saving settings
-        self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
-        self.model_selector.currentIndexChanged.connect(self.on_model_changed)
-        self.tts_provider_enabled.stateChanged.connect(self._save_current_settings)
-        # Removed KG checkbox signal connection
-
-        self._initializing = False  # Setup complete
-        clear_output_folder()
-
-    def _save_current_settings(self):
-        """Gathers current settings and saves them."""
-        if self._initializing: # Don't save during initial setup
-            return
-
-        current_settings = {
-            'tts_provider_enabled': self.tts_provider_enabled.isChecked(),
-            # Removed 'enable_kg_memory'
-            'selected_provider': self.provider_selector.currentText(),
-            'selected_model': self.model_selector.currentText()
-        }
-        # Update the in-memory settings object as well
-        self.settings.update(current_settings)
-        save_settings(self.settings)
-
-    def _update_model_selector(self, set_from_settings=False):
-        """Populates the model selector based on the selected provider."""
-        selected_provider = self.provider_selector.currentText().lower()
-        # Block signals during modification to prevent premature triggers
-        self.model_selector.blockSignals(True)
-        self.model_selector.clear() # Clear existing items
-
-        model_list = []
-        if selected_provider == 'openai':
-            model_list = OPENAI_MODELS
-        elif selected_provider == 'gemini':
-            model_list = GEMINI_MODELS
-
-        if model_list:
-            self.model_selector.addItems(model_list)
-            if set_from_settings:
-                # Try to set the loaded model
-                loaded_model = self.settings.get('selected_model')
-                model_index = self.model_selector.findText(loaded_model)
-                if model_index != -1:
-                    self.model_selector.setCurrentIndex(model_index)
-                elif model_list: # Fallback to first if loaded model not found
-                    self.model_selector.setCurrentIndex(0)
-            elif model_list: # Default to first if not setting from saved
-                self.model_selector.setCurrentIndex(0)
-
-        self.model_selector.blockSignals(False) # Unblock signals
-        # Save settings if the model was changed *not* during initial load
-        if not set_from_settings:
-             self._save_current_settings()
-
-    def _initialize_llm(self):
-        """Initializes or re-initializes the ChatBoxLLM based on the selected provider and model."""
-        selected_provider = self.provider_selector.currentText().lower()
-        selected_model = self.model_selector.currentText()
-
-        if not selected_model:
-             print("--- Initialize LLM: No model selected, skipping. ---")
-             self.chatBoxLLM = None
-             return
-
-        # Prevent re-initialization if settings haven't changed (unless initializing)
-        if not self._initializing and hasattr(self, 'chatBoxLLM') and self.chatBoxLLM and \
-           self.chatBoxLLM.provider == selected_provider and \
-           self.chatBoxLLM.model == selected_model:
-            print(f"--- Initialize LLM: Settings unchanged ({selected_provider}/{selected_model}), skipping. ---")
-            return
-
-        print(f"--- Initializing LLM: Provider={selected_provider}, Model={selected_model} ---")
-        try:
-            self.chatBoxLLM = ChatBoxLLM(provider=selected_provider, model_name=selected_model)
-            # Clear history only if not initializing (avoids clearing on startup)
-            if not self._initializing:
-                self.clear_history(notify=False)
-                self.response_box.append(f"Switched LLM to: {selected_provider.capitalize()} - {selected_model}")
-        except ValueError as e:
-            print(f"--- Error initializing LLM: {e} ---")
-            if hasattr(self, 'response_box'):
-                 self.response_box.append(f'<span style="color: red;">Error: Could not initialize {selected_provider.capitalize()} ({selected_model}). Check API key/config.</span>')
-            self.chatBoxLLM = None
-        # Save settings after successful initialization or change
-        self._save_current_settings()
-
-    def on_provider_changed(self):
-        """Handles the change in the provider selection."""
-        if self._initializing:
-            print("--- on_provider_changed SKIPPING (during init) ---")
-            return
-        print("--- on_provider_changed START ---")
-        self._update_model_selector() # Update models (saves settings inside)
-        # Initialize LLM because provider change implies model change (to default)
-        # _initialize_llm will handle saving and appending messages
-        self._initialize_llm()
-        print("--- on_provider_changed END ---")
-
-
-    def on_model_changed(self):
-        """Handles the change in the model selection."""
-        if self._initializing:
-            print("--- on_model_changed SKIPPING (during init) ---")
-            return
-        print("--- on_model_changed START ---")
-        # Check if model text is actually valid before initializing
-        if self.model_selector.currentText():
-             # _initialize_llm will handle saving and appending messages
-             self._initialize_llm()
+    def update_models(self, *args):
+        """Update the list of models based on the selected provider."""
+        # Placeholder logic: Replace with actual model fetching
+        if self.selected_provider == "OpenAI":
+            self.llm_models = ["gpt-4", "gpt-3.5-turbo"]
+            self.selected_model = "gpt-4" if "gpt-4" in self.llm_models else ""
+        elif self.selected_provider == "Gemini":
+            self.llm_models = ["gemini-pro", "gemini-1.5-flash"]
+            self.selected_model = "gemini-pro" if "gemini-pro" in self.llm_models else ""
         else:
-             print("--- on_model_changed SKIPPING (empty model text) ---")
-        print("--- on_model_changed END ---")
+            self.llm_models = []
+            self.selected_model = ""
+        print(f"Provider changed to: {self.selected_provider}, Models: {self.llm_models}")
 
+    def toggle_recording(self):
+        """Toggle voice recording state."""
+        self.is_recording = not self.is_recording
+        if self.is_recording:
+            self.record_button_icon = "assets/mic_on.png"
+            print("Recording started (Simulated)")
+            # Add actual voice recording logic here
+            # Example: Start recording -> on result -> self.prompt_text = result; self.toggle_recording()
+        else:
+            self.record_button_icon = "assets/mic_idle.png"
+            print("Recording stopped (Simulated)")
+            # Add logic to process recorded audio if needed
 
-    def get_response(self):
-        if not self.chatBoxLLM:
-            self.response_box.append('<span style="color: red;">LLM not initialized. Please select a valid provider and ensure API key is set.</span>')
+    def send_prompt(self):
+        """Send the prompt text to the LLM."""
+        prompt = self.prompt_text
+        if not prompt:
             return
-        user_text = self.prompt_input.text().strip()
-        if not user_text: return
-        self.prompt_input.setDisabled(True)
-        threading.Thread(target=self._get_response_thread, args=(user_text,), daemon=True).start()
 
-    def _get_response_thread(self, user_text):
-        # Call the async get_response using asyncio.run() within the thread
-        try:
-            # ChatBoxLLM.get_response is now async
-            message, _ = asyncio.run(self.chatBoxLLM.get_response(user_text))
-        except Exception as e:
-            print(f"Error running chatBoxLLM.get_response: {e}")
-            # Emit an error message back to the UI
-            self.updateResponse.emit(user_text, f"Error processing request: {e}")
-            return # Stop processing if LLM call failed
+        print(f"Sending prompt: {prompt}")
+        self.add_message("You", prompt)
+        self.prompt_text = "" # Clear input field
 
-        # Call TTS-Provider if enabled
-        if self.tts_provider_enabled.isChecked():
-            # Run the async TTS function in a separate thread
-            threading.Thread(
-                target=lambda: asyncio.run(generate_speech_from_provider(message)),
-                daemon=True
-            ).start()
+        # --- Placeholder for LLM interaction ---
+        # Simulate receiving a response
+        Clock.schedule_once(lambda dt: self.receive_response(f"This is a simulated response to '{prompt}'."), 1)
+        # --- End Placeholder ---
 
-        self.updateResponse.emit(user_text, message)
+    def receive_response(self, response):
+        """Handle receiving a response from the LLM."""
+        print(f"Received response: {response}")
+        self.add_message("Lily", response)
 
-    def on_update_response(self, user_text, assistant_message):
-        self.response_box.append(f"You: {user_text}")
-        self.response_box.append(f"Lily: {assistant_message}")
-        self.prompt_input.clear()
-        self.prompt_input.setDisabled(False)
+        if self.tts_enabled:
+            print(f"TTS Enabled: Speaking response (Simulated)")
+            # Add actual TTS logic here
 
-    def clear_history(self, notify=True):
-        if self.chatBoxLLM:
-            self.chatBoxLLM.message_history = []
-        # Clear the visual chat display
-        self.response_box.clear()
-        if notify:
-            self.response_box.append("History cleared.")
+    def add_message(self, sender, message):
+        """Append a message to the response box."""
+        # Simple append for now. For better performance with long histories,
+        # consider using RecycleView or managing the label's text more carefully.
+        self.response_text += f"[b]{sender}:[/b] {message}\n\n" # Use Kivy markup
 
-    # Removed enable_kg_features method
+    def clear_history(self):
+        """Clear the chat history."""
+        self.response_text = ""
+        self.add_message("System", "Chat history cleared.")
+        print("Chat history cleared")
 
-    def record_voice(self):
-        threading.Thread(target=self._record_voice_thread, daemon=True).start()
-
-    def _record_voice_thread(self):
-        recognizer = sr.Recognizer()
-        try:
-            with sr.Microphone() as source:
-                recognizer.adjust_for_ambient_noise(source, duration=1)
-                print("Recording... Please speak now.")
-                QMetaObject.invokeMethod(self, "start_recording_ui", Qt.QueuedConnection)
-                audio = recognizer.listen(source, phrase_time_limit=5)
-                recognized_text = recognizer.recognize_google(audio)
-                print("Recognized text:", recognized_text)
-                QMetaObject.invokeMethod(self.prompt_input, "setText", Qt.QueuedConnection, Q_ARG(str, recognized_text))
-        except Exception as e:
-            print("Voice recognition error:", e)
-        finally:
-            QMetaObject.invokeMethod(self, "reset_record_icon", Qt.QueuedConnection)
-
-    @pyqtSlot()
-    def reset_record_icon(self):
-        self.record_button.setIcon(QIcon("assets/mic_idle.png"))
-
-    @pyqtSlot()
-    def start_recording_ui(self):
-        self.record_button.setIcon(QIcon("assets/mic_on.png"))
-        self.response_box.append('<span style="color: red;">Recording... Please speak now.</span>')
+    def on_tts_enabled(self, instance, value):
+        """Callback when TTS checkbox changes."""
+        print(f"TTS Enabled changed to: {value}")
+        # Add logic if needed when TTS state changes (e.g., load/unload TTS engine)

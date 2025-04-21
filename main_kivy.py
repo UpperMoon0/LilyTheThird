@@ -7,6 +7,8 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.lang import Builder
 from kivy.core.window import Window
 
+# Import the translated tab widgets
+# Ensure the .kv files for these are loaded by their respective .py files
 from views.vtube_tab import VTubeTab
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab

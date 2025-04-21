@@ -1,35 +1,36 @@
+from kivy.uix.boxlayout import BoxLayout
+from kivy.properties import StringProperty, ObjectProperty
+from kivy.lang import Builder
 import os
-from PyQt5.QtWidgets import QWidget, QLabel, QPushButton, QHBoxLayout
-from PyQt5.QtCore import pyqtSignal
 
-class AttachmentChip(QWidget):
-    # Signal to notify when the chip is removed; passes the file path.
-    removeClicked = pyqtSignal(str)
-    
-    def __init__(self, file_path, parent=None):
-        super().__init__(parent)
+# Load the corresponding kv file relative to this python file's location
+Builder.load_file(os.path.join(os.path.dirname(__file__), 'attachment_chip.kv'))
+
+class AttachmentChip(BoxLayout):
+    """
+    Kivy equivalent of the AttachmentChip QWidget.
+    Displays a filename and a remove button.
+    """
+    file_path = StringProperty("")
+    filename = StringProperty("")
+    # Optional: Add a reference to the parent/manager to notify about removal
+    manager = ObjectProperty(None)
+
+    def __init__(self, file_path, manager=None, **kwargs):
+        super().__init__(**kwargs)
         self.file_path = file_path
-        self.init_ui()
-    
-    def init_ui(self):
-        # Create a horizontal layout with some margins and spacing.
-        layout = QHBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        self.filename = os.path.basename(file_path) # Extract filename from path
+        self.manager = manager
+        # Layout properties like orientation, padding, spacing are set in kv
 
-        # Label showing the file name.
-        self.label = QLabel(self)
-        self.label.setText(os.path.basename(self.file_path))
-        layout.addWidget(self.label)
+    def remove_chip(self):
+        """
+        Handles the click action of the remove button.
+        Removes itself from the parent and notifies the manager if available.
+        """
+        print(f"Remove chip clicked for: {self.file_path}")
+        if self.manager and hasattr(self.manager, 'remove_attachment'):
+            self.manager.remove_attachment(self.file_path) # Notify manager
 
-        # Remove button ("x" chip).
-        self.remove_button = QPushButton("x", self)
-        self.remove_button.setFixedSize(20, 20)
-        self.remove_button.clicked.connect(self.handle_remove)
-        layout.addWidget(self.remove_button)
-
-        self.setLayout(layout)
-
-    def handle_remove(self):
-        # Emit a signal indicating that this chip should be removed.
-        self.removeClicked.emit(self.file_path)
+        if self.parent:
+            self.parent.remove_widget(self) # Remove widget from layout
