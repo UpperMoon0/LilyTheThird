@@ -2,6 +2,8 @@ import os
 import random
 import json
 import asyncio # For sleep
+from itertools import cycle
+from pathlib import Path
 import logging # For logging errors
 # Import the updated functions from tools.py
 from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names, find_tool
@@ -13,12 +15,17 @@ from typing import List, Dict, Optional, Any
 # Assuming history manager is in the same directory or adjust import path
 from .history_manager import HistoryManager
 
-# Constants for LLM API retry logic
+# Constants
 MAX_LLM_API_RETRIES = 3
 LLM_RETRY_DELAY_SECONDS = 60 # Wait 1 minute for rate limit errors
+API_KEYS_FILE = Path("llm_api_keys.json")
+API_KEYS_TEMPLATE_FILE = Path("llm_api_keys.json.template")
 
 class LLMClient:
-    """Handles communication with the underlying LLM provider (OpenAI or Gemini)."""
+    """
+    Handles communication with the underlying LLM provider (OpenAI or Gemini),
+    managing multiple API keys with round-robin selection.
+    """
 
     def __init__(self, provider: str, model_name: Optional[str] = None):
         """
@@ -28,40 +35,86 @@ class LLMClient:
             provider: The LLM provider ('openai' or 'gemini').
             model_name: The specific model name to use.
         """
-        self.provider = provider
+        self.provider = provider.lower() # Ensure lowercase provider name
         self.model = model_name
         self.client = None
+        self.api_keys: Dict[str, List[str]] = {}
+        self.key_iterators: Dict[str, cycle] = {} # Store iterators for round-robin
+
+        self._load_api_keys_from_json()
         self._initialize_client()
 
-    def _initialize_client(self):
-        """Loads API keys and initializes the appropriate client."""
-        openai_api_key = os.getenv('OPENAI_KEY')
-        gemini_api_key = os.getenv('GEMINI_API_KEY')
+    def _load_api_keys_from_json(self):
+        """Loads API keys from llm_api_keys.json."""
+        if not API_KEYS_FILE.exists():
+            raise FileNotFoundError(
+                f"API keys file not found: {API_KEYS_FILE}. "
+                f"Please create it by copying and filling in {API_KEYS_TEMPLATE_FILE}."
+            )
+        try:
+            with open(API_KEYS_FILE, 'r') as f:
+                loaded_keys = json.load(f)
 
+            # Validate and store keys, ensuring they are lists of strings
+            for provider, keys in loaded_keys.items():
+                provider_lower = provider.lower()
+                if isinstance(keys, list) and all(isinstance(k, str) for k in keys):
+                    if keys: # Only store if there are keys
+                        self.api_keys[provider_lower] = keys
+                        self.key_iterators[provider_lower] = cycle(keys) # Create iterator
+                        print(f"Loaded {len(keys)} API key(s) for provider: {provider_lower}")
+                    else:
+                        print(f"Warning: No API keys found for provider '{provider_lower}' in {API_KEYS_FILE}.")
+                else:
+                    print(f"Warning: Invalid format for keys of provider '{provider_lower}' in {API_KEYS_FILE}. Expected a list of strings.")
+
+        except json.JSONDecodeError:
+            raise ValueError(f"Error decoding JSON from {API_KEYS_FILE}.")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load API keys from {API_KEYS_FILE}: {e}")
+
+    def _get_next_api_key(self) -> Optional[str]:
+        """Gets the next API key for the current provider using round-robin."""
+        if self.provider not in self.key_iterators:
+            print(f"Error: No API keys loaded or available for provider: {self.provider}")
+            return None # Or raise an error? Returning None might be handled better by caller.
+
+        key = next(self.key_iterators[self.provider])
+        # print(f"Using {self.provider} API key ending with: ...{key[-4:]}") # Debug: Don't log full key
+        return key
+
+    def _initialize_client(self):
+        """Initializes the appropriate client using the first available API key."""
+        # Get the first key to initialize the client instance
+        initial_api_key = self._get_next_api_key()
+        if not initial_api_key:
+             raise ValueError(f"No API keys available to initialize client for provider: {self.provider}")
+
+        # Determine default model if needed
         if not self.model:
-            # Set default model if none provided
             if self.provider == 'openai':
                 self.model = "gpt-4o-mini" # Default OpenAI model
             elif self.provider == 'gemini':
                 self.model = "gemini-1.5-flash" # Default Gemini model
-            else:
                 # If provider is unknown and no model is given, we can't proceed
                 raise ValueError(f"Model name must be provided for unsupported provider: {self.provider}")
             print(f"Warning: No model name provided, using default for {self.provider}: {self.model}")
 
-        if self.provider == 'openai':
-            if not openai_api_key:
-                raise ValueError("OpenAI API key not found in environment variables.")
-            self.client = OpenAI(api_key=openai_api_key)
-        elif self.provider == 'gemini':
-            if not gemini_api_key:
-                raise ValueError("Gemini API key not found in environment variables.")
-            genai.configure(api_key=gemini_api_key)
-            self.client = genai.GenerativeModel(self.model)
-        else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider}")
+        # Initialize the client with the first key
+        try:
+            if self.provider == 'openai':
+                self.client = OpenAI(api_key=initial_api_key)
+            elif self.provider == 'gemini':
+                # Configure genai globally (as per library design)
+                genai.configure(api_key=initial_api_key)
+                self.client = genai.GenerativeModel(self.model)
+            else:
+                raise ValueError(f"Unsupported LLM provider: {self.provider}")
+            print(f"LLM Client initialized for provider: {self.provider}, model: {self.model}")
+        except Exception as e:
+            # Catch potential initialization errors (e.g., invalid key format for the library)
+            raise RuntimeError(f"Failed to initialize LLM client for {self.provider} with the first key: {e}")
 
-        print(f"LLM Client initialized for provider: {self.provider}, model: {self.model}")
 
     def get_model_name(self) -> str:
         """Returns the name of the model being used."""
@@ -79,57 +132,64 @@ class LLMClient:
         Returns:
             A dictionary parsed from the JSON response, or an error dictionary if all retries fail.
         """
-        # Combined retry loop for API errors (like rate limits) and JSON parsing issues
-        # Use MAX_LLM_API_RETRIES for consistency, as API errors are the primary target
+        # Retry loop for API errors (like rate limits) and JSON parsing issues
         for attempt in range(MAX_LLM_API_RETRIES):
             print(f"--- Attempt {attempt + 1}/{MAX_LLM_API_RETRIES} for {purpose} JSON ---")
-            # print(f"Messages sent for JSON:\n{json.dumps(messages, indent=2)}") # DEBUG
             content = None # Initialize content to None
+            api_key = self._get_next_api_key() # Get key for this attempt
+            if not api_key:
+                print(f"Error: No more API keys available for {self.provider} during retry.")
+                return {"error": f"No API keys available for {self.provider}."}
 
             try:
                 if self.provider == 'openai':
-                    # Instruct OpenAI to return JSON
-                    response = self.client.chat.completions.create(
+                    # Re-initialize client with the current key for this attempt
+                    # This is safer than trying to update the key on an existing client instance
+                    current_client = OpenAI(api_key=api_key)
+                    response = current_client.chat.completions.create(
                         messages=messages,
                         model=self.model,
-                        max_tokens=400, # Increased slightly for potentially complex JSON
-                        temperature=0.1, # Lower temperature for more deterministic JSON
-                        response_format={"type": "json_object"} # Request JSON mode
+                        max_tokens=400,
+                        temperature=0.1,
+                        response_format={"type": "json_object"}
                     )
                     content = response.choices[0].message.content.strip()
-                    print(f"Raw OpenAI JSON response for {purpose}: {content}")
+                    # print(f"Raw OpenAI JSON response for {purpose}: {content}") # Less verbose logging
 
                 elif self.provider == 'gemini':
-                    # Adapt messages for Gemini (similar to generate_final_response)
+                    # Re-configure genai globally for this attempt
+                    genai.configure(api_key=api_key)
+                    # Re-fetch the model instance in case configuration affects it
+                    current_client = genai.GenerativeModel(self.model)
+
+                    # Adapt messages
                     system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
                     history_openai_format = [msg for msg in messages if msg['role'] != 'system']
-                    # Ensure history_openai_format is not empty before popping
                     user_message_content = history_openai_format.pop()['content'] if history_openai_format else ""
 
-                    temp_history_manager = HistoryManager() # Consider making adaptation static/util
+                    temp_history_manager = HistoryManager()
                     gemini_formatted_history = temp_history_manager.adapt_history_for_gemini(history_openai_format)
 
-                    # Combine system prompts and user message, explicitly asking for JSON
+                    # Combine prompts
                     prompt_parts = [
                         f"System Instructions:\n{' '.join(system_prompts)}\n\nUser Request:\n{user_message_content}\n\n"
                         f"IMPORTANT: Respond ONLY with a valid JSON object based on the request. Do not include any other text or explanations."
                     ]
 
                     generation_config = genai.types.GenerationConfig(
-                        # Ensure Gemini knows we want JSON - response_mime_type might work
-                        response_mime_type="application/json", # Explicitly request JSON if supported
-                        max_output_tokens=400, # Increased slightly
-                        temperature=0.1, # Lower temperature for JSON
+                        response_mime_type="application/json",
+                        max_output_tokens=400,
+                        temperature=0.1,
                     )
 
-                    chat_session = self.client.start_chat(history=gemini_formatted_history)
+                    # Use the potentially reconfigured client instance
+                    chat_session = current_client.start_chat(history=gemini_formatted_history)
                     response = chat_session.send_message(
                         prompt_parts,
                         generation_config=generation_config,
-                        # stream=False # Ensure we get the full response at once
                     )
                     content = response.text.strip()
-                    print(f"Raw Gemini JSON response for {purpose}: {content}")
+                    # print(f"Raw Gemini JSON response for {purpose}: {content}") # Less verbose logging
                 else:
                     print(f"Unsupported provider '{self.provider}' for JSON generation.")
                     return {"error": f"Unsupported provider '{self.provider}'"}
@@ -148,23 +208,34 @@ class LLMClient:
                 content = content.strip() # Clean again after removing fences
 
                 # Attempt to parse the cleaned content
-                parsed_json = json.loads(content)
-                return parsed_json # Success! Return the parsed JSON
+                try:
+                    parsed_json = json.loads(content)
+                    print(f"Successfully parsed JSON for {purpose} (Attempt {attempt + 1})")
+                    return parsed_json # Success! Return the parsed JSON
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON response for {purpose} (Attempt {attempt + 1}/{MAX_LLM_API_RETRIES}): {e}\nRaw content: '{content}'")
+                    # Raise the error to be caught by the outer exception handler for retry logic
+                    raise e # Re-raise to trigger retry or failure logic below
+
 
             # --- Exception Handling within the loop ---
-            except (OpenAIRateLimitError, google_exceptions.ResourceExhausted) as e:
-                print(f"Rate limit error encountered for {purpose} (Attempt {attempt + 1}/{MAX_LLM_API_RETRIES}): {e}")
-                if attempt < MAX_LLM_API_RETRIES - 1:
-                    print(f"Waiting {LLM_RETRY_DELAY_SECONDS} seconds before retrying...")
+            except (OpenAIRateLimitError, google_exceptions.ResourceExhausted, google_exceptions.PermissionDenied) as e:
+                # Added PermissionDenied for invalid Gemini keys
+                error_type = "Rate limit" if isinstance(e, (OpenAIRateLimitError, google_exceptions.ResourceExhausted)) else "Permission/API Key"
+                print(f"{error_type} error encountered for {purpose} with key ending ...{api_key[-4:]} (Attempt {attempt + 1}/{MAX_LLM_API_RETRIES}): {e}")
+                if attempt < MAX_LLM_API_RETRIES - 1: # Add the missing if condition
+                    print(f"Waiting {LLM_RETRY_DELAY_SECONDS} seconds before retrying with next key...")
                     await asyncio.sleep(LLM_RETRY_DELAY_SECONDS)
+                    # Key rotation happens automatically at the start of the next loop iteration
                     continue # Go to the next attempt
                 else:
-                    print(f"Max retries reached for rate limit error.")
-                    return {"error": f"Rate limit exceeded after {MAX_LLM_API_RETRIES} attempts."}
+                    print(f"Max retries reached for {error_type} error.")
+                    return {"error": f"{error_type} error persisted after {MAX_LLM_API_RETRIES} attempts with different keys."}
             except json.JSONDecodeError as e:
+                # JSON errors are less likely related to the API key, but retry anyway
                 print(f"Error decoding JSON response for {purpose} (Attempt {attempt + 1}/{MAX_LLM_API_RETRIES}): {e}\nRaw content: '{content}'")
                 if attempt < MAX_LLM_API_RETRIES - 1:
-                    print(f"Retrying JSON call...")
+                    print(f"Retrying JSON call (will use next key)...")
                     await asyncio.sleep(2) # Shorter delay for JSON errors
                     continue # Go to the next attempt
                 else:
@@ -175,9 +246,10 @@ class LLMClient:
                 # Break on other unexpected errors immediately
                 return {"error": f"Unexpected API error: {e}"}
 
-        # Should only be reached if all retries failed for some reason (e.g., loop logic error)
+        # Should only be reached if all retries failed
         print(f"Failed to get valid JSON response for {purpose} after {MAX_LLM_API_RETRIES} attempts.")
         return {"error": f"Failed to get JSON response after {MAX_LLM_API_RETRIES} attempts."}
+
 
     # --- Tool Interaction Methods ---
 
@@ -350,67 +422,76 @@ class LLMClient:
         final_messages.extend(messages) # Pass the full history
 
         # --- Call the appropriate provider ---
-        # --- Call the appropriate provider ---
-        # Add retry logic here
-        for attempt in range(MAX_LLM_API_RETRIES): # Line 356
+        # Retry loop for final response generation
+        for attempt in range(MAX_LLM_API_RETRIES):
             print(f"--- Attempt {attempt + 1}/{MAX_LLM_API_RETRIES} for Final {self.provider.capitalize()} Response ---")
-            try: # Indented this block
+            api_key = self._get_next_api_key() # Get key for this attempt
+            if not api_key:
+                print(f"Error: No more API keys available for {self.provider} during final response.")
+                return f"Error: No API keys available for {self.provider}."
+
+            try:
                 if self.provider == 'openai':
-                    return await self._generate_openai_response(final_messages)
+                    # Pass the key directly to the helper which will initialize the client
+                    return await self._generate_openai_response(messages, api_key)
                 elif self.provider == 'gemini':
-                    return await self._generate_gemini_response(final_messages)
+                     # Pass the key directly to the helper which will configure genai
+                    return await self._generate_gemini_response(messages, api_key)
                 else:
                     print(f"Unsupported provider '{self.provider}' for final response generation.")
                     return f"Error: Unsupported provider '{self.provider}'."
-            except (OpenAIRateLimitError, google_exceptions.ResourceExhausted) as e: # Indented this block
-                print(f"Rate limit error during final response generation (Attempt {attempt + 1}): {e}")
+            except (OpenAIRateLimitError, google_exceptions.ResourceExhausted, google_exceptions.PermissionDenied) as e:
+                error_type = "Rate limit" if isinstance(e, (OpenAIRateLimitError, google_exceptions.ResourceExhausted)) else "Permission/API Key"
+                print(f"{error_type} error during final response generation with key ending ...{api_key[-4:]} (Attempt {attempt + 1}): {e}")
                 if attempt < MAX_LLM_API_RETRIES - 1:
-                    print(f"Waiting {LLM_RETRY_DELAY_SECONDS} seconds before retrying...")
+                    print(f"Waiting {LLM_RETRY_DELAY_SECONDS} seconds before retrying with next key...")
                     await asyncio.sleep(LLM_RETRY_DELAY_SECONDS)
                     continue
                 else:
-                    return f"Error: Rate limit exceeded after {MAX_LLM_API_RETRIES} attempts during final response generation."
-            except Exception as e: # Indented this block
+                    return f"Error: {error_type} error persisted after {MAX_LLM_API_RETRIES} attempts during final response generation."
+            except Exception as e:
                  logging.exception(f"Unexpected error during final response generation (Attempt {attempt + 1}): {e}")
                  # Don't retry on unexpected errors
                  return f"Error: Unexpected error during final response generation: {e}"
+
         # Fallback if loop finishes without returning
-        return f"Error: Failed to generate final response after {MAX_LLM_API_RETRIES} attempts." # Indented this line
+        return f"Error: Failed to generate final response after {MAX_LLM_API_RETRIES} attempts."
 
 
-    async def _generate_openai_response(self, messages: List[Dict]) -> str:
-        """Handles the actual OpenAI API call for message generation. Assumes retry logic is handled by caller."""
-        # Note: No try/except here, handled by the calling loop in generate_final_response
-        print(f"--- Calling OpenAI API for Final Response ---")
-        # print(f"Messages sent for final response:\n{json.dumps(messages, indent=2)}") # DEBUG
-        response = self.client.chat.completions.create(
+    async def _generate_openai_response(self, messages: List[Dict], api_key: str) -> str:
+        """Handles the actual OpenAI API call for message generation, using the provided key."""
+        # Note: No try/except here, handled by the calling loop
+        # print(f"--- Calling OpenAI API for Final Response (Key: ...{api_key[-4:]}) ---")
+        current_client = OpenAI(api_key=api_key) # Initialize with the specific key for this attempt
+        response = current_client.chat.completions.create(
                 messages=messages,
                 model=self.model,
-                max_tokens=450, # Keep original max_tokens for final response
-                temperature=random.uniform(0.2, 0.8), # Keep original temperature range
-                # No JSON format needed here
+                max_tokens=450,
+                temperature=random.uniform(0.2, 0.8),
             )
         message = response.choices[0].message.content.strip()
-        print(f"Final OpenAI Response received.")
+        print(f"Final OpenAI Response received (using key ...{api_key[-4:]}).")
         return message
 
 
-    async def _generate_gemini_response(self, messages: List[Dict]) -> str:
-        """Handles the actual Gemini API call for message generation. Assumes retry logic is handled by caller."""
-        # Note: No try/except here, handled by the calling loop in generate_final_response
-        print(f"--- Calling Gemini API for Final Response ---")
-        # Adapt system prompts and history for Gemini
+    async def _generate_gemini_response(self, messages: List[Dict], api_key: str) -> str:
+        """Handles the actual Gemini API call for message generation, using the provided key."""
+        # Note: No try/except here, handled by the calling loop
+        # print(f"--- Calling Gemini API for Final Response (Key: ...{api_key[-4:]}) ---")
+        # Re-configure genai globally for this attempt
+        genai.configure(api_key=api_key)
+        # Re-fetch the model instance
+        current_client = genai.GenerativeModel(self.model)
+
+        # Adapt messages
         system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
         history_openai_format = [msg for msg in messages if msg['role'] != 'system']
 
         if not history_openai_format:
-             # Should not happen if called correctly, but handle defensively
-             print("Warning: No user/model messages found for Gemini final response.")
-             final_user_content = "Please respond." # Placeholder
-             gemini_history_to_pass = []
+            print("Warning: No user/model messages found for Gemini final response.")
+            final_user_content = "Please respond."
+            gemini_history_to_pass = []
         else:
-            # Assume last is user/tool result to prompt response
-            # Check if the last message has 'content' before popping
             final_user_content = history_openai_format.pop()['content'] if history_openai_format and 'content' in history_openai_format[-1] else "Please respond based on history."
             temp_history_manager = HistoryManager()
             gemini_history_to_pass = temp_history_manager.adapt_history_for_gemini(history_openai_format)
@@ -426,22 +507,22 @@ class LLMClient:
             temperature=random.uniform(0.2, 0.7),
         )
 
-        chat_session = self.client.start_chat(history=gemini_history_to_pass)
+        # Use the reconfigured client instance
+        chat_session = current_client.start_chat(history=gemini_history_to_pass)
         response = chat_session.send_message(
             prompt_parts,
             generation_config=generation_config,
         )
-        # print(f"--- Raw Gemini Final Response Text ---\n{response.text}\n----------------------------------------") # DEBUG
+
         if response.text:
             message = response.text.strip()
-            print(f"Final Gemini Response received.")
+            print(f"Final Gemini Response received (using key ...{api_key[-4:]}).")
             return message
         else:
-            # If response.text is empty, check for blocking/safety feedback
+            # Handle potential blocking or empty response
             feedback = response.prompt_feedback if hasattr(response, 'prompt_feedback') else "Unknown reason"
             block_reason = feedback.block_reason if hasattr(feedback, 'block_reason') else "N/A"
             safety_ratings = feedback.safety_ratings if hasattr(feedback, 'safety_ratings') else "N/A"
-            print(f"Gemini final response issue: Block Reason: {block_reason}, Safety Ratings: {safety_ratings}")
-            # Raise an exception that the outer loop can catch if needed, or return error string
-            # For simplicity, return an error string here. The outer loop will handle it.
-            return f"Error: Gemini final response was empty or blocked. Reason: {block_reason}"
+            print(f"Gemini final response issue (using key ...{api_key[-4:]}): Block Reason: {block_reason}, Safety Ratings: {safety_ratings}")
+            # Raise an exception to be caught by the retry loop
+            raise google_exceptions.PermissionDenied(f"Gemini response blocked or empty. Reason: {block_reason}")

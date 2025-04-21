@@ -6,7 +6,7 @@ This document outlines the workflow for processing user messages using the LLM o
 
 The system relies on several key components managed by the `BaseLLMOrchestrator`:
 
-*   **`LLMClient`**: Handles communication with the underlying Large Language Model (LLM) provider (e.g., OpenAI, Gemini), including generating responses, deciding on tool usage, and extracting tool arguments.
+*   **`LLMClient`**: Handles communication with the underlying Large Language Model (LLM) provider (e.g., OpenAI, Gemini). It loads API keys from `llm_api_keys.json` (see `llm_api_keys.json.template` for the required format) and uses a round-robin strategy to select keys for each API call, helping to mitigate rate limits. It's responsible for generating responses, deciding on tool usage, and extracting tool arguments.
 *   **`HistoryManager`**: Manages the conversation history for the current interaction, storing user messages, assistant replies, and system messages (including tool results).
 *   **`ToolExecutor`**: Executes the chosen tools with the arguments provided by the LLM. It interacts with specific tool implementations (e.g., file operations, memory access, web search).
 *   **`MongoHandler`**: Manages the connection to the MongoDB database for long-term memory storage and retrieval (used by memory tools within `ToolExecutor`).
@@ -80,7 +80,7 @@ This is the core logic inherited and used by both `ChatBoxLLM` and `DiscordLLM`.
 
 *   **Inheritance**: Inherits from `BaseLLMOrchestrator`.
 *   **Context Name**: `"chatbox"`
-*   **Initialization**: Uses `CHATBOX_LLM_PROVIDER` and `CHATBOX_LLM_MODEL` environment variables.
+*   **Initialization**: Uses `CHATBOX_LLM_PROVIDER` and `CHATBOX_LLM_MODEL` environment variables. API keys are loaded from `llm_api_keys.json`.
 *   **System Messages (`_get_base_system_messages`)**:
     *   Provides only the master personality defined in `PERSONALITY_TO_MASTER`.
 *   **Allowed Tools (`_get_allowed_tools`)**:
@@ -96,7 +96,7 @@ This is the core logic inherited and used by both `ChatBoxLLM` and `DiscordLLM`.
 *   **Inheritance**: Inherits from `BaseLLMOrchestrator`.
 *   **Context Name**: `"discord"`
 *   **Initialization**:
-    *   Uses `DISCORD_LLM_PROVIDER` and `DISCORD_LLM_MODEL` environment variables.
+    *   Uses `DISCORD_LLM_PROVIDER` and `DISCORD_LLM_MODEL` environment variables. API keys are loaded from `llm_api_keys.json`.
     *   Checks `MASTER_DISCORD_ID` for personality switching.
 *   **System Messages (`_get_base_system_messages`)**:
     *   Determines personality based on whether the `discord_user_id` matches `MASTER_DISCORD_ID` (using `PERSONALITY_TO_MASTER` or `PERSONALITY_TO_STRANGER_1`/`_2`).

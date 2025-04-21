@@ -1,4 +1,5 @@
 /.env
+/llm_api_keys.json
 /response.mp3
 **/__pycache__/
 /outputs
