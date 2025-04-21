@@ -79,8 +79,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         """Tasks to run after widgets are loaded."""
         # Initial population of models based on the loaded provider (from mixin)
         self.update_models(initial_load=True) # Pass flag to load saved model (uses mixin's update_models)
-        # Add initial status message using the new add_message
-        self.add_message("System", self.initialization_status)
+        # Add initial status message using the new add_message, but don't trigger scroll
+        self.add_message("System", self.initialization_status, scroll=False) # Pass scroll=False
         # Start backend initialization in a separate thread
         threading.Thread(target=self._initialize_backend_thread, daemon=True).start()
 
@@ -196,7 +196,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             print(f"ChatTab: Backend initialization failed: {status_message}")
 
         # Update the system message using the new add_message
-        self.add_message("System", status_message)
+        # Let this one scroll if needed, as it replaces the initial message
+        self.add_message("System", status_message) # Default scroll=True is fine here
 
     def _start_llm_instance_update_thread(self):
         """Starts a background thread to update the LLM instance without freezing the UI."""
@@ -268,7 +269,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             print(f"ChatTab: LLM update failed: {update_status}")
 
         # Update the system message using the new add_message
-        self.add_message("System", update_status)
+        # Let this one scroll if needed
+        self.add_message("System", update_status) # Default scroll=True is fine here
         print(f"ChatTab: Finished LLM instance update. Current Instance ID: {id(self.llm_instance) if self.llm_instance else None}") # Log final ID
 
     def toggle_recording(self):
@@ -357,10 +359,36 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             print(f"ChatTab: TTS Enabled: Speaking response (Simulated)")
             # Add actual TTS logic here (ensure it runs on the main thread or is thread-safe)
 
-    def add_message(self, sender_type, text):
+    def add_message(self, sender_type, text, scroll: bool = True): # Add scroll parameter with default True
         """Adds a message to the chat display using Kivy markup."""
         sender_prefix = ""
         color_hex = LLM_COLOR_HEX # Default to LLM color
+
+        # --- ADDED ---
+        # Special handling for replacing initial/status messages without adding duplicates
+        # Check if the last message is a system message we might want to replace
+        replace_last = False
+        if self.response_text:
+            lines = self.response_text.split('\n\n')
+            last_line = lines[-1]
+            # Identify potential status messages to replace (adjust patterns as needed)
+            if sender_type == 'System' and last_line.startswith(f"[color={SYSTEM_COLOR_HEX}][b]System:[/b]"):
+                 if "Initializing backend..." in last_line or \
+                    "Backend initialized successfully." in last_line or \
+                    "Backend initialization failed." in last_line or \
+                    "Switching LLM to" in last_line or \
+                    "LLM switched to" in last_line or \
+                    "LLM update failed." in last_line or \
+                    "Error: Cannot switch LLM." in last_line or \
+                    "Error: Backend not ready." in last_line:
+                    replace_last = True
+                    # Remove the last message (including preceding newlines if they exist)
+                    if len(lines) > 1:
+                        self.response_text = "\n\n".join(lines[:-1]) + "\n\n" # Keep trailing newline for next message
+                    else:
+                        self.response_text = "" # Clear if it was the only message
+        # --- END ADDED ---
+
 
         if sender_type == 'You':
             sender_prefix = "[b]You:[/b] "
@@ -378,25 +406,42 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         escaped_text = text.replace('[', '&bl;').replace(']', '&br;')
 
         # Append formatted message to the response_text property
-        # Ensure there's a newline between messages
-        if self.response_text:
-            self.response_text += "\n\n"
+        # Ensure there's a newline between messages ONLY if response_text is not empty
+        if self.response_text and not replace_last: # Don't add extra newline if replacing the first message
+             self.response_text += "\n\n"
+        elif self.response_text and replace_last and not self.response_text.endswith("\n\n"):
+             # Ensure newline if replacing but previous text didn't end with one (edge case)
+             self.response_text += "\n\n"
+
+
         self.response_text += f"[color={color_hex}]{sender_prefix}{escaped_text}[/color]"
 
-        # Schedule scrolling to the bottom after the text is updated and rendered
-        Clock.schedule_once(self._scroll_to_bottom, 0.1)
+        # Only schedule scrolling if requested
+        if scroll:
+            Clock.schedule_once(self._scroll_to_bottom, 0)
 
     def _scroll_to_bottom(self, dt):
-        """Scrolls the response ScrollView to the bottom."""
-        if self.ids.response_scroll:
-            self.ids.response_scroll.scroll_y = 0 # Scroll to bottom (0 means bottom in Kivy ScrollView)
+        """Scrolls the response ScrollView to the bottom only if the content exceeds the view height."""
+        scroll_view = self.ids.response_scroll
+        label = self.ids.response_label
+        if scroll_view and label:
+            # Only scroll if the label's height is greater than the scrollview's visible height
+            if label.height > scroll_view.height:
+                scroll_view.scroll_y = 0 # Scroll to bottom (0 means bottom in Kivy ScrollView)
+            # Optional: else: scroll_view.scroll_y = 1 # Ensure it stays at the top if content is short
 
     def clear_history(self):
         """Clears the chat history display."""
         print("ChatTab: Clearing chat history.")
         self.response_text = "" # Clear the text property
-        # Optionally, add a system message indicating clearance
-        self.add_message("System", "Chat history cleared.")
+
+        # Add system message indicating clearance, without triggering scroll check
+        self.add_message("System", "Chat history cleared.", scroll=False)
+
+        # Explicitly set scroll position to the top after clearing
+        if self.ids.response_scroll:
+            self.ids.response_scroll.scroll_y = 1 # 1 means top
+
         # Optionally, clear the LLM's internal history if applicable
         if self.llm_instance and hasattr(self.llm_instance, 'clear_history'):
             print("ChatTab: Clearing LLM internal history.")
