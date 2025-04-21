@@ -278,6 +278,8 @@ class ChatTab(QWidget):
     def clear_history(self, notify=True):
         if self.chatBoxLLM:
             self.chatBoxLLM.message_history = []
+        # Clear the visual chat display
+        self.response_box.clear()
         if notify:
             self.response_box.append("History cleared.")
 
