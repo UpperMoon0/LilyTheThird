@@ -5,6 +5,14 @@
     size_hint_y: None
     height: self.minimum_height # Adjust height based on content
     spacing: dp(10) # Space between the rows
+    padding: dp(10) # Add padding inside the border
+
+    canvas.before:
+        Color:
+            rgba: 0.5, 0.5, 0.5, 1 # Border color (gray)
+        Line:
+            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2) # Draw rectangle slightly inside bounds
+            width: 1 # Border width
 
     # LLM Provider Row
     BoxLayout:

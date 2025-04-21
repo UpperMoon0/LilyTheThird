@@ -1,15 +1,11 @@
 import kivy
 kivy.require('2.0.0') # Ensure Kivy version compatibility
 
-import kivy
-kivy.require('2.0.0') # Ensure Kivy version compatibility
-
 from kivy.app import App
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
-# import threading # No longer needed for widget instantiation
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label # Import Label for loading indicator
-from kivy.core.window import Window
+from kivy.core.window import Window # Import Window
 from kivy.clock import Clock # Import Clock
 
 from views.vtube_tab import VTubeTab
@@ -87,6 +83,7 @@ class LilyKivyApp(App):
         self.title = "Lily AI - Kivy Interface"
         # Set an icon if you have one
         # self.icon = 'assets/icon.png'
+        Window.maximize() # Maximize the window on startup
         return MainAppLayout()
 
 if __name__ == '__main__':

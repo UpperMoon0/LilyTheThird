@@ -1,6 +1,7 @@
 #:kivy 2.0.0
 #:import os os
 #:import LLMSelector views.components.llm_selector.LLMSelector
+#:import ChatControls views.components.chat_controls.ChatControls
 
 <ChatTab>:
     orientation: 'vertical'
@@ -81,56 +82,37 @@
             text_size: self.width, None # Enable text wrapping
             valign: 'top' # Align text to the top
 
-    # Controls Section
+    # --- NEW Bottom Controls Section (Two Columns) ---
     BoxLayout:
+        orientation: 'horizontal' # Arrange columns side-by-side
         size_hint_y: None
-        height: self.minimum_height # Adjust height based on content
-        orientation: 'vertical'
-        spacing: dp(10)
-        padding: [dp(10), dp(10)] # Padding around controls
+        height: self.minimum_height # Adjust height based on tallest column
+        spacing: dp(10) # Space between columns
+        padding: [dp(10), dp(10)] # Padding around the columns
 
-        # Use the reusable LLMSelector component
+        # Left Column: Chat Controls (TTS, Clear History)
+        ChatControls:
+            id: chat_controls # Add id if needed
+            size_hint_x: 0.4 # Adjust width proportion as needed
+            # Bind the component's property to the root's property
+            tts_enabled: root.tts_enabled
+            # Bind the component's event to the root's method
+            on_clear_history: root.clear_history()
+            # Update root property when component property changes
+            on_tts_enabled: root.tts_enabled = self.tts_enabled
+
+        # Right Column: LLM Selector
         LLMSelector:
+            id: llm_selector # Add id if needed
+            size_hint_x: 0.6 # Adjust width proportion as needed
             # Bind component properties to the root (ChatTab) properties
             selected_provider: root.selected_provider
             selected_model: root.selected_model
             llm_providers: root.llm_providers
             llm_models: root.llm_models
-            # RESTORED explicit bindings to ensure root properties are updated
+            # Bind root properties update when component properties change
             on_selected_provider: root.selected_provider = self.selected_provider
             on_selected_model: root.selected_model = self.selected_model
             # Optional: Customize labels if needed, otherwise defaults are used
             # provider_label_text: "Chat LLM Provider:"
             # model_label_text: "Chat LLM Model:"
-
-        # TTS Checkbox Row
-        BoxLayout:
-            size_hint_y: None
-            height: dp(30)
-            CheckBox:
-                id: tts_checkbox
-                active: root.tts_enabled
-                size_hint_x: None
-                width: dp(40)
-                on_active: root.tts_enabled = self.active
-            Label:
-                text: "Enable TTS (TTS-Provider)" # Add provider name dynamically if needed
-                size_hint_x: 1
-                text_size: self.width, None
-                halign: 'left'
-                valign: 'middle'
-
-        # Clear History Button Row
-        BoxLayout:
-            size_hint_y: None
-            height: dp(40)
-            padding: [0, dp(10), 0, 0] # Add some top padding
-            Button:
-                id: clear_history_button
-                text: "Clear History"
-                size_hint_x: None
-                width: dp(200)
-                pos_hint: {'center_x': 0.5}
-                on_press: root.clear_history()
-                font_size: '16sp'
-                # background_color: (0, 0.47, 1, 1) # Match CSS #007bff (approx)
