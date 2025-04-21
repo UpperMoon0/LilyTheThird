@@ -1,17 +1,16 @@
+from kivy.config import Config
+Config.remove_option('input', 'wm_pen') # Disable problematic touch provider
+Config.remove_option('input', 'wm_touch') # Disable problematic touch provider
+
 import kivy
 kivy.require('2.0.0') # Ensure Kivy version compatibility
 
 from kivy.app import App
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.widget import Widget # Import base Widget
 from kivy.uix.label import Label # Import Label for loading indicator
 from kivy.core.window import Window # Import Window
 from kivy.clock import Clock # Import Clock
-from kivy.graphics import Color, Rectangle # For drawing the strip
-from kivy.properties import ListProperty # For the color property
-from kivy.animation import Animation # For animation
-import colorsys # To easily cycle through hues
 
 # Import Views and Components
 from views.vtube_tab import VTubeTab
@@ -71,15 +70,12 @@ class MainAppLayout(BoxLayout):
 
     def _create_tab_content(self, tab_item, content_class):
         """Instantiates and adds the content widget to the tab item."""
-        print(f"MainAppLayout: Creating content for {tab_item.text}...")
         try:
             # Instantiate the actual content widget (must be on main thread)
             content = content_class()
             print(f"MainAppLayout: Content for {tab_item.text} instantiated.")
-            # Add the content directly (already on main thread)
-            tab_item.clear_widgets() # Remove the 'Loading...' label
-            tab_item.add_widget(content) # Add the actual content widget
-            print(f"MainAppLayout: Content added to {tab_item.text}.")
+            tab_item.clear_widgets() 
+            tab_item.add_widget(content) 
         except Exception as e:
             print(f"MainAppLayout: Error creating content for {tab_item.text}: {e}")
             # Display error message in the tab
@@ -92,9 +88,6 @@ class LilyKivyApp(App):
     """Main Kivy Application Class."""
     def build(self):
         self.title = "Lily AI - Kivy Interface"
-        # Set an icon if you have one
-        # self.icon = 'assets/icon.png'
-        # Schedule the maximization shortly after the app starts
         Clock.schedule_once(self.maximize_window, 0)
         return MainAppLayout()
 
