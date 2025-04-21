@@ -57,9 +57,12 @@ This is the core logic inherited and used by both `ChatBoxLLM` and `DiscordLLM`.
     *   Asks `LLMClient` for the next action (`get_next_action`), forcing the choice between `save_memory`, `update_memory`, or `null`. The full list of tools allowed by the subclass (`allowed_tools_overall`) is considered here.
     *   **If LLM chooses `save_memory` or `update_memory`**:
         *   Retrieves the tool definition.
-        *   Asks `LLMClient` for arguments (`get_tool_arguments`) using the history *including* the guidance prompt.
-        *   Executes the chosen memory tool via `ToolExecutor.execute`.
-        *   Adds a system message with the tool name, arguments, and result to `HistoryManager`.
+        *   Retrieves the tool definition.
+        *   **Retry Logic**: Enters a retry loop controlled by the `FINAL_MEMORY_RETRY` constant (defined in `base_llm.py`).
+            *   Asks `LLMClient` for arguments (`get_tool_arguments`) using the history *including* the guidance prompt and any previous error context from this step.
+            *   Executes the chosen memory tool via `ToolExecutor.execute`.
+            *   If argument generation or execution fails, it retries up to `FINAL_MEMORY_RETRY` times, adding error context for the LLM on subsequent attempts.
+        *   Adds a system message with the tool name, arguments, and final result (or error after retries) to `HistoryManager`.
     *   **If LLM chooses `null`**: Logs that no final memory operation was needed.
 
 6.  **Final Response Generation**:
