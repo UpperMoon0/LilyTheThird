@@ -36,7 +36,7 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
 
 ## Technologies Used
 - Python
-- PyQt5
+- Kivy
 - Discord.py
 - SpeechRecognition
 - External TTS-Provider (for Text-to-Speech via WebSocket) - Requires separate server.

@@ -1,5 +1,6 @@
 #:kivy 2.0.0
 #:import os os
+#:import LLMSelector views.components.llm_selector.LLMSelector
 
 <ChatTab>:
     orientation: 'vertical'
@@ -24,8 +25,7 @@
             size_hint: None, None
             size: dp(300), dp(300)
             pos_hint: {'center_x': 0.5, 'center_y': 0.5}
-            allow_stretch: True
-            keep_ratio: False # Allow stretching if needed, or True to maintain aspect ratio
+            fit_mode: 'fill' # Replaced allow_stretch and keep_ratio
             canvas.after:
                 StencilUnUse
                 Ellipse:
@@ -39,16 +39,18 @@
         height: dp(40) # Fixed height for input row
         spacing: dp(10)
         TextInput:
-            id: prompt_input
+            id: prompt_input # Keep id
             text: root.prompt_text
-            hint_text: "Enter your prompt..."
+            hint_text: "Initializing..." if not root.backend_initialized else "Enter your prompt..."
+            disabled: not root.backend_initialized # Disable when not initialized
             size_hint_x: 0.9 # Take most of the width
             multiline: False
             font_size: '14sp' # Match CSS
             # font_name: 'Arial' # Kivy might need the font file specified
             on_text_validate: root.send_prompt() # Send on Enter key
         Button:
-            id: record_button
+            id: record_button # Keep id
+            disabled: not root.backend_initialized # Disable when not initialized
             size_hint_x: None
             width: dp(50) # Match CSS width
             on_press: root.toggle_recording()
@@ -59,14 +61,17 @@
                 size: dp(30), dp(30)
                 center_x: self.parent.center_x
                 center_y: self.parent.center_y
-                allow_stretch: True
+                fit_mode: 'fill' # Replaced allow_stretch
 
     # Response Box Section
     ScrollView:
+        id: response_scroll # Add id for scrolling
         size_hint_y: 1 # Take remaining vertical space
         do_scroll_x: False
+        bar_width: dp(10) # Make scrollbar visible
+        scroll_type: ['bars', 'content']
         Label:
-            id: response_box_label
+            id: response_label # Change id to match python code
             text: root.response_text
             markup: True # Enable Kivy markup (like [b]...[/b])
             size_hint_y: None
@@ -84,40 +89,16 @@
         spacing: dp(10)
         padding: [dp(10), dp(10)] # Padding around controls
 
-        # LLM Provider Row
-        BoxLayout:
-            size_hint_y: None
-            height: dp(30)
-            Label:
-                text: "LLM Provider:"
-                size_hint_x: 0.4
-                text_size: self.width, None
-                halign: 'right'
-                valign: 'middle'
-            Spinner:
-                id: provider_spinner
-                text: root.selected_provider
-                values: root.llm_providers
-                size_hint_x: 0.6
-                on_text: root.selected_provider = self.text; root.update_models()
-
-        # LLM Model Row
-        BoxLayout:
-            size_hint_y: None
-            height: dp(30)
-            Label:
-                text: "LLM Model:"
-                size_hint_x: 0.4
-                text_size: self.width, None
-                halign: 'right'
-                valign: 'middle'
-            Spinner:
-                id: model_spinner
-                text: root.selected_model
-                values: root.llm_models
-                size_hint_x: 0.6
-                disabled: not root.llm_models # Disable if no models available
-                on_text: root.selected_model = self.text
+        # Use the reusable LLMSelector component
+        LLMSelector:
+            # Bind component properties to the root (ChatTab) properties
+            selected_provider: root.selected_provider
+            selected_model: root.selected_model
+            llm_providers: root.llm_providers
+            llm_models: root.llm_models
+            # Optional: Customize labels if needed, otherwise defaults are used
+            # provider_label_text: "Chat LLM Provider:"
+            # model_label_text: "Chat LLM Model:"
 
         # TTS Checkbox Row
         BoxLayout:

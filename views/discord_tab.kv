@@ -1,5 +1,6 @@
 #:kivy 2.0.0
 #:import ColorCircle views.components.color_circle.ColorCircle
+#:import LLMSelector views.components.llm_selector.LLMSelector
 
 <DiscordTab>:
     orientation: 'vertical'
@@ -96,55 +97,23 @@
             font_size: '14sp'
             on_text: root.channel_id = self.text
 
-        # LLM Provider Row
-        BoxLayout:
-            size_hint_y: None
-            height: dp(30)
-            Label:
-                text: "Bot LLM Provider:"
-                size_hint_x: 0.4
-                text_size: self.width, None
-                halign: 'right'
-                valign: 'middle'
-            Spinner:
-                id: discord_provider_spinner
-                text: root.selected_provider
-                values: root.llm_providers
-                size_hint_x: 0.6
-                on_text: root.selected_provider = self.text; root.update_models()
+        # Reusable LLM Selector Component
+        LLMSelector:
+            id: llm_selector
+            llm_providers: root.llm_providers
+            llm_models: root.llm_models
+            selected_provider: root.selected_provider
+            selected_model: root.selected_model
+            # Bind the component's properties back to the root widget's properties
+            # Kivy handles two-way binding for properties, so changes in the component
+            # will update the root widget, and vice-versa.
+            # The mixin handles the on_selected_provider/on_selected_model logic.
+            # We need to explicitly tell the root widget when the properties change *in the component*
+            # so the mixin's callbacks fire correctly.
+            on_selected_provider: root.selected_provider = self.selected_provider
+            on_selected_model: root.selected_model = self.selected_model
 
-        # LLM Model Row
-        BoxLayout:
-            size_hint_y: None
-            height: dp(30)
-            Label:
-                text: "Bot LLM Model:"
-                size_hint_x: 0.4
-                text_size: self.width, None
-                halign: 'right'
-                valign: 'middle'
-            Spinner:
-                id: discord_model_spinner
-                text: root.selected_model
-                values: root.llm_models
-                size_hint_x: 0.6
-                disabled: not root.llm_models # Disable if no models available
-                on_text: root.selected_model = self.text
-
-        # Save Button (Centered)
-        BoxLayout:
-            size_hint_y: None
-            height: dp(40)
-            padding: [0, dp(10), 0, 0] # Add some top padding
-            Button:
-                id: save_button
-                text: "Save"
-                size_hint: None, None
-                size: dp(200), dp(40) # Match CSS
-                pos_hint: {'center_x': 0.5}
-                on_press: root.save_settings()
-                font_size: '16sp'
-                # background_color: (0, 0.47, 1, 1) # Match CSS #007bff (approx)
+        # Save Button is removed as the mixin handles saving automatically
 
     # Message Section (Visibility controlled by opacity and disabled state)
     BoxLayout:

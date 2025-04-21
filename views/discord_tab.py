@@ -1,20 +1,28 @@
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, ListProperty, BooleanProperty, ObjectProperty, NumericProperty
+from kivy.properties import StringProperty, ListProperty, BooleanProperty, ObjectProperty
+from kivy.lang import Builder
+from kivy.clock import Clock
+from kivy.animation import Animation
+from kivy.uix.boxlayout import BoxLayout
+from kivy.properties import StringProperty, ListProperty, BooleanProperty, ObjectProperty
 from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.utils import get_color_from_hex
-import os
 
-# Import the custom ColorCircle component
-from views.components.color_circle import ColorCircle
+# Import the LLM configuration mixin
+from .llm_config_mixin import LLMConfigMixin
+# Import settings manager functions (only needed for non-LLM settings now)
+from settings_manager import load_settings, save_settings
+
+# Import the custom ColorCircle component (assuming it's used elsewhere or will be)
 
 # Load the corresponding kv file
 Builder.load_file('views/discord_tab.kv')
 
-class DiscordTab(BoxLayout):
+class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     """
-    Kivy equivalent of the DiscordTab QWidget.
+    Kivy equivalent of the DiscordTab QWidget, now using LLMConfigMixin.
     """
     # --- State Properties ---
     is_bot_running = BooleanProperty(False)
@@ -22,19 +30,19 @@ class DiscordTab(BoxLayout):
     toggle_button_text = StringProperty("Start Bot")
     message_section_visible = BooleanProperty(False) # Controls visibility of message input/button
 
-    # --- Config Properties ---
+    # --- Config Properties (Specific to Discord) ---
     guild_id = StringProperty("")
     channel_id = StringProperty("")
-    llm_providers = ListProperty(["OpenAI", "Gemini"]) # Example providers
-    llm_models = ListProperty([]) # Models will depend on the selected provider
-    selected_provider = StringProperty("OpenAI") # Default provider
-    selected_model = StringProperty("")
+    # LLM properties (llm_providers, llm_models, selected_provider, selected_model)
+    # are now inherited from LLMConfigMixin.
 
     # --- Message Properties ---
     message_text = StringProperty("")
 
     # --- Widget References (Optional, if needed for direct access) ---
     status_circle = ObjectProperty(None) # Reference to the ColorCircle widget
+    # _updating_models flag is now handled by LLMConfigMixin.
+    settings_prefix = 'discord_' # Prefix for LLM settings keys
 
     # --- Animation Properties ---
     idle_color_1 = ListProperty(get_color_from_hex("#C90000")) # Red
@@ -45,50 +53,67 @@ class DiscordTab(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # Load non-LLM settings first
+        self._load_discord_settings()
+        # LLM settings are loaded in _post_init after the widget is built
         # Orientation is set in the kv file
         Clock.schedule_once(self._post_init)
 
+    def _load_discord_settings(self):
+        """Load Discord-specific settings."""
+        settings = load_settings()
+        print("DiscordTab: Loading Discord-specific settings:", settings)
+        self.guild_id = settings.get(f'{self.settings_prefix}guild_id', '')
+        self.channel_id = settings.get(f'{self.settings_prefix}channel_id', '')
+
+    # _load_initial_settings is replaced by _load_discord_settings and the mixin's methods
+
+    # --- LLMConfigMixin Required Methods ---
+    def _get_provider_setting_key(self) -> str:
+        """Return the key used in settings for the selected provider."""
+        return f'{self.settings_prefix}selected_provider'
+
+    def _get_model_setting_key(self) -> str:
+        """Return the key used in settings for the selected model."""
+        return f'{self.settings_prefix}selected_model'
+
     def _post_init(self, dt):
-        # Initial population of models based on default provider
-        self.update_models()
+        """Called after the widget is fully initialized."""
+        # Initialize the LLM part (loads settings and populates models)
+        self._load_llm_settings()
+        self.update_models(initial_load=True)
         # Start the initial animation
         self.update_status_animation()
-        # Load saved settings if available (placeholder)
-        self.load_settings()
 
-    def load_settings(self):
-        # Placeholder: Load Guild ID, Channel ID, Provider, Model from a config file/storage
-        print("Loading Discord settings (Simulated)")
-        # Example: self.guild_id = loaded_guild_id
-        # Example: self.channel_id = loaded_channel_id
-        # Example: self.selected_provider = loaded_provider
-        # Example: self.update_models() # Update models based on loaded provider
-        # Example: self.selected_model = loaded_model
+    def _save_current_settings(self):
+        """Helper method to save the current state (both Discord and LLM)."""
+        settings = load_settings() # Load existing settings
 
-    def save_settings(self):
-        """Save the current configuration."""
-        # Placeholder: Save Guild ID, Channel ID, Provider, Model
-        print(f"Saving Discord settings:")
-        print(f"  Guild ID: {self.guild_id}")
-        print(f"  Channel ID: {self.channel_id}")
-        print(f"  Provider: {self.selected_provider}")
-        print(f"  Model: {self.selected_model}")
-        # Add actual saving logic here (e.g., to JSON file, settings manager)
+        # Save Discord-specific settings
+        settings[f'{self.settings_prefix}guild_id'] = self.guild_id
+        settings[f'{self.settings_prefix}channel_id'] = self.channel_id
 
-    def update_models(self, *args):
-        """Update the list of models based on the selected provider."""
-        # Placeholder logic: Replace with actual model fetching
-        if self.selected_provider == "OpenAI":
-            self.llm_models = ["gpt-4-discord", "gpt-3.5-turbo-discord"]
-            self.selected_model = "gpt-4-discord" if "gpt-4-discord" in self.llm_models else ""
-        elif self.selected_provider == "Gemini":
-            self.llm_models = ["gemini-pro-discord", "gemini-1.5-flash-discord"]
-            self.selected_model = "gemini-pro-discord" if "gemini-pro-discord" in self.llm_models else ""
-        else:
-            self.llm_models = []
-            self.selected_model = ""
-        print(f"Discord Provider changed to: {self.selected_provider}, Models: {self.llm_models}")
+        # Save the combined settings (Discord specific)
+        save_settings(settings)
+        # Save LLM settings using the mixin's method (which handles loading/saving internally)
+        self._save_llm_settings()
+        print("DiscordTab: Settings saved.")
 
+    # update_models, set_update_flag, on_selected_provider, and on_selected_model
+    # are now handled by LLMConfigMixin.
+
+    # --- Callbacks for saving Discord-specific settings ---
+    def on_guild_id(self, instance, value):
+        """Callback when Guild ID changes."""
+        print(f"DiscordTab: Guild ID changed to {value}")
+        self._save_current_settings() # Saves both Discord and LLM settings
+
+    def on_channel_id(self, instance, value):
+        """Callback when Channel ID changes."""
+        print(f"DiscordTab: Channel ID changed to {value}")
+        self._save_current_settings() # Saves both Discord and LLM settings
+
+    # --- Bot Control ---
     def toggle_bot(self):
         """Start or stop the Discord bot process."""
         self.is_bot_running = not self.is_bot_running

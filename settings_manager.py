@@ -30,7 +30,10 @@ DEFAULT_SETTINGS = {
     'tts_provider_enabled': False,
     'selected_provider': 'OpenAI',
     'selected_model': DEFAULT_OPENAI_MODEL, # Use default OpenAI model
+    'temperature': 0.7, # Default temperature for Chat Tab
     # Discord Tab Settings
+    'discord_guild_id': '', # Default Guild ID
+    'discord_channel_id': '', # Default Channel ID
     'discord_selected_provider': 'OpenAI', # Default Discord provider
     'discord_selected_model': DEFAULT_OPENAI_MODEL # Default Discord model
 }

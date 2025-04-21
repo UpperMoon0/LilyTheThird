@@ -1,0 +1,42 @@
+#:kivy 2.0.0
+
+<LLMSelector>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: self.minimum_height # Adjust height based on content
+    spacing: dp(10) # Space between the rows
+
+    # LLM Provider Row
+    BoxLayout:
+        size_hint_y: None
+        height: dp(30)
+        Label:
+            text: root.provider_label_text # Use property for label text
+            size_hint_x: 0.4
+            text_size: self.width, None
+            halign: 'right'
+            valign: 'middle'
+        Spinner:
+            id: provider_spinner # Keep id for internal reference if needed
+            text: root.selected_provider # Bind to the component's property
+            values: root.llm_providers # Bind to the component's property
+            size_hint_x: 0.6
+            # The on_text event will be handled by the binding to selected_provider
+
+    # LLM Model Row
+    BoxLayout:
+        size_hint_y: None
+        height: dp(30)
+        Label:
+            text: root.model_label_text # Use property for label text
+            size_hint_x: 0.4
+            text_size: self.width, None
+            halign: 'right'
+            valign: 'middle'
+        Spinner:
+            id: model_spinner # Keep id for internal reference if needed
+            text: root.selected_model # Bind to the component's property
+            values: root.llm_models # Bind to the component's property
+            size_hint_x: 0.6
+            disabled: not root.llm_models # Disable if no models available
+            # The on_text event will be handled by the binding to selected_model
