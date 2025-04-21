@@ -96,6 +96,9 @@
             selected_model: root.selected_model
             llm_providers: root.llm_providers
             llm_models: root.llm_models
+            # RESTORED explicit bindings to ensure root properties are updated
+            on_selected_provider: root.selected_provider = self.selected_provider
+            on_selected_model: root.selected_model = self.selected_model
             # Optional: Customize labels if needed, otherwise defaults are used
             # provider_label_text: "Chat LLM Provider:"
             # model_label_text: "Chat LLM Model:"

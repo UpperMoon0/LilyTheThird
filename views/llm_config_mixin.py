@@ -89,18 +89,20 @@ class LLMConfigMixin:
                  print(f"{self.__class__.__name__}: No saved model found for provider '{self.selected_provider}'. Using default '{default_model}'.")
 
             # Explicitly set the selected_model property *after* list is populated
+            print(f"{self.__class__.__name__}: Setting selected_model to '{model_to_select}'") # ADDED LOG
             self.selected_model = model_to_select
 
             print(f"{self.__class__.__name__}: Models updated. Provider: {self.selected_provider}, Models: {self.llm_models}, Final Selected: {self.selected_model}")
 
         finally:
             # Clear the flag *after* the current event cycle using Clock.schedule_once
+            print(f"{self.__class__.__name__}: Scheduling _updating_models = False") # ADDED LOG
             Clock.schedule_once(lambda dt: self.set_update_flag(False), 0)
 
     def set_update_flag(self, value):
         """Helper function to set the flag, used with Clock.schedule_once."""
         self._updating_models = value
-        print(f"{self.__class__.__name__}: _updating_models set to {value}")
+        print(f"{self.__class__.__name__}: _updating_models actually set to {value} via Clock") # MODIFIED LOG
 
     # --- Default Callbacks ---
     # Subclasses can override these or connect them if needed.

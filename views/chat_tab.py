@@ -86,31 +86,45 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
     # Note: The actual binding happens in __init__ to these specific methods.
     def on_selected_provider_changed_chat(self, instance, value):
-        """Callback when provider changes. Updates models, saves, and triggers LLM update."""
+        """Callback when provider changes. Updates models, then schedules save and LLM update."""
         print(f"ChatTab: Provider changed to {value}")
-        self.update_models() # Update model list (handled by mixin)
-        self._save_llm_settings() # Save LLM settings (handled by mixin)
-        # Specific ChatTab action: Trigger LLM instance update if ready
+        # 1. Update models and set the default selected_model for the new provider
+        self.update_models() # This now sets self.selected_model correctly
+
+        # 2. Schedule save and update AFTER update_models finishes and clears its flag
+        Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.1) # Small delay
+
+    def _save_and_update_llm_after_provider_change(self, dt):
+        """Helper function scheduled after provider change to save and update."""
+        print(f"ChatTab: Saving and potentially updating LLM after provider change.")
+        # Ensure the flag isn't somehow still set (belt and suspenders)
+        if self._updating_models:
+            print("ChatTab: Warning - _updating_models still true during scheduled save/update. Retrying later.")
+            Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.2)
+            return
+
+        self._save_llm_settings() # Save the new provider and the default model set by update_models
+
+        # Trigger LLM instance update if ready
         if self.backend_initialized:
+            print(f"ChatTab: Triggering LLM update after provider change.")
             self._start_llm_instance_update_thread()
         else:
             print("ChatTab: Provider changed, backend not ready. Settings saved.")
 
     def on_selected_model_changed_chat(self, instance, value):
-        """Callback when model changes. Saves and triggers LLM update."""
-        if not self._updating_models: # Check mixin flag
-            if value and hasattr(self, 'llm_models') and value in self.llm_models:
-                print(f"ChatTab: User selected model: {value}")
-                self._save_llm_settings() # Save LLM settings (handled by mixin)
-                # Specific ChatTab action: Trigger LLM instance update if ready
-                if self.backend_initialized:
-                    self._start_llm_instance_update_thread()
-                else:
-                    print("ChatTab: Model changed, backend not ready. Settings saved.")
-            elif not value:
-                 print(f"ChatTab: Model selection cleared or invalid by user.")
-        else:
-            print(f"ChatTab: on_selected_model skipped save during update_models for value: {value}")
+        """Callback when model changes (user interaction or default set). Saves and triggers LLM update."""
+        print(f"--- ChatTab: on_selected_model_changed_chat triggered with value: {value}, _updating_models: {self._updating_models} ---") # Keep for now
+        if value and hasattr(self, 'llm_models') and value in self.llm_models:
+            print(f"ChatTab: User selected model: {value}. Saving and updating LLM.")
+            self._save_llm_settings() # Save LLM settings (handled by mixin)
+            # Specific ChatTab action: Trigger LLM instance update if ready
+            if self.backend_initialized:
+                self._start_llm_instance_update_thread()
+            else:
+                print("ChatTab: Model changed by user, backend not ready. Settings saved.")
+        elif not value:
+             print(f"ChatTab: Model selection cleared or invalid by user.")
 
     def on_tts_enabled(self, instance, value):
         """Callback when TTS checkbox changes."""
@@ -156,17 +170,25 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print("ChatTab: Finishing backend initialization on main thread.")
         if instance:
             self.llm_instance = instance
-            self.backend_initialized = True
+            self.backend_initialized = True # Set the flag FIRST
             self.initialization_status = "Backend initialized successfully."
             print("ChatTab: Backend marked as initialized.")
-            # Update UI elements (enable prompt, etc.) - handled by binding in kv
+
+            # --- ADDED CHECK ---
+            # Check if the model selected in the UI differs from the initialized instance's model
+            # This handles cases where the model was changed *before* initialization finished.
+            if self.llm_instance and self.selected_model != self.llm_instance.model: # Use .model instead of .model_name
+                print(f"ChatTab: Model mismatch after init ({self.selected_model} vs {self.llm_instance.model}). Triggering update.")
+                self._start_llm_instance_update_thread()
+            # --- END ADDED CHECK ---
+
         else:
             self.llm_instance = None
             self.backend_initialized = False # Keep it false on error
             self.initialization_status = error_message or "Backend initialization failed."
             print(f"ChatTab: Backend initialization failed: {self.initialization_status}")
 
-        # Update the system message
+        # Update the system message (moved after the check)
         self.add_message("System", self.initialization_status)
 
     def _start_llm_instance_update_thread(self):
@@ -181,18 +203,22 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             return
 
         # Show updating status
+        print(f"ChatTab: _start_llm_instance_update_thread: Using provider='{self.selected_provider}', model='{self.selected_model}'") # DEBUG PRINT
         self.add_message("System", f"Switching LLM to {self.selected_provider} - {self.selected_model}...")
         # Disable input while updating? (Optional, depends on desired UX)
         # self.ids.prompt_input.disabled = True
 
         # Start the update in a background thread
+        print(f"ChatTab: Starting LLM update thread (Old Instance ID: {id(self.llm_instance) if self.llm_instance else None})") # Log ID before thread start
         threading.Thread(target=self._run_llm_update_in_thread, daemon=True).start()
 
     def _run_llm_update_in_thread(self):
         """Runs the potentially blocking LLM update in a background thread."""
-        print(f"ChatTab: LLM update thread started for {self.selected_provider} - {self.selected_model}")
+        print(f"ChatTab: LLM update thread running for {self.selected_provider} - {self.selected_model}")
         new_instance = None
         error_message = None
+        old_instance_id = id(self.llm_instance) if self.llm_instance else None # Log old ID inside thread
+        print(f"ChatTab: [Thread] Old LLM instance ID: {old_instance_id}") # Log old ID inside thread
         try:
             # Close existing instance *before* creating the new one in the thread
             # Ensure thread safety if close() has side effects, but usually okay.
@@ -202,11 +228,13 @@ class ChatTab(BoxLayout, LLMConfigMixin):
                 print("ChatTab: Previous LLM instance closed in update thread.")
 
             # Create the new instance (potentially blocking)
+            print(f"ChatTab: [Thread] Instantiating ChatBoxLLM with provider='{self.selected_provider}', model='{self.selected_model}'") # DEBUG PRINT
             new_instance = ChatBoxLLM(provider=self.selected_provider, model_name=self.selected_model)
-            print("ChatTab: New LLM instance created successfully in update thread.")
+            new_instance_id = id(new_instance) if new_instance else None
+            print(f"ChatTab: [Thread] New LLM instance created successfully (ID: {new_instance_id}).")
 
         except Exception as e:
-            print(f"ChatTab: Error updating LLM instance in thread: {e}")
+            print(f"ChatTab: [Thread] Error updating LLM instance: {e}")
             error_message = f"Error updating LLM: {e}"
             new_instance = None # Ensure instance is None on error
 
@@ -235,6 +263,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
         # Update the system message
         self.add_message("System", update_status)
+        print(f"ChatTab: Finished LLM instance update. Current Instance ID: {id(self.llm_instance) if self.llm_instance else None}") # Log final ID
 
 
     def toggle_recording(self):

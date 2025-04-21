@@ -21,7 +21,9 @@
             text: root.selected_provider # Bind to the component's property
             values: root.llm_providers # Bind to the component's property
             size_hint_x: 0.6
-            # The on_text event will be handled by the binding to selected_provider
+            # Update the component's property ONLY
+            on_text:
+                root.selected_provider = self.text
 
     # LLM Model Row
     BoxLayout:
@@ -39,4 +41,6 @@
             values: root.llm_models # Bind to the component's property
             size_hint_x: 0.6
             disabled: not root.llm_models # Disable if no models available
-            # The on_text event will be handled by the binding to selected_model
+            # Update the component's property ONLY
+            on_text:
+                root.selected_model = self.text

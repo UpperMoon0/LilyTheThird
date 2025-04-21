@@ -99,19 +99,17 @@
 
         # Reusable LLM Selector Component
         LLMSelector:
-            id: llm_selector
-            llm_providers: root.llm_providers
-            llm_models: root.llm_models
+            # Bind component properties to the root (DiscordTab) properties
             selected_provider: root.selected_provider
             selected_model: root.selected_model
-            # Bind the component's properties back to the root widget's properties
-            # Kivy handles two-way binding for properties, so changes in the component
-            # will update the root widget, and vice-versa.
-            # The mixin handles the on_selected_provider/on_selected_model logic.
-            # We need to explicitly tell the root widget when the properties change *in the component*
-            # so the mixin's callbacks fire correctly.
+            llm_providers: root.llm_providers
+            llm_models: root.llm_models
+            # RESTORED explicit bindings to ensure root properties are updated
             on_selected_provider: root.selected_provider = self.selected_provider
             on_selected_model: root.selected_model = self.selected_model
+            # Customize labels for Discord context
+            provider_label_text: "Discord LLM Provider:"
+            model_label_text: "Discord LLM Model:"
 
         # Save Button is removed as the mixin handles saving automatically
 

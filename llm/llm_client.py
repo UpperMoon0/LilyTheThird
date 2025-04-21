@@ -164,8 +164,8 @@ class LLMClient:
             elif self.provider == 'gemini':
                 # Re-configure genai globally for this attempt
                 genai.configure(api_key=api_key)
-                # Re-fetch the model instance in case configuration affects it
-                current_client = genai.GenerativeModel(self.model)
+                # Re-fetch the model instance using the explicit model_name parameter
+                current_client = genai.GenerativeModel(model_name=self.model) # Explicitly use model_name
 
                 # Adapt messages
                 system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
@@ -467,8 +467,8 @@ class LLMClient:
         # print(f"--- Calling Gemini API for Final Response (Key: ...{api_key[-4:]}) ---")
         # Re-configure genai globally for this attempt
         genai.configure(api_key=api_key)
-        # Re-fetch the model instance
-        current_client = genai.GenerativeModel(self.model)
+        # Re-fetch the model instance using the explicit model_name parameter
+        current_client = genai.GenerativeModel(model_name=self.model) # Explicitly use model_name
 
         # Adapt messages
         system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']

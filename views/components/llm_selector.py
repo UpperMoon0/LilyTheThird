@@ -25,12 +25,6 @@ class LLMSelector(BoxLayout):
     provider_label_text = StringProperty("LLM Provider:") # Default label text
     model_label_text = StringProperty("LLM Model:")     # Default label text
 
-    # Note: The actual logic for updating models based on provider selection,
-    # loading/saving settings, etc., is NOT handled here. It's expected to be
-    # handled by the parent widget using this component, likely through bindings
-    # to the properties above and potentially a shared mixin like LLMConfigMixin.
-    # The `on_text` events in the kv file implicitly update the bound properties.
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Orientation and other layout properties are set in the kv file.
