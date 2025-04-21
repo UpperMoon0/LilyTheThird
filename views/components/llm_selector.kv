@@ -14,6 +14,17 @@
             rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2) # Draw rectangle slightly inside bounds
             width: 1 # Border width
 
+    # Title Label
+    Label:
+        text: "LLM Configuration"
+        size_hint_y: None
+        height: self.texture_size[1] + dp(5) # Add a little padding below
+        font_size: '16sp' # Make title slightly larger
+        bold: True
+        halign: 'left'
+        valign: 'top'
+        text_size: self.width - dp(20), None # Allow wrapping within padding
+
     # LLM Provider Row
     BoxLayout:
         size_hint_y: None

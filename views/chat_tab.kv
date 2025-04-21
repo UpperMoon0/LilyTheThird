@@ -3,44 +3,71 @@
 #:import LLMSelector views.components.llm_selector.LLMSelector
 #:import ChatControls views.components.chat_controls.ChatControls
 #:import ChatBox views.components.chat_box.ChatBox
+#:import CircularImage views.components.circular_image.CircularImage
 
 <ChatTab>:
     orientation: 'vertical'
-    padding: dp(20)
-    spacing: dp(15)
-    # background_color: (0.97, 0.97, 0.97, 1) # Match CSS #f8f8f8
+    padding: dp(10) # Adjusted padding
+    spacing: dp(10) # Adjusted spacing
 
-    # Avatar Section (Centered)
+    # --- Row A: Avatar and Controls ---
     BoxLayout:
+        id: row_a
+        orientation: 'horizontal'
         size_hint_y: None
-        height: dp(300) # Fixed height for avatar
-        size_hint_x: None # Don't stretch horizontally
-        width: dp(300)    # Set explicit width
-        pos_hint: {'center_x': 0.5} # Center the BoxLayout itself
-        padding: [0, dp(20), 0, dp(20)] # Padding top/bottom
-        canvas.before:
-            StencilPush
-            Ellipse:
-                pos: self.center_x - dp(150), self.center_y - dp(150) # Centered position
-                size: dp(300), dp(300) # Match fixed size
-            StencilUse
-        Image:
-            source: 'assets/avatar.png' # Ensure this path is correct relative to main.py
-            size_hint: None, None
-            size: dp(300), dp(300)
-            pos_hint: {'center_x': 0.5, 'center_y': 0.5}
-            fit_mode: 'fill' # Replaced allow_stretch and keep_ratio
-            canvas.after:
-                StencilUnUse
-                Ellipse:
-                    pos: self.center_x - dp(150), self.center_y - dp(150)
-                    size: dp(300), dp(300)
-                StencilPop
+        height: dp(320) # Fixed height for the top section (adjust as needed)
+        spacing: dp(10)
 
-    # --- REMOVED Prompt Input Section ---
-    # --- REMOVED Response Box Section ---
+        # Column 1: Avatar (Using AnchorLayout for robust centering)
+        AnchorLayout:
+            id: col_1_avatar_anchor # Renamed id slightly
+            anchor_x: 'center'
+            anchor_y: 'center'
+            size_hint_x: 0.4
+            padding: dp(10) # Padding still applies
 
-    # --- ADDED ChatBox Component ---
+            CircularImage:
+                source: 'assets/avatar.png'
+                # Make it square and size based on available height
+                size_hint: None, None
+                # Calculate height based on parent's height minus padding
+                # Note: parent is now AnchorLayout, height calculation remains similar conceptually
+                # Let's tie it directly to the fixed height row_a minus padding for stability
+                height: root.ids.row_a.height - dp(40) # row_a height - top/bottom padding of AnchorLayout - top/bottom padding of row_a
+                width: self.height # Make it square
+                # pos_hint no longer needed due to AnchorLayout
+
+        # Column 2: Controls (Chat Controls + LLM Selector)
+        BoxLayout:
+            id: col_2_controls
+            orientation: 'vertical'
+            size_hint_x: 0.6 # Adjust size hint to complement avatar column
+            spacing: dp(10)
+            padding: dp(10) # Padding for the outer controls column
+
+            # Chat Controls Component (Label is now inside the component)
+            ChatControls:
+                id: chat_controls
+                size_hint_y: 0.5 # Takes half the vertical space
+                tts_enabled: root.tts_enabled
+                on_clear_history: root.clear_history()
+                on_tts_enabled: root.tts_enabled = self.tts_enabled
+
+            # LLM Selector Component (Label is now inside the component)
+            LLMSelector:
+                id: llm_selector
+                size_hint_y: 0.5 # Takes half the vertical space
+                selected_provider: root.selected_provider
+                selected_model: root.selected_model
+                llm_providers: root.llm_providers
+                llm_models: root.llm_models
+                on_selected_provider: root.selected_provider = self.selected_provider
+                on_selected_model: root.selected_model = self.selected_model
+
+            # Removed grouping BoxLayouts and external Labels
+
+
+    # --- Row B: ChatBox ---
     ChatBox:
         id: chat_box # Add id to reference from python code
         size_hint_y: 1 # Let ChatBox take the remaining vertical space
@@ -49,38 +76,3 @@
         # Pass the prompt text argument from the event to the root method
         on_send_prompt: root.send_prompt(args[1]) # args[0] is the widget, args[1] is the prompt text
         on_toggle_recording: root.toggle_recording()
-
-    # --- Bottom Controls Section (Two Columns) ---
-    BoxLayout:
-        orientation: 'horizontal' # Arrange columns side-by-side
-        size_hint_y: None
-        # height: self.minimum_height # Adjust height based on tallest columnner
-        spacing: dp(10) # Space between columns
-        padding: [dp(10), dp(10)] # Padding around the columns
-
-        # Left Column: Chat Controls (TTS, Clear History)
-        ChatControls:
-            id: chat_controls # Add id if needed
-            size_hint_x: 0.5 # Split width evenly
-            # Bind the component's property to the root's property
-            tts_enabled: root.tts_enabled
-            # Bind the component's event to the root's method
-            on_clear_history: root.clear_history()
-            # Update root property when component property changes
-            on_tts_enabled: root.tts_enabled = self.tts_enabled
-
-        # Right Column: LLM Selector
-        LLMSelector:
-            id: llm_selector # Add id if needed
-            size_hint_x: 0.5 # Split width evenly
-            # Bind component properties to the root (ChatTab) properties
-            selected_provider: root.selected_provider
-            selected_model: root.selected_model
-            llm_providers: root.llm_providers
-            llm_models: root.llm_models
-            # Bind root properties update when component properties change
-            on_selected_provider: root.selected_provider = self.selected_provider
-            on_selected_model: root.selected_model = self.selected_model
-            # Optional: Customize labels if needed, otherwise defaults are used
-            # provider_label_text: "Chat LLM Provider:"
-            # model_label_text: "Chat LLM Model:"
