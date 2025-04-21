@@ -23,7 +23,7 @@ class MainAppLayout(BoxLayout):
 
         # Create the TabbedPanel
         # Set do_default_tab=True and ensure default_tab is set after adding the desired tab.
-        tab_panel = TabbedPanel(do_default_tab=True, tab_pos='top_mid', tab_width=150) # Default tab enabled, tabs on top
+        tab_panel = TabbedPanel(do_default_tab=True, tab_pos='top_left') # Default tab enabled, tabs on top_left, removed fixed width
 
         # --- Create Chat Tab Item (Placeholder) ---
         chat_tab_item = TabbedPanelItem(text='Chat')
@@ -45,8 +45,10 @@ class MainAppLayout(BoxLayout):
         tab_panel.add_widget(vtube_tab_item)
         self.vtube_tab_item = vtube_tab_item # Store reference
 
+        # Store the tab_panel as an instance attribute
+        self.tab_panel = tab_panel
         # Add the TabbedPanel to the root layout
-        self.add_widget(tab_panel)
+        self.add_widget(self.tab_panel)
 
         # Schedule the creation of tab contents on the main thread after the layout is built
         Clock.schedule_once(self._create_tabs)

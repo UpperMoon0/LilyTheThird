@@ -64,7 +64,7 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
     - `fetch_memory`: Retrieves relevant information from memory using semantic search, returning facts with their unique IDs.
     - `search_web`: Performs web searches.
     - `get_current_time`: Gets the current time.
-    # Note: The Discord LLM now explicitly skips the final memory save/update step.
+  - Note: The Discord LLM explicitly skips the final memory save/update step for security reasons.
 
 - **VTube Studio Integration (VTube Tab)**:
   - Connect to VTube Studio via websockets to control virtual characters.
