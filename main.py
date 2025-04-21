@@ -13,7 +13,7 @@ from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
 
 # Optional: Set a default window size
-Window.size = (800, 700)
+# Window.size = (800, 700) # Remove or comment out fixed size
 
 class MainAppLayout(BoxLayout):
     """Root layout containing the TabbedPanel."""
@@ -83,8 +83,13 @@ class LilyKivyApp(App):
         self.title = "Lily AI - Kivy Interface"
         # Set an icon if you have one
         # self.icon = 'assets/icon.png'
-        Window.maximize() # Maximize the window on startup
+        # Schedule the maximization shortly after the app starts
+        Clock.schedule_once(self.maximize_window, 0)
         return MainAppLayout()
+
+    def maximize_window(self, dt):
+        """Maximizes the application window."""
+        Window.maximize()
 
 if __name__ == '__main__':
     LilyKivyApp().run()

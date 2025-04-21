@@ -1,0 +1,70 @@
+#:kivy 2.0.0
+
+<ChatBox>:
+    orientation: 'vertical'
+    spacing: dp(10) # Space between input row and response box
+    padding: dp(10) # Add padding around the content
+
+    canvas.before:
+        Color:
+            rgba: 0.5, 0.5, 0.5, 1 # Border color (gray)
+        Line:
+            # Draw rectangle slightly inside bounds - padding will push content further in
+            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2)
+            width: 1 # Border width
+
+    # Prompt Input Section
+    BoxLayout:
+        size_hint_y: None
+        height: '40sp' # Fixed height for input row using scalable pixels
+        spacing: dp(10)
+        TextInput:
+            id: prompt_input # Keep id for internal reference
+            # text: root.prompt_text # Bind text (two-way by default)
+            hint_text: "Initializing..." if not root.backend_initialized else "Enter your prompt..."
+            disabled: not root.backend_initialized # Disable when not initialized
+            size_hint_x: 0.9 # Take most of the width
+            multiline: False
+            font_size: '14sp'
+            on_text_validate: root._dispatch_send_prompt() # Dispatch event on Enter
+            background_color: 0, 0, 0, 1 # Black background
+            foreground_color: 1, 1, 1, 1 # White text
+        Button:
+            id: record_button # Keep id for internal reference
+            disabled: not root.backend_initialized # Disable when not initialized
+            size_hint_x: None
+            width: '50sp' # Use scalable pixels for width
+            on_press: root._dispatch_toggle_recording() # Dispatch event on press
+            background_normal: '' # Remove default button background
+            # Use root.is_recording for dynamic color
+            background_color: (0.94, 0.94, 0.94, 1) if not root.is_recording else (1, 0.86, 0.86, 1)
+            Image:
+                source: root.record_button_icon # Dynamically update icon from root property
+                size: '30sp', '30sp' # Use scalable pixels for size
+                center_x: self.parent.center_x
+                center_y: self.parent.center_y
+                fit_mode: 'fill'
+
+    # Response Box Section
+    ScrollView:
+        id: response_scroll # Keep id for internal reference
+        size_hint_y: 1 # Take remaining vertical space
+        do_scroll_x: False
+        bar_width: dp(10) # Make scrollbar visible
+        scroll_type: ['bars', 'content']
+        canvas.before:
+            Color:
+                rgba: 0, 0, 0, 1 # Black background
+            Rectangle:
+                pos: self.pos
+                size: self.size
+        Label:
+            id: response_label # Keep id for internal reference
+            text: root.response_text # Bind text to root property
+            markup: True
+            size_hint_y: None
+            height: self.texture_size[1]
+            padding: dp(10), dp(10)
+            font_size: '14sp'
+            text_size: self.width, None # Enable text wrapping
+            valign: 'top'

@@ -2,6 +2,7 @@
 #:import os os
 #:import LLMSelector views.components.llm_selector.LLMSelector
 #:import ChatControls views.components.chat_controls.ChatControls
+#:import ChatBox views.components.chat_box.ChatBox
 
 <ChatTab>:
     orientation: 'vertical'
@@ -36,74 +37,31 @@
                     size: dp(300), dp(300)
                 StencilPop
 
-    # Prompt Input Section
-    BoxLayout:
-        size_hint_y: None
-        height: dp(40) # Fixed height for input row
-        spacing: dp(10)
-        TextInput:
-            id: prompt_input # Keep id
-            text: root.prompt_text
-            hint_text: "Initializing..." if not root.backend_initialized else "Enter your prompt..."
-            disabled: not root.backend_initialized # Disable when not initialized
-            size_hint_x: 0.9 # Take most of the width
-            multiline: False
-            font_size: '14sp' # Match CSS
-            # font_name: 'Arial' # Kivy might need the font file specified
-            on_text_validate: root.send_prompt() # Send on Enter key
-            background_color: 0, 0, 0, 1 # Black background
-            foreground_color: 1, 1, 1, 1 # White text
-        Button:
-            id: record_button # Keep id
-            disabled: not root.backend_initialized # Disable when not initialized
-            size_hint_x: None
-            width: dp(50) # Match CSS width
-            on_press: root.toggle_recording()
-            background_normal: '' # Remove default button background
-            background_color: (0.94, 0.94, 0.94, 1) if not root.is_recording else (1, 0.86, 0.86, 1) # Match CSS colors
-            Image:
-                source: root.record_button_icon # Dynamically update icon
-                size: dp(30), dp(30)
-                center_x: self.parent.center_x
-                center_y: self.parent.center_y
-                fit_mode: 'fill' # Replaced allow_stretch
+    # --- REMOVED Prompt Input Section ---
+    # --- REMOVED Response Box Section ---
 
-    # Response Box Section
-    ScrollView:
-        id: response_scroll # Add id for scrolling
-        size_hint_y: 1 # Take remaining vertical space
-        do_scroll_x: False
-        bar_width: dp(10) # Make scrollbar visible
-        scroll_type: ['bars', 'content']
-        canvas.before:
-            Color:
-                rgba: 0, 0, 0, 1 # Black background
-            Rectangle:
-                pos: self.pos
-                size: self.size
-        Label:
-            id: response_label # Change id to match python code
-            text: root.response_text
-            markup: True # Enable Kivy markup (like [b]...[/b])
-            size_hint_y: None
-            height: self.texture_size[1] # Adjust height to text content
-            padding: dp(10), dp(10)
-            font_size: '14sp'
-            text_size: self.width, None # Enable text wrapping
-            valign: 'top' # Align text to the top
+    # --- ADDED ChatBox Component ---
+    ChatBox:
+        id: chat_box # Add id to reference from python code
+        size_hint_y: 1 # Let ChatBox take the remaining vertical space
+        # Bind ChatBox properties/events to ChatTab (root)
+        backend_initialized: root.backend_initialized
+        # Pass the prompt text argument from the event to the root method
+        on_send_prompt: root.send_prompt(args[1]) # args[0] is the widget, args[1] is the prompt text
+        on_toggle_recording: root.toggle_recording()
 
     # --- Bottom Controls Section (Two Columns) ---
     BoxLayout:
         orientation: 'horizontal' # Arrange columns side-by-side
         size_hint_y: None
-        height: self.minimum_height # Adjust height based on tallest column
+        # height: self.minimum_height # Adjust height based on tallest columnner
         spacing: dp(10) # Space between columns
         padding: [dp(10), dp(10)] # Padding around the columns
 
         # Left Column: Chat Controls (TTS, Clear History)
         ChatControls:
             id: chat_controls # Add id if needed
-            size_hint_x: 0.4 # Adjust width proportion as needed
+            size_hint_x: 0.5 # Split width evenly
             # Bind the component's property to the root's property
             tts_enabled: root.tts_enabled
             # Bind the component's event to the root's method
@@ -114,7 +72,7 @@
         # Right Column: LLM Selector
         LLMSelector:
             id: llm_selector # Add id if needed
-            size_hint_x: 0.6 # Adjust width proportion as needed
+            size_hint_x: 0.5 # Split width evenly
             # Bind component properties to the root (ChatTab) properties
             selected_provider: root.selected_provider
             selected_model: root.selected_model
