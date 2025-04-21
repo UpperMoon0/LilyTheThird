@@ -2,10 +2,11 @@ import asyncio
 import threading
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-# Remove ListProperty if only used for llm lists now in mixin
-from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, NumericProperty
+from kivy.uix.label import Label
+from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty # Updated imports
 from kivy.lang import Builder
 from kivy.clock import Clock
+from kivy.utils import get_color_from_hex # Import for color conversion
 
 # Import settings manager functions
 from settings_manager import load_settings, save_settings
@@ -16,6 +17,11 @@ from views.llm_config_mixin import LLMConfigMixin
 
 # Load the corresponding kv file
 Builder.load_file('views/chat_tab.kv')
+
+# Define colors for markup
+USER_COLOR_HEX = "FFFFFF" # White
+LLM_COLOR_HEX = "FFFFFF"  # White
+SYSTEM_COLOR_HEX = "00FF00" # Green (Lime)
 
 # Inherit from BoxLayout and the Mixin
 class ChatTab(BoxLayout, LLMConfigMixin):
@@ -73,7 +79,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         """Tasks to run after widgets are loaded."""
         # Initial population of models based on the loaded provider (from mixin)
         self.update_models(initial_load=True) # Pass flag to load saved model (uses mixin's update_models)
-        # Add initial status message
+        # Add initial status message using the new add_message
         self.add_message("System", self.initialization_status)
         # Start backend initialization in a separate thread
         threading.Thread(target=self._initialize_backend_thread, daemon=True).start()
@@ -168,10 +174,11 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     def _finish_backend_initialization(self, instance, error_message):
         """Called on the main thread to update UI after backend init."""
         print("ChatTab: Finishing backend initialization on main thread.")
+        status_message = ""
         if instance:
             self.llm_instance = instance
             self.backend_initialized = True # Set the flag FIRST
-            self.initialization_status = "Backend initialized successfully."
+            status_message = "Backend initialized successfully."
             print("ChatTab: Backend marked as initialized.")
 
             # --- ADDED CHECK ---
@@ -185,11 +192,11 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         else:
             self.llm_instance = None
             self.backend_initialized = False # Keep it false on error
-            self.initialization_status = error_message or "Backend initialization failed."
-            print(f"ChatTab: Backend initialization failed: {self.initialization_status}")
+            status_message = error_message or "Backend initialization failed."
+            print(f"ChatTab: Backend initialization failed: {status_message}")
 
-        # Update the system message (moved after the check)
-        self.add_message("System", self.initialization_status)
+        # Update the system message using the new add_message
+        self.add_message("System", status_message)
 
     def _start_llm_instance_update_thread(self):
         """Starts a background thread to update the LLM instance without freezing the UI."""
@@ -246,7 +253,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print("ChatTab: Finishing LLM instance update on main thread.")
         # Re-enable input (if disabled earlier)
         # self.ids.prompt_input.disabled = False
-
+        update_status = ""
         if new_instance:
             self.llm_instance = new_instance
             # Keep backend_initialized as True, just update the instance
@@ -257,14 +264,12 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             # Setting to None and marking backend as uninitialized might be safer.
             self.llm_instance = None
             self.backend_initialized = False # Mark as failed if update fails
-            self.initialization_status = error_message or "LLM update failed."
-            update_status = self.initialization_status # Use the error message
+            update_status = error_message or "LLM update failed."
             print(f"ChatTab: LLM update failed: {update_status}")
 
-        # Update the system message
+        # Update the system message using the new add_message
         self.add_message("System", update_status)
         print(f"ChatTab: Finished LLM instance update. Current Instance ID: {id(self.llm_instance) if self.llm_instance else None}") # Log final ID
-
 
     def toggle_recording(self):
         """Toggle voice recording state."""
@@ -292,11 +297,11 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             return # Don't send empty prompts
 
         print(f"ChatTab: Sending prompt: {prompt}")
-        self.add_message("You", prompt)
+        self.add_message("You", prompt) # Use "You" as sender type
         self.ids.prompt_input.text = "" # Clear input
 
         # Add a "Thinking..." message
-        self.add_message("Lily", "Thinking...")
+        self.add_message("Lily", "Thinking...") # Use "Lily" as sender type
 
         # Run the async LLM call in a separate thread (existing fix)
         thread = threading.Thread(target=self._run_async_in_thread, args=(prompt,), daemon=True)
@@ -339,34 +344,60 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print(f"ChatTab: Updating UI with response: {response[:100]}...")
 
         # Remove the "Thinking..." message before adding the actual response
-        # This requires modifying how messages are stored or displayed.
-        # Simple approach: Replace the last line if it's "Thinking..."
-        lines = self.response_text.strip().split('\n\n')
-        if lines and lines[-1].startswith("[b]Lily:[/b] Thinking..."):
-            lines.pop() # Remove the last "Thinking..." message
-            self.response_text = "\n\n".join(lines) + "\n\n" # Rebuild text, add trailing newlines
+        # Use markup-aware removal
+        thinking_markup = f"[color={LLM_COLOR_HEX}][b]Lily:[/b] Thinking...[/color]"
+        if self.response_text.endswith(thinking_markup + "\n\n"):
+             # Remove the thinking message and the preceding newline
+             self.response_text = self.response_text[:-len(thinking_markup + "\n\n")]
 
-        self.add_message("Lily", response) # Add the actual response
+
+        self.add_message("Lily", response) # Add the actual response using "Lily" sender type
 
         if self.tts_enabled:
             print(f"ChatTab: TTS Enabled: Speaking response (Simulated)")
             # Add actual TTS logic here (ensure it runs on the main thread or is thread-safe)
 
-    def add_message(self, sender, message):
-        """Append a message to the response box."""
-        # Ensure the ScrollView scrolls to the bottom after adding text
-        response_label = self.ids.response_label # Assuming id: response_label for the Label
-        response_scroll = self.ids.response_scroll # Assuming id: response_scroll for the ScrollView
+    def add_message(self, sender_type, text):
+        """Adds a message to the chat display using Kivy markup."""
+        sender_prefix = ""
+        color_hex = LLM_COLOR_HEX # Default to LLM color
 
-        # Append text
-        response_label.text += f"[b]{sender}:[/b] {message}\n\n" # Use Kivy markup
+        if sender_type == 'You':
+            sender_prefix = "[b]You:[/b] "
+            color_hex = USER_COLOR_HEX
+        elif sender_type == 'Lily':
+            sender_prefix = "[b]Lily:[/b] "
+            color_hex = LLM_COLOR_HEX
+        elif sender_type == 'System':
+            sender_prefix = "[b]System:[/b] "
+            color_hex = SYSTEM_COLOR_HEX
+        else: # Default case or unknown sender
+             sender_prefix = f"[b]{sender_type}:[/b] "
 
-        # Schedule scroll to bottom *after* the text update has been processed by Kivy layout
-        Clock.schedule_once(lambda dt: setattr(response_scroll, 'scroll_y', 0), 0.1)
+        # Escape markup characters within the actual text to prevent conflicts
+        escaped_text = text.replace('[', '&bl;').replace(']', '&br;')
 
+        # Append formatted message to the response_text property
+        # Ensure there's a newline between messages
+        if self.response_text:
+            self.response_text += "\n\n"
+        self.response_text += f"[color={color_hex}]{sender_prefix}{escaped_text}[/color]"
+
+        # Schedule scrolling to the bottom after the text is updated and rendered
+        Clock.schedule_once(self._scroll_to_bottom, 0.1)
+
+    def _scroll_to_bottom(self, dt):
+        """Scrolls the response ScrollView to the bottom."""
+        if self.ids.response_scroll:
+            self.ids.response_scroll.scroll_y = 0 # Scroll to bottom (0 means bottom in Kivy ScrollView)
 
     def clear_history(self):
-        """Clear the chat history."""
-        self.response_text = ""
+        """Clears the chat history display."""
+        print("ChatTab: Clearing chat history.")
+        self.response_text = "" # Clear the text property
+        # Optionally, add a system message indicating clearance
         self.add_message("System", "Chat history cleared.")
-        print("Chat history cleared")
+        # Optionally, clear the LLM's internal history if applicable
+        if self.llm_instance and hasattr(self.llm_instance, 'clear_history'):
+            print("ChatTab: Clearing LLM internal history.")
+            self.llm_instance.clear_history()

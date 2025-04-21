@@ -13,8 +13,10 @@
     BoxLayout:
         size_hint_y: None
         height: dp(300) # Fixed height for avatar
+        size_hint_x: None # Don't stretch horizontally
+        width: dp(300)    # Set explicit width
+        pos_hint: {'center_x': 0.5} # Center the BoxLayout itself
         padding: [0, dp(20), 0, dp(20)] # Padding top/bottom
-        pos_hint: {'center_x': 0.5}
         canvas.before:
             StencilPush
             Ellipse:
@@ -49,6 +51,8 @@
             font_size: '14sp' # Match CSS
             # font_name: 'Arial' # Kivy might need the font file specified
             on_text_validate: root.send_prompt() # Send on Enter key
+            background_color: 0, 0, 0, 1 # Black background
+            foreground_color: 1, 1, 1, 1 # White text
         Button:
             id: record_button # Keep id
             disabled: not root.backend_initialized # Disable when not initialized
@@ -71,6 +75,12 @@
         do_scroll_x: False
         bar_width: dp(10) # Make scrollbar visible
         scroll_type: ['bars', 'content']
+        canvas.before:
+            Color:
+                rgba: 0, 0, 0, 1 # Black background
+            Rectangle:
+                pos: self.pos
+                size: self.size
         Label:
             id: response_label # Change id to match python code
             text: root.response_text
