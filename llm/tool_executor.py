@@ -147,10 +147,10 @@ class ToolExecutor:
         if tool_name == "search_web" and isinstance(result, str) and result and not result.startswith("Error:"):
             logging.info(f"--- Summarizing web search results for query: {arguments.get('query', 'N/A')} ---")
             raw_search_results = result
-            summarization_prompt = f"Provide a detailed analysis of the information contained within this search result.:\n\n{raw_search_results}"
+            summarization_prompt = f"Provide a summarization of the information contained within this search result, be careful not to miss any important detail.:\n\n{raw_search_results}"
             summary_messages = [{'role': 'user', 'content': summarization_prompt}]
             # Use the stored LLM client to generate the summary
-            summarized_result = self.llm_client.generate_final_response(
+            summarized_result = await self.llm_client.generate_final_response( # Added await here
                 messages=summary_messages,
                 personality_prompt="You are an expert summarization assistant."
             )

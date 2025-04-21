@@ -30,12 +30,23 @@ def fetch_url_content(url: str, timeout: int = 10) -> Optional[str]:
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Extract text from paragraph tags, join them, limit length
-        paragraphs = soup.find_all('p')
-        content = ' '.join(p.get_text() for p in paragraphs)
-        
+        # Extract text from the entire body, clean up whitespace, limit length
+        # Remove script and style elements first
+        for script_or_style in soup(["script", "style"]):
+            script_or_style.decompose() # Remove these tags and their content
+
+        # Get text from the rest of the body
+        content = soup.get_text()
+
+        # Break into lines and remove leading/trailing space on each
+        lines = (line.strip() for line in content.splitlines())
+        # Break multi-headlines into a line each
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        # Drop blank lines
+        content = '\n'.join(chunk for chunk in chunks if chunk)
+
         # Limit the content length to avoid overly long results
-        max_content_length = 2000 
+        max_content_length = 10000
         return content[:max_content_length] + "..." if len(content) > max_content_length else content
 
     except requests.exceptions.RequestException as e:

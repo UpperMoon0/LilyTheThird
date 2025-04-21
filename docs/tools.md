@@ -69,7 +69,7 @@ This document describes the tool system used by the LLM orchestrator, including 
     *   **Arguments**: `{"content": "information to save"}`
     *   **Implementation**: `MongoHandler.add_fact` (via `ToolExecutor` dispatcher). Requires MongoDB connection and embedding model.
 *   **`search_web`**:
-    *   **Description**: Searches the web for information based on a query using Tavily API and summarizes the findings.
+    *   **Description**: Searches the web using DuckDuckGo based on a query. It attempts to fetch detailed content from result URLs by extracting text from the entire HTML body (excluding script and style tags), falling back to snippets if fetching fails. The combined results are then summarized by the LLM.
     *   **Arguments**: `{"query": "web search query"}`
-    *   **Implementation**: `tools.web_search_tool.perform_web_search`
-    *   **Post-processing**: The raw search results are summarized by the `LLMClient` before being returned.
+    *   **Implementation**: `tools.web_search_tool.perform_web_search` (uses `duckduckgo_search` library, `requests`, and `BeautifulSoup`).
+    *   **Post-processing**: The raw search results (fetched content or snippets) are summarized by the `LLMClient` within the `ToolExecutor` before being returned.
