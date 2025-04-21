@@ -1,10 +1,13 @@
 import os
+import json # Added import
+import asyncio # Added import
 from datetime import datetime
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 
 # Import the base class and necessary components
-from .base_llm import BaseLLMOrchestrator
+from .base_llm import BaseLLMOrchestrator, TOOL_SELECT_RETRY, TOOL_USE_RETRY, TOOL_RETRY_DELAY_SECONDS # Import constants
+from tools.tools import find_tool # Added import
 # HistoryManager, LLMClient, ToolExecutor, MongoHandler are initialized in Base
 
 load_dotenv()
@@ -93,11 +96,239 @@ class DiscordLLM(BaseLLMOrchestrator):
         discord_user_name = kwargs.get('discord_user_name', 'User')
         return f"{discord_user_name} said: {user_message}"
 
+    # --- Overridden Core Logic ---
+
+    async def _process_message(self, user_message: str, **kwargs) -> str:
+        """
+        Core logic for processing a user message, handling memory retrieval,
+        tool interactions, and final response generation.
+        Overrides BaseLLMOrchestrator._process_message to REMOVE the final
+        memory save/update step (Step 5) for the Discord context.
+        kwargs are passed to hook methods like _get_base_system_messages.
+        """
+        # 1. Get context-specific base system messages
+        base_system_messages = self._get_base_system_messages(**kwargs)
+
+        # 2. Retrieve relevant memories automatically based on the raw user message
+        retrieved_facts_context_string = await self._retrieve_and_add_memory_context(user_message)
+
+        # 3. Prepare and add user message to history
+        prepared_user_message = self._prepare_user_message_for_history(user_message, **kwargs)
+        self.history_manager.add_message('user', prepared_user_message)
+
+        # --- Tool Usage Flow ---
+        allowed_tools_overall = self._get_allowed_tools() # Get all tools allowed in this context
+        max_tool_calls = self._get_max_tool_calls()
+        tool_calls_made = 0
+
+        # 4. Main Tool Interaction Loop (Excluding Memory Tools)
+        print(f"--- Step 4: Main Tool Loop (Discord - No Final Memory Step) ---")
+        # Determine tools allowed in the main loop (exclude memory tools)
+        main_loop_allowed_tools = None
+        if allowed_tools_overall is not None:
+            main_loop_allowed_tools = [
+                tool for tool in allowed_tools_overall if tool not in ['fetch_memory', 'save_memory', 'update_memory'] # Also exclude update_memory here for Discord
+            ]
+        # If allowed_tools_overall was None (meaning all tools allowed), we need to get all tool names
+        # and then filter. (Shouldn't happen for Discord based on _get_allowed_tools)
+        elif allowed_tools_overall is None:
+             all_tool_names = self.tool_executor.get_all_tool_names()
+             main_loop_allowed_tools = [
+                 tool for tool in all_tool_names if tool not in ['fetch_memory', 'save_memory', 'update_memory']
+             ]
+
+
+        for _ in range(max_tool_calls):
+            if tool_calls_made >= max_tool_calls:
+                print(f"[{self.__class__.__name__}] Max tool calls ({max_tool_calls}) reached for main loop.")
+                break
+
+            # --- Tool Selection with Retry ---
+            select_retry_count = 0
+            action_decision = None
+            while TOOL_SELECT_RETRY == -1 or select_retry_count <= TOOL_SELECT_RETRY:
+                current_history_loop = self.history_manager.get_history()
+                messages_for_loop = base_system_messages + current_history_loop
+
+                if select_retry_count > 0:
+                    retry_context = (
+                        f"RETRY CONTEXT: Previous attempt (attempt {select_retry_count}) to select a tool failed or returned an invalid format. "
+                        f"Please review the conversation history and available tools, then choose the next appropriate action (tool or null)."
+                    )
+                    messages_for_loop.append({'role': 'system', 'content': retry_context})
+                    print(f"[{self.__class__.__name__}] Added retry context for tool selection (Attempt {select_retry_count + 1}).")
+                    await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
+
+                action_decision = await self.llm_client.get_next_action(
+                    messages_for_loop,
+                    allowed_tools=main_loop_allowed_tools,
+                    context_type=self.context_name
+                )
+
+                if action_decision and action_decision.get("action_type") == "tool_choice":
+                    break
+                else:
+                    print(f"[{self.__class__.__name__}] Error or invalid format in tool selection (Attempt {select_retry_count + 1}): {action_decision}.")
+                    if TOOL_SELECT_RETRY != -1 and select_retry_count >= TOOL_SELECT_RETRY:
+                        print(f"[{self.__class__.__name__}] Tool selection failed after max retries ({TOOL_SELECT_RETRY}). Breaking loop.")
+                        action_decision = None
+                        break
+                    elif TOOL_SELECT_RETRY == 0:
+                        print(f"[{self.__class__.__name__}] Tool selection failed (retries disabled). Breaking loop.")
+                        action_decision = None
+                        break
+                    else:
+                        print(f"[{self.__class__.__name__}] Retrying tool selection (attempt {select_retry_count + 1}/{TOOL_SELECT_RETRY if TOOL_SELECT_RETRY != -1 else 'infinite'})...")
+                        select_retry_count += 1
+
+            if not action_decision or action_decision.get("action_type") != "tool_choice":
+                print(f"[{self.__class__.__name__}] Failed to get a valid tool choice after retries or retries disabled. Breaking main loop.")
+                break
+
+            tool_name = action_decision.get("tool_name")
+
+            if tool_name is None:
+                print(f"[{self.__class__.__name__}] LLM decided no further tools needed in main loop.")
+                break
+
+            print(f"[{self.__class__.__name__}] Main loop: LLM chose tool: {tool_name}")
+            use_retry_count = 0
+            arguments = None
+            tool_result = None
+            tool_definition = find_tool(tool_name)
+
+            if not tool_definition:
+                print(f"[{self.__class__.__name__}] Error: Tool '{tool_name}' definition not found.")
+                tool_result = f"Error: Could not find definition for tool '{tool_name}'."
+            else:
+                while TOOL_USE_RETRY == -1 or use_retry_count <= TOOL_USE_RETRY:
+                    messages_for_args = base_system_messages + self.history_manager.get_history()
+
+                    if use_retry_count > 0:
+                        retry_context = (
+                            f"RETRY CONTEXT: Previous attempt (attempt {use_retry_count}) to use tool '{tool_name}' failed with the following error: "
+                            f"'{tool_result}'. Please analyze the error and the conversation history, then try generating "
+                            f"the arguments for '{tool_name}' again, correcting any potential issues."
+                        )
+                        # No specific update_memory guidance needed here as it's excluded
+                        messages_for_args.append({'role': 'system', 'content': retry_context})
+                        print(f"[{self.__class__.__name__}] Added retry context for {tool_name} argument generation (Attempt {use_retry_count + 1}).")
+                        await asyncio.sleep(1)
+
+                    argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_args)
+
+                    if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
+                        print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for {tool_name} (Attempt {use_retry_count + 1}): {argument_decision}.")
+                        tool_result = argument_decision.get("error", f"Error: Failed to get arguments for tool '{tool_name}'.")
+                        arguments = None
+
+                        if TOOL_USE_RETRY != -1 and use_retry_count >= TOOL_USE_RETRY:
+                            print(f"[{self.__class__.__name__}] Argument generation failed after max retries ({TOOL_USE_RETRY}) for {tool_name}. Aborting tool call.")
+                            break
+                        elif TOOL_USE_RETRY == 0:
+                             print(f"[{self.__class__.__name__}] Argument generation failed for {tool_name} (retries disabled). Aborting tool call.")
+                             break
+                        else:
+                            print(f"[{self.__class__.__name__}] Argument generation failed for {tool_name}. Retrying (attempt {use_retry_count + 1}/{TOOL_USE_RETRY if TOOL_USE_RETRY != -1 else 'infinite'})...")
+                            use_retry_count += 1
+                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
+                            continue
+
+                    arguments = argument_decision.get("arguments", {})
+                    tool_result = await self.tool_executor.execute(tool_name, arguments)
+                    print(f"[{self.__class__.__name__}] Result from {tool_name} (Attempt {use_retry_count + 1}): {tool_result}")
+
+                    is_execution_error = isinstance(tool_result, str) and tool_result.startswith("Error:")
+
+                    if is_execution_error:
+                        if TOOL_USE_RETRY != -1 and use_retry_count >= TOOL_USE_RETRY:
+                            print(f"[{self.__class__.__name__}] Tool execution failed after max retries ({TOOL_USE_RETRY}) for {tool_name}. Aborting tool call.")
+                            break
+                        elif TOOL_USE_RETRY == 0:
+                            print(f"[{self.__class__.__name__}] Tool execution failed for {tool_name} (retries disabled). Aborting tool call.")
+                            break
+                        else:
+                            print(f"[{self.__class__.__name__}] Tool execution failed for {tool_name}. Retrying (attempt {use_retry_count + 1}/{TOOL_USE_RETRY if TOOL_USE_RETRY != -1 else 'infinite'})...")
+                            temp_error_message = {
+                                "tool_used": tool_name,
+                                "arguments": arguments,
+                                "result": tool_result,
+                                "status": f"Execution Failed (Attempt {use_retry_count + 1})"
+                            }
+                            self.history_manager.add_message('system', json.dumps(temp_error_message))
+                            use_retry_count += 1
+                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
+                            continue
+                    else:
+                        break # Success
+
+            final_tool_status = "Success"
+            if tool_result is None:
+                tool_result = "Error: Tool execution did not produce a result or failed during argument generation."
+                final_tool_status = f"Failed (Args/Definition - {use_retry_count + 1} attempts)"
+            elif isinstance(tool_result, str) and tool_result.startswith("Error:"):
+                final_tool_status = f"Failed (Execution - {use_retry_count + 1} attempts)"
+
+            tool_result_message_content = {
+                "tool_used": tool_name,
+                "arguments": arguments if arguments is not None else "N/A (argument generation failed)",
+                "result": tool_result,
+                "status": final_tool_status
+            }
+            self.history_manager.add_message('system', json.dumps(tool_result_message_content))
+
+            if arguments is not None:
+                tool_calls_made += 1
+                if final_tool_status.startswith("Failed"):
+                     print(f"[{self.__class__.__name__}] Tool '{tool_name}' ultimately failed after {use_retry_count + 1} attempts. Breaking main loop.")
+                     break
+            else:
+                print(f"[{self.__class__.__name__}] Argument generation or definition finding failed definitively for {tool_name}. Breaking main loop.")
+                break
+
+        # 5. Final Memory Operation Step - REMOVED FOR DISCORD
+        print(f"--- Step 5: Final Memory Save/Update Check SKIPPED for Discord ---")
+
+        # 6. Final Response Generation
+        print(f"--- Step 6: Final Response Generation ---")
+        final_history = self.history_manager.get_history()
+
+        messages_for_final_response = []
+        if base_system_messages:
+            messages_for_final_response.append(base_system_messages[0])
+        else:
+            messages_for_final_response.append({'role': 'system', 'content': "You are a helpful assistant."})
+
+        if len(base_system_messages) > 1:
+             messages_for_final_response.extend(base_system_messages[1:])
+
+        messages_for_final_response.extend(final_history)
+
+        if retrieved_facts_context_string:
+            messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
+            print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt.")
+
+        final_personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
+
+        final_message = await self.llm_client.generate_final_response(
+            messages_for_final_response,
+            personality_prompt=final_personality_prompt
+        )
+
+        if final_message is None or final_message.startswith("Error:"):
+            print(f"[{self.__class__.__name__}] Failed to get final response: {final_message}")
+            final_message = final_message if final_message else "Sorry, I encountered an error generating the final response."
+        else:
+            self.history_manager.add_message('assistant', final_message)
+
+        return final_message
+
+
     # --- Public Method ---
 
     async def get_response(self, user_message: str, discord_user_id: int, discord_user_name: str) -> tuple[str, None]:
         """
-        Processes the user message from Discord using the core logic from the base class.
+        Processes the user message from Discord using the OVERRIDDEN core logic.
 
         Args:
             user_message: The message content from Discord.

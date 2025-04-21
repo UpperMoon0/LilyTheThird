@@ -104,7 +104,7 @@ This is the core logic inherited and used by both `ChatBoxLLM` and `DiscordLLM`.
     *   Includes the interacting user's name, ID, and whether they are the Master.
 *   **Allowed Tools (`_get_allowed_tools`)**:
     *   Returns a specific list: `DISCORD_ALLOWED_TOOLS` (currently defined as `['fetch_memory', 'search_web', 'get_current_time']`).
-    *   *Note*: While this list restricts tools available in the main loop (Step 4), the final memory operation (Step 5) in the base class *can* still potentially choose `save_memory` or `update_memory` if the LLM decides to, as it checks against the full `allowed_tools_overall` list passed to `get_next_action` in that step.
+    *   *Note*: The `DiscordLLM` overrides the base `_process_message` method to explicitly *skip* the final memory save/update step (Step 5), ensuring only the tools listed in `DISCORD_ALLOWED_TOOLS` (excluding `fetch_memory` during the main loop) are ever considered or executed in the Discord context.
 *   **Max Tool Calls (`_get_max_tool_calls`)**:
     *   Uses `DISCORD_MAX_TOOL_CALLS` environment variable (default: 3).
 *   **User Message Preparation (`_prepare_user_message_for_history`)**:
