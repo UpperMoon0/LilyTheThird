@@ -27,6 +27,8 @@
 
         # Status Circle (Centered)
         BoxLayout:
+            size_hint_x: None # Allow centering the layout itself
+            width: self.minimum_width # Size to content
             size_hint_y: None
             height: dp(30) # Height for the circle container
             pos_hint: {'center_x': 0.5}
@@ -38,6 +40,8 @@
 
         # Start/Stop Button (Centered)
         BoxLayout:
+            size_hint_x: None # Allow centering the layout itself
+            width: self.minimum_width # Size to content
             size_hint_y: None
             height: dp(40)
             pos_hint: {'center_x': 0.5}
@@ -80,6 +84,9 @@
             id: guild_id_input
             text: root.guild_id
             hint_text: "Enter Guild ID"
+            size_hint_x: None # Allow centering
+            width: dp(300)    # Set a fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
             size_hint_y: None
             height: dp(40) # Slightly taller input
             multiline: False
@@ -91,6 +98,9 @@
             id: channel_id_input
             text: root.channel_id
             hint_text: "Enter Channel ID"
+            size_hint_x: None # Allow centering
+            width: dp(300)    # Set a fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
             size_hint_y: None
             height: dp(40)
             multiline: False
@@ -99,6 +109,10 @@
 
         # Reusable LLM Selector Component
         LLMSelector:
+            # Center the component itself
+            size_hint_x: 0.4 # Set width to 40% of parent
+            # width: dp(350) # Removed fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
             # Bind component properties to the root (DiscordTab) properties
             selected_provider: root.selected_provider
             selected_model: root.selected_model
@@ -128,6 +142,9 @@
             id: message_input
             text: root.message_text
             hint_text: "Type your message here..."
+            size_hint_x: None # Allow centering
+            width: dp(300)    # Set a fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
             size_hint_y: None
             height: dp(40)
             multiline: False
