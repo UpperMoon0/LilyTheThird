@@ -1,6 +1,7 @@
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, BooleanProperty
 from kivy.lang import Builder
+from views.components.rgb_strip import RGBStrip # Import the strip
 
 # Load the corresponding kv file
 Builder.load_file('views/vtube_tab.kv')

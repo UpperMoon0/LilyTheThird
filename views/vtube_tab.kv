@@ -1,11 +1,17 @@
 #:kivy 2.0.0
+#:import RGBStrip views.components.rgb_strip 
 
 <VTubeTab>:
     orientation: 'vertical'
     padding: dp(20)  # Add padding around the layout
     spacing: dp(15)  # Space between widgets
-    size_hint_y: None # Take only needed vertical space
-    height: self.minimum_height # Adjust height to content
+    # size_hint_y: None # Remove this to allow the tab to fill space if needed
+    # height: self.minimum_height # Remove this
+
+    # Add the RGB Strip at the very top
+    RGBStrip:
+        # Height is set in the component's Python code (3dp)
+        # Width will automatically match the parent (VTubeTab)
 
     BoxLayout: # Use another BoxLayout to center the content vertically within the tab space if needed
         orientation: 'vertical'

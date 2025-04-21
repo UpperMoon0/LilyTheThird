@@ -7,6 +7,7 @@ from kivy.properties import StringProperty, BooleanProperty, NumericProperty, Ob
 from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.utils import get_color_from_hex # Import for color conversion
+from views.components.rgb_strip import RGBStrip # Import the strip
 
 # Import settings manager functions
 from settings_manager import load_settings, save_settings

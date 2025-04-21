@@ -4,11 +4,17 @@
 #:import ChatControls views.components.chat_controls.ChatControls
 #:import ChatBox views.components.chat_box.ChatBox
 #:import CircularImage views.components.circular_image.CircularImage
+#:import RGBStrip views.components.rgb_strip 
 
 <ChatTab>:
     orientation: 'vertical'
     padding: dp(10) # Adjusted padding
     spacing: dp(10) # Adjusted spacing
+
+    # Add the RGB Strip at the very top
+    RGBStrip:
+        # Height is set in the component's Python code (3dp)
+        # Width will automatically match the parent (ChatTab)
 
     # --- Row A: Avatar and Controls ---
     BoxLayout:

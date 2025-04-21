@@ -3,12 +3,9 @@ from kivy.properties import StringProperty, ListProperty, BooleanProperty, Objec
 from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.animation import Animation
-from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, ListProperty, BooleanProperty, ObjectProperty
-from kivy.lang import Builder
-from kivy.clock import Clock
-from kivy.animation import Animation
 from kivy.utils import get_color_from_hex
+from views.components.rgb_strip import RGBStrip # Import the strip
+# Removed duplicate imports
 
 # Import the LLM configuration mixin
 from .llm_config_mixin import LLMConfigMixin

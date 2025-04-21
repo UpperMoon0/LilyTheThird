@@ -1,13 +1,19 @@
 #:kivy 2.0.0
 #:import ColorCircle views.components.color_circle.ColorCircle
 #:import LLMSelector views.components.llm_selector.LLMSelector
+#:import RGBStrip views.components.rgb_strip
 
 <DiscordTab>:
     orientation: 'vertical'
     padding: dp(20)
     spacing: dp(20)
+
+    # Add the RGB Strip at the very top
+    RGBStrip:
+        # Height is set in the component's Python code (3dp)
+        # Width will automatically match the parent (DiscordTab)
     # Assign the ColorCircle instance to the status_circle property in the Python class
-    status_circle: status_circle_id
+    # status_circle: status_circle_id # REMOVE THIS LINE - Kivy handles this automatically via id matching ObjectProperty
 
     # Status Section
     BoxLayout:

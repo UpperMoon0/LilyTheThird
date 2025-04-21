@@ -4,13 +4,20 @@ kivy.require('2.0.0') # Ensure Kivy version compatibility
 from kivy.app import App
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.widget import Widget # Import base Widget
 from kivy.uix.label import Label # Import Label for loading indicator
 from kivy.core.window import Window # Import Window
 from kivy.clock import Clock # Import Clock
+from kivy.graphics import Color, Rectangle # For drawing the strip
+from kivy.properties import ListProperty # For the color property
+from kivy.animation import Animation # For animation
+import colorsys # To easily cycle through hues
 
+# Import Views and Components
 from views.vtube_tab import VTubeTab
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
+# RGBStrip is no longer needed in main layout
 
 # Optional: Set a default window size
 # Window.size = (800, 700) # Remove or comment out fixed size
@@ -47,6 +54,8 @@ class MainAppLayout(BoxLayout):
 
         # Store the tab_panel as an instance attribute
         self.tab_panel = tab_panel
+        # --- RGB Strip removed from here ---
+
         # Add the TabbedPanel to the root layout
         self.add_widget(self.tab_panel)
 
