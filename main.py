@@ -16,10 +16,6 @@ from kivy.clock import Clock # Import Clock
 from views.vtube_tab import VTubeTab
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
-# RGBStrip is no longer needed in main layout
-
-# Optional: Set a default window size
-# Window.size = (800, 700) # Remove or comment out fixed size
 
 class MainAppLayout(BoxLayout):
     """Root layout containing the TabbedPanel."""
