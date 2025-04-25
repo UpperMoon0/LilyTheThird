@@ -1,10 +1,16 @@
 #:kivy 2.0.0
 #:import os os
-#:import LLMSelector views.components.llm_selector.LLMSelector
-#:import ChatboxSettings views.components.chatbox_settings.ChatboxSettings
-#:import ChatBox views.components.chat_box.ChatBox
+# Removed explicit imports as includes handle rule loading
+# #import LLMSelector views.components.llm_selector.LLMSelector # Correct comment syntax
+# #import ChatboxSettings views.components.chatbox_settings.ChatboxSettings # Correct comment syntax
+# #import ChatBox views.components.chat_box.ChatBox # Correct comment syntax
 #:import CircularImage views.components.circular_image.CircularImage
 #:import RGBStrip views.components.rgb_strip
+
+# Include the KV files for the components used directly in this file
+#:include views/components/chatbox.kv
+#:include views/components/chatbox_settings.kv
+# Note: llmselector.kv should be included within chatbox_settings.kv
 
 <ChatTab>:
     orientation: 'vertical'

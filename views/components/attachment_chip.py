@@ -1,10 +1,9 @@
+import os
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, ObjectProperty
-from kivy.lang import Builder
-import os
+# Removed: from kivy.lang import Builder
 
-# Load the corresponding kv file relative to this python file's location
-Builder.load_file(os.path.join(os.path.dirname(__file__), 'attachment_chip.kv'))
+# Removed: Builder.load_file(...)
 
 class AttachmentChip(BoxLayout):
     """

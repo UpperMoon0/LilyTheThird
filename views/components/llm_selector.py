@@ -1,9 +1,9 @@
+# Removed: import os
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, ListProperty, BooleanProperty
-from kivy.lang import Builder
+from kivy.properties import StringProperty, ListProperty
+# Removed: from kivy.lang import Builder
 
-# Load the corresponding kv file for this component
-Builder.load_file('views/components/llm_selector.kv')
+# Removed: Builder.load_file(...)
 
 class LLMSelector(BoxLayout):
     """

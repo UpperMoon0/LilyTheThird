@@ -1,12 +1,11 @@
+import os
 from kivy.uix.widget import Widget
 from kivy.properties import ListProperty, NumericProperty
-from kivy.lang import Builder
+# Removed: from kivy.lang import Builder
 from kivy.utils import get_color_from_hex
 from kivy.metrics import dp
-import os
 
-# Load the corresponding kv file relative to this python file's location
-Builder.load_file(os.path.join(os.path.dirname(__file__), 'color_circle.kv'))
+# Removed: Builder.load_file(...)
 
 class ColorCircle(Widget):
     """

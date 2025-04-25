@@ -1,10 +1,9 @@
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import BooleanProperty, ListProperty, StringProperty
 from kivy.event import EventDispatcher
-from kivy.lang import Builder
+# Removed: from kivy.lang import Builder
 
-# Explicitly load the corresponding kv file
-Builder.load_file('views/components/chatbox_settings.kv')
+# Removed: Builder.load_file('views/components/chatbox_settings.kv')
 
 class ChatboxSettings(BoxLayout, EventDispatcher):
     """

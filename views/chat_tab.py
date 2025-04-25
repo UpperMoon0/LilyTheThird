@@ -1,13 +1,8 @@
 import asyncio
 import threading
-from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
 from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty # Updated imports
-from kivy.lang import Builder
 from kivy.clock import Clock
-from kivy.utils import get_color_from_hex # Import for color conversion
-from views.components.rgb_strip import RGBStrip # Import the strip
 
 # Import settings manager functions
 from settings_manager import load_settings, save_settings
@@ -15,11 +10,9 @@ from settings_manager import load_settings, save_settings
 from llm.chatbox_llm import ChatBoxLLM
 # Import the LLM Config Mixin
 from views.llm_config_mixin import LLMConfigMixin
-# Import the new ChatBox component
-from views.components.chat_box import ChatBox # ADDED IMPORT
-
-# Load the corresponding kv file automatically by Kivy convention (chattab.kv)
-# Builder.load_file('views/chat_tab.kv') # REMOVED - Rely on automatic loading
+# Import component classes used in the KV file
+from views.components.chatbox_settings import ChatboxSettings
+from views.components.chat_box import ChatBox # Ensure ChatBox is also imported if used directly or needed by Kivy's parser
 
 # Define colors for markup
 USER_COLOR_HEX = "FFFFFF" # White
@@ -71,8 +64,6 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         # Bindings
         self.bind(selected_provider=self.on_selected_provider_changed_chat)
         self.bind(selected_model=self.on_selected_model_changed_chat)
-        # REMOVE the direct binding here, we'll handle it manually after linking chat_box
-        # self.bind(backend_initialized=self._update_chat_box_initialization)
         Clock.schedule_once(self._post_init)
 
     def _load_chat_settings(self):
@@ -88,11 +79,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         # Link chat_box property FIRST
         self.chat_box = self.ids.get('chat_box')
         if not self.chat_box:
-             # If the widget is still not found after relying on Kivy's automatic loading,
-             # it indicates a more fundamental problem (e.g., KV file typo, incorrect structure).
              print("ChatTab FATAL Error: Could not find ChatBox with id 'chat_box'. Check chattab.kv naming and structure.")
-             # Optionally, display a user-facing error in the tab itself
-             # self.add_widget(Label(text="Critical Error: Chat UI failed to load."))
              return # Stop initialization
 
         # Now that chat_box is linked, bind the backend_initialized property change

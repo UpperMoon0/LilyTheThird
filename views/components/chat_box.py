@@ -1,11 +1,10 @@
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, NumericProperty
-from kivy.lang import Builder
+# Removed: from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.utils import get_color_from_hex
 
-# Explicitly load the corresponding kv file
-Builder.load_file('views/components/chatbox.kv')
+# Removed: Builder.load_file('views/components/chatbox.kv')
 
 # Define colors for markup (can be centralized later)
 USER_COLOR_HEX = "FFFFFF" # White

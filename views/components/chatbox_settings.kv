@@ -1,4 +1,5 @@
 #:kivy 2.0.0
+#:include views/components/llmselector.kv
 
 <ChatboxSettings>:
     orientation: 'vertical'
@@ -16,7 +17,7 @@
 
     # Title Label
     Label:
-        text: "Chat Controls"
+        text: "Chat Settings"
         size_hint_y: None
         height: self.texture_size[1] + dp(5) # Add a little padding below
         font_size: '16sp' # Make title slightly larger
