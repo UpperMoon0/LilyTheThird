@@ -3,8 +3,8 @@ from kivy.properties import StringProperty, BooleanProperty
 from kivy.lang import Builder
 from views.components.rgb_strip import RGBStrip # Import the strip
 
-# Load the corresponding kv file
-Builder.load_file('views/vtube_tab.kv')
+# Load the corresponding kv file automatically by Kivy convention (vtubetab.kv)
+# Builder.load_file('views/vtube_tab.kv') # REMOVED - Rely on automatic loading
 
 class VTubeTab(BoxLayout):
     """

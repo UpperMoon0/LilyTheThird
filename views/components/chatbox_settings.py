@@ -1,27 +1,47 @@
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import BooleanProperty
-from kivy.lang import Builder
+from kivy.properties import BooleanProperty, ListProperty, StringProperty
 from kivy.event import EventDispatcher
+from kivy.lang import Builder
 
-# Load the corresponding kv file
+# Explicitly load the corresponding kv file
 Builder.load_file('views/components/chatbox_settings.kv')
 
 class ChatboxSettings(BoxLayout, EventDispatcher):
     """
-    Component containing TTS checkbox and Clear History button.
-    Dispatches an 'on_clear_history' event when the button is pressed.
+    Component containing TTS checkbox, Clear History button, and LLM Selector.
+    Dispatches events: 'on_clear_history', 'on_selected_provider', 'on_selected_model'.
     """
     tts_enabled = BooleanProperty(False)
+
+    # --- LLM Properties (Passed down from parent) ---
+    llm_providers = ListProperty([])
+    llm_models = ListProperty([])
+    selected_provider = StringProperty("")
+    selected_model = StringProperty("")
 
     # Register the event dispatcher
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.register_event_type('on_clear_history')
+        # Register events to bubble up from LLMSelector
+        self.register_event_type('on_selected_provider')
+        self.register_event_type('on_selected_model')
 
     def on_clear_history(self, *args):
         """
         Default handler for the on_clear_history event.
-        This method is called when the event is dispatched.
-        You bind to this event from the parent widget (e.g., ChatTab).
         """
         pass # Implementation is handled by the widget using this component
+
+    # --- Default handlers for LLM events (to allow bubbling) ---
+    def on_selected_provider(self, *args):
+        """
+        Default handler for the on_selected_provider event.
+        """
+        pass # Bound in kv to bubble up
+
+    def on_selected_model(self, *args):
+        """
+        Default handler for the on_selected_model event.
+        """
+        pass # Bound in kv to bubble up

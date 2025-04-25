@@ -4,13 +4,13 @@ from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.utils import get_color_from_hex
 
+# Explicitly load the corresponding kv file
+Builder.load_file('views/components/chatbox.kv')
+
 # Define colors for markup (can be centralized later)
 USER_COLOR_HEX = "FFFFFF" # White
 LLM_COLOR_HEX = "FFFFFF"  # White
 SYSTEM_COLOR_HEX = "00FF00" # Green (Lime)
-
-# Load the corresponding kv file
-Builder.load_file('views/components/chat_box.kv')
 
 class ChatBox(BoxLayout):
     """

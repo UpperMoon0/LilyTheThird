@@ -18,8 +18,8 @@ from views.llm_config_mixin import LLMConfigMixin
 # Import the new ChatBox component
 from views.components.chat_box import ChatBox # ADDED IMPORT
 
-# Load the corresponding kv file
-Builder.load_file('views/chat_tab.kv')
+# Load the corresponding kv file automatically by Kivy convention (chattab.kv)
+# Builder.load_file('views/chat_tab.kv') # REMOVED - Rely on automatic loading
 
 # Define colors for markup
 USER_COLOR_HEX = "FFFFFF" # White
@@ -61,19 +61,19 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
     # --- Initialization ---
     def __init__(self, **kwargs):
-        super().__init__(**kwargs) # Calls __init__ of BoxLayout and LLMConfigMixin
+        # Explicitly load KV string *before* super init
+        # Builder.load_string(CHAT_TAB_KV) # Moved outside class definition
+        super().__init__(**kwargs)
         # Load general settings first
         self._load_chat_settings()
         # Load LLM specific settings using the mixin method
         self._load_llm_settings()
-        # Bind mixin callbacks AFTER loading initial settings
-        # Use specific names to avoid potential conflicts if mixin methods were directly bound
+        # Bindings
         self.bind(selected_provider=self.on_selected_provider_changed_chat)
         self.bind(selected_model=self.on_selected_model_changed_chat)
-        # Bind backend_initialized to update ChatBox
-        self.bind(backend_initialized=self._update_chat_box_initialization)
-        # Orientation is set in the kv file
-        Clock.schedule_once(self._post_init) # Schedule updates after widgets are loaded
+        # REMOVE the direct binding here, we'll handle it manually after linking chat_box
+        # self.bind(backend_initialized=self._update_chat_box_initialization)
+        Clock.schedule_once(self._post_init)
 
     def _load_chat_settings(self):
         """Load settings specific to ChatTab (excluding LLM provider/model)."""
@@ -85,16 +85,29 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
     def _post_init(self, dt):
         """Tasks to run after widgets are loaded."""
-        # Link chat_box property
+        # Link chat_box property FIRST
         self.chat_box = self.ids.get('chat_box')
         if not self.chat_box:
-             print("ChatTab Error: Could not find ChatBox with id 'chat_box'")
-             # Handle error appropriately, maybe return or raise
+             # If the widget is still not found after relying on Kivy's automatic loading,
+             # it indicates a more fundamental problem (e.g., KV file typo, incorrect structure).
+             print("ChatTab FATAL Error: Could not find ChatBox with id 'chat_box'. Check chattab.kv naming and structure.")
+             # Optionally, display a user-facing error in the tab itself
+             # self.add_widget(Label(text="Critical Error: Chat UI failed to load."))
+             return # Stop initialization
 
-        # Initial population of models based on the loaded provider (from mixin)
-        self.update_models(initial_load=True) # Pass flag to load saved model (uses mixin's update_models)
-        # Add initial status message using the new add_message, but don't trigger scroll
-        self.add_message("System", self.initialization_status, scroll=False) # Pass scroll=False
+        # Now that chat_box is linked, bind the backend_initialized property change
+        self.bind(backend_initialized=self._update_chat_box_initialization)
+        # Also, immediately update the chat_box's state if backend is already initialized (unlikely here, but safe)
+        self._update_chat_box_initialization(self, self.backend_initialized)
+
+
+        # Initial population of models
+        self.update_models(initial_load=True)
+
+        # Add initial status message *after* linking chat_box
+        # No need to schedule this separately now, as chat_box is confirmed linked
+        self.add_message("System", self.initialization_status, scroll=False)
+
         # Start backend initialization in a separate thread
         threading.Thread(target=self._initialize_backend_thread, daemon=True).start()
 
@@ -191,13 +204,12 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         status_message = ""
         if instance:
             self.llm_instance = instance
-            self.backend_initialized = True # Set the flag FIRST (triggers binding)
+            # Set the flag. The binding added in _post_init will trigger _update_chat_box_initialization
+            self.backend_initialized = True
             status_message = "Backend initialized successfully."
             print("ChatTab: Backend marked as initialized.")
 
-            # --- ADDED CHECK ---
-            # Check if the model selected in the UI differs from the initialized instance's model
-            # This handles cases where the model was changed *before* initialization finished.
+            # --- Model Mismatch Check ---
             if self.llm_instance and self.selected_model != self.llm_instance.model: # Use .model instead of .model_name
                 print(f"ChatTab: Model mismatch after init ({self.selected_model} vs {self.llm_instance.model}). Triggering update.")
                 self._start_llm_instance_update_thread()
@@ -205,22 +217,23 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
         else:
             self.llm_instance = None
-            self.backend_initialized = False # Keep it false on error (triggers binding)
+            self.backend_initialized = False # Set the flag. Binding will trigger update.
             status_message = error_message or "Backend initialization failed."
             print(f"ChatTab: Backend initialization failed: {status_message}")
 
-        # Update the system message using add_message (which now targets ChatBox)
+        # Update the system message using add_message
         # Replace the initial "Initializing..." message
-        self.add_message("System", status_message, replace_last=True)
+        self.add_message("System", status_message, replace_last=True) # This should now work as chat_box is linked
 
     def _update_chat_box_initialization(self, instance, value):
         """Callback when backend_initialized changes to update the ChatBox."""
+        # This should only be called after _post_init successfully linked chat_box and added the binding
         if self.chat_box:
             self.chat_box.backend_initialized = value
             print(f"ChatTab: Updated chat_box.backend_initialized to {value}")
         else:
-            print("ChatTab Warning: chat_box not ready during _update_chat_box_initialization")
-
+            # This case should ideally not happen now
+            print("ChatTab CRITICAL Warning: _update_chat_box_initialization called but self.chat_box is None!")
 
     def _start_llm_instance_update_thread(self):
         """Starts a background thread to update the LLM instance without freezing the UI."""
@@ -375,11 +388,13 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
     def add_message(self, sender_type, text, scroll: bool = True, replace_last: bool = False):
         """Adds a message to the ChatBox display."""
+        # Check if chat_box is linked. It should be after _post_init runs.
         if self.chat_box:
-            # Pass the replacement flag to the ChatBox method
             self.chat_box.add_message(sender_type, text, scroll=scroll, replace_last=replace_last)
         else:
-            print("ChatTab Error: chat_box not available in add_message")
+            # This indicates _post_init hasn't run or failed to link
+            print(f"ChatTab Error: chat_box not available in add_message. Message '{text}' lost.")
+            # Avoid trying to link here, rely on _post_init
 
     def clear_history(self):
         """Clears the chat history display in ChatBox and LLM internal history."""

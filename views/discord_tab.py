@@ -14,8 +14,8 @@ from settings_manager import load_settings, save_settings
 
 # Import the custom ColorCircle component (assuming it's used elsewhere or will be)
 
-# Load the corresponding kv file
-Builder.load_file('views/discord_tab.kv')
+# Load the corresponding kv file automatically by Kivy convention (discordtab.kv)
+# Builder.load_file('views/discord_tab.kv') # REMOVED - Rely on automatic loading
 
 class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     """
@@ -180,7 +180,12 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         self.anim = Animation(circle_color=color2, duration=0.75) + \
                     Animation(circle_color=color1, duration=0.75)
         self.anim.repeat = True
-        self.anim.start(self.status_circle)
+        # Ensure the widget exists before starting the animation
+        if self.status_circle:
+            self.anim.start(self.status_circle)
+        else:
+            print("DiscordTab: Warning - status_circle widget not found yet for animation.")
+
 
     def send_message(self):
         """Send a message to the running bot (via IPC/Queue)."""

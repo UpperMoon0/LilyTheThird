@@ -11,9 +11,17 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label # Import Label for loading indicator
 from kivy.core.window import Window # Import Window
 from kivy.clock import Clock # Import Clock
+from kivy.lang import Builder # Import Builder
 
 # Import Views and Components
 from views.vtube_tab import VTubeTab
+# Explicitly load KV files for the dynamically created tabs
+Builder.load_file('views/chattab.kv')
+Builder.load_file('views/discordtab.kv')
+Builder.load_file('views/vtubetab.kv')
+# Load component KV files if they aren't loaded automatically elsewhere
+# Builder.load_file('views/components/chatbox.kv') # Example if needed
+
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
 
@@ -70,8 +78,11 @@ class MainAppLayout(BoxLayout):
             # Instantiate the actual content widget (must be on main thread)
             content = content_class()
             print(f"MainAppLayout: Content for {tab_item.text} instantiated.")
-            tab_item.clear_widgets() 
-            tab_item.add_widget(content) 
+            # REMOVED explicit Builder.apply(content) - Rely on pre-loading KV files
+            print(f"MainAppLayout: Checking IDs for {tab_item.text} after instantiation: {content.ids}") # Debug print (might still be empty here)
+            tab_item.clear_widgets()
+            tab_item.add_widget(content)
+            # The ids should be populated by the time _post_init runs in the content widget
         except Exception as e:
             print(f"MainAppLayout: Error creating content for {tab_item.text}: {e}")
             # Display error message in the tab

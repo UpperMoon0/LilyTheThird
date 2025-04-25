@@ -4,7 +4,7 @@
 #:import ChatboxSettings views.components.chatbox_settings.ChatboxSettings
 #:import ChatBox views.components.chat_box.ChatBox
 #:import CircularImage views.components.circular_image.CircularImage
-#:import RGBStrip views.components.rgb_strip 
+#:import RGBStrip views.components.rgb_strip
 
 <ChatTab>:
     orientation: 'vertical'
@@ -48,29 +48,28 @@
             id: col_2_controls
             orientation: 'vertical'
             size_hint_x: 0.6 # Adjust size hint to complement avatar column
+            # Make height wrap content instead of filling row_a
+            size_hint_y: None
+            height: self.minimum_height
+            pos_hint: {'center_y': 0.5} # Center vertically in the row_a space
             spacing: dp(10)
             padding: dp(10) # Padding for the outer controls column
 
-            # Chat Controls Component (Label is now inside the component)
+            # ChatboxSettings now contains LLMSelector
             ChatboxSettings:
                 id: chat_controls
-                size_hint_y: 0.5 # Takes half the vertical space
+                # size_hint_y: 0.5 # REMOVED - Let it take its needed height
+                # Pass LLM properties down to ChatboxSettings
                 tts_enabled: root.tts_enabled
-                on_clear_history: root.clear_history()
-                on_tts_enabled: root.tts_enabled = self.tts_enabled
-
-            # LLM Selector Component (Label is now inside the component)
-            LLMSelector:
-                id: llm_selector
-                size_hint_y: 0.5 # Takes half the vertical space
-                selected_provider: root.selected_provider
-                selected_model: root.selected_model
                 llm_providers: root.llm_providers
                 llm_models: root.llm_models
+                selected_provider: root.selected_provider
+                selected_model: root.selected_model
+                # Handle events bubbling up
+                on_clear_history: root.clear_history()
+                on_tts_enabled: root.tts_enabled = self.tts_enabled
                 on_selected_provider: root.selected_provider = self.selected_provider
                 on_selected_model: root.selected_model = self.selected_model
-
-            # Removed grouping BoxLayouts and external Labels
 
 
     # --- Row B: ChatBox ---
