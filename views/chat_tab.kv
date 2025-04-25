@@ -1,7 +1,7 @@
 #:kivy 2.0.0
 #:import os os
 #:import LLMSelector views.components.llm_selector.LLMSelector
-#:import ChatControls views.components.chat_controls.ChatControls
+#:import ChatboxSettings views.components.chatbox_settings.ChatboxSettings
 #:import ChatBox views.components.chat_box.ChatBox
 #:import CircularImage views.components.circular_image.CircularImage
 #:import RGBStrip views.components.rgb_strip 
@@ -52,7 +52,7 @@
             padding: dp(10) # Padding for the outer controls column
 
             # Chat Controls Component (Label is now inside the component)
-            ChatControls:
+            ChatboxSettings:
                 id: chat_controls
                 size_hint_y: 0.5 # Takes half the vertical space
                 tts_enabled: root.tts_enabled

@@ -4,9 +4,9 @@ from kivy.lang import Builder
 from kivy.event import EventDispatcher
 
 # Load the corresponding kv file
-Builder.load_file('views/components/chat_controls.kv')
+Builder.load_file('views/components/chatbox_settings.kv')
 
-class ChatControls(BoxLayout, EventDispatcher):
+class ChatboxSettings(BoxLayout, EventDispatcher):
     """
     Component containing TTS checkbox and Clear History button.
     Dispatches an 'on_clear_history' event when the button is pressed.
