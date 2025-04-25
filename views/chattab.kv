@@ -1,15 +1,16 @@
 #:kivy 2.0.0
 #:import os os
 # Removed explicit imports as includes handle rule loading
-# #import LLMSelector views.components.llm_selector.LLMSelector # Correct comment syntax
-# #import ChatboxSettings views.components.chatbox_settings.ChatboxSettings # Correct comment syntax
-# #import ChatBox views.components.chat_box.ChatBox # Correct comment syntax
 #:import CircularImage views.components.circular_image.CircularImage
 #:import RGBStrip views.components.rgb_strip
+#:import ActionsList views.components.actions_list.ActionsList
+#:import ActionDetails views.components.action_details.ActionDetails
+# Import new component
 
 # Include the KV files for the components used directly in this file
 #:include views/components/chatbox.kv
 #:include views/components/chatbox_settings.kv
+# Note: actiondetails.kv is loaded implicitly via ChatTab's KV load or Kivy convention
 # Note: llmselector.kv should be included within chatbox_settings.kv
 
 <ChatTab>:
@@ -53,7 +54,7 @@
         BoxLayout:
             id: col_2_controls
             orientation: 'vertical'
-            size_hint_x: 0.6 # Adjust size hint to complement avatar column
+            size_hint_x: 0.3 # Adjust size hint for the middle column
             # Make height wrap content instead of filling row_a
             size_hint_y: None
             height: self.minimum_height
@@ -77,13 +78,34 @@
                 on_selected_provider: root.selected_provider = self.selected_provider
                 on_selected_model: root.selected_model = self.selected_model
 
+        # Column 3: Actions List
+        ActionsList:
+            id: actions_list # Add id to reference from python code
+            size_hint_x: 0.3 # Adjust size hint for the right column
+            # Height will match the row_a height implicitly
+            # Event handling is now done in the Python class (ChatTab.on_action_selected)
+            # Re-adding KV binding as well to see if it resolves the handler issue
+            on_action_selected: root.selected_action_data = args[1]
 
-    # --- Row B: ChatBox ---
-    ChatBox:
-        id: chat_box # Add id to reference from python code
-        size_hint_y: 1 # Let ChatBox take the remaining vertical space
-        # Bind ChatBox properties/events to ChatTab (root)
-        backend_initialized: root.backend_initialized
-        # Pass the prompt text argument from the event to the root method
-        on_send_prompt: root.send_prompt(args[1]) # args[0] is the widget, args[1] is the prompt text
-        on_toggle_recording: root.toggle_recording()
+
+    # --- Row B: ChatBox and Action Details ---
+    BoxLayout:
+        id: row_b # New container for ChatBox and ActionDetails
+        orientation: 'horizontal'
+        size_hint_y: 1 # Let this row take the remaining vertical space
+        spacing: dp(10) # Add spacing between ChatBox and ActionDetails
+
+        ChatBox:
+            id: chat_box # Keep id
+            size_hint_x: 0.7 # 70% width
+            # Bind ChatBox properties/events to ChatTab (root)
+            backend_initialized: root.backend_initialized
+            # Pass the prompt text argument from the event to the root method
+            on_send_prompt: root.send_prompt(args[1]) # args[0] is the widget, args[1] is the prompt text
+            on_toggle_recording: root.toggle_recording()
+
+        ActionDetails:
+            id: action_details # Add id for the new component
+            size_hint_x: 0.3 # 30% width
+            # Bind the action_data property to the root's selected_action_data
+            action_data: root.selected_action_data

@@ -1,0 +1,116 @@
+#:kivy 2.0.0
+
+<ActionDetails>:
+    orientation: 'vertical'
+    padding: dp(10)
+    spacing: dp(5)
+    # Add a background or border for visual separation if desired
+    canvas.before:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.8 # Dark semi-transparent background
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Label:
+        text: "Action Details"
+        size_hint_y: None
+        height: dp(30)
+        font_size: '16sp'
+        bold: True
+        halign: 'center'
+
+    ScrollView:
+        size_hint_y: 1
+        do_scroll_x: False # Prevent horizontal scrolling for the main view
+        bar_width: dp(10) # Make scrollbar visible
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: dp(10)
+            padding: dp(5) # Add some padding inside the scrollview content
+
+            # --- Action Name ---
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: dp(25)
+                Label:
+                    text: "Name:"
+                    size_hint_x: 0.25
+                    halign: 'left'
+                    text_size: self.size
+                    valign: 'middle'
+                    bold: True
+                Label:
+                    id: action_name_label
+                    text: root.action_name
+                    size_hint_x: 0.75
+                    halign: 'left'
+                    text_size: self.size
+                    valign: 'middle'
+
+            # --- Timestamp ---
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: dp(25)
+                Label:
+                    text: "Time:"
+                    size_hint_x: 0.25
+                    halign: 'left'
+                    text_size: self.size
+                    valign: 'middle'
+                    bold: True
+                Label:
+                    id: action_time_label
+                    text: root.action_time
+                    size_hint_x: 0.75
+                    halign: 'left'
+                    text_size: self.size
+                    valign: 'middle'
+
+            # --- Parameters ---
+            Label:
+                text: "Parameters:"
+                size_hint_y: None
+                height: dp(25)
+                halign: 'left'
+                text_size: self.width, None
+                valign: 'middle'
+                bold: True
+
+            TextInput: # Replaced ScrollView + Label
+                id: action_params_input # Changed id
+                text: root.action_params
+                size_hint_y: None
+                height: dp(150) # Fixed height for the input area
+                font_name: 'RobotoMono-Regular'
+                readonly: True
+                background_color: (0, 0, 0, 0.5) # Match background
+                foreground_color: (1, 1, 1, 1) # Ensure text is visible
+                padding: dp(5)
+                use_bubble: True # Optional: show copy/paste bubble
+
+            # --- Result ---
+            Label:
+                text: "Result:"
+                size_hint_y: None
+                height: dp(25)
+                halign: 'left'
+                text_size: self.width, None
+                valign: 'middle'
+                bold: True
+
+            TextInput: # Replaced ScrollView + Label
+                id: action_result_input # Changed id
+                text: root.action_result
+                size_hint_y: None
+                height: dp(150) # Fixed height for the input area
+                font_name: 'RobotoMono-Regular'
+                readonly: True
+                background_color: (0, 0, 0, 0.5) # Match background
+                foreground_color: (1, 1, 1, 1) # Ensure text is visible
+                padding: dp(5)
+                use_bubble: True # Optional: show copy/paste bubble

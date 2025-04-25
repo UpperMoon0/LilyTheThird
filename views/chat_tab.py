@@ -12,7 +12,8 @@ from llm.chatbox_llm import ChatBoxLLM
 from views.llm_config_mixin import LLMConfigMixin
 # Import component classes used in the KV file
 from views.components.chatbox_settings import ChatboxSettings
-from views.components.chat_box import ChatBox # Ensure ChatBox is also imported if used directly or needed by Kivy's parser
+from views.components.chat_box import ChatBox
+from views.components.actions_list import ActionsList # Import the new component
 
 # Define colors for markup
 USER_COLOR_HEX = "FFFFFF" # White
@@ -36,11 +37,14 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     backend_initialized = BooleanProperty(False)
     initialization_status = StringProperty("Initializing backend...") # Status message
 
-    # Object properties to hold references to widgets if needed (optional)
+    # Object properties to hold references to widgets if needed
     # prompt_input = ObjectProperty(None) # MOVED to ChatBox
     send_button = ObjectProperty(None) # Keep if separate send button exists
-    chat_box = ObjectProperty(None) # ADDED reference to ChatBox instance
+    chat_box = ObjectProperty(None) # Reference to ChatBox instance
+    actions_list = ObjectProperty(None) # ADDED reference to ActionsList instance
+    action_details = ObjectProperty(None) # ADDED reference to ActionDetails instance
     llm_instance: ChatBoxLLM = None # To hold the LLM instance
+    selected_action_data = ObjectProperty(None, allownone=True) # ADDED property for selected action
 
     # Internal state for recording (if needed beyond UI)
     _is_currently_recording = BooleanProperty(False)
@@ -81,6 +85,18 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         if not self.chat_box:
              print("ChatTab FATAL Error: Could not find ChatBox with id 'chat_box'. Check chattab.kv naming and structure.")
              return # Stop initialization
+        # Link actions_list property
+        self.actions_list = self.ids.get('actions_list')
+        if not self.actions_list:
+             print("ChatTab FATAL Error: Could not find ActionsList with id 'actions_list'. Check chattab.kv naming and structure.")
+             # Decide if this is fatal or just a warning
+             # return # Stop initialization if fatal
+        # Link action_details property
+        self.action_details = self.ids.get('action_details')
+        if not self.action_details:
+             print("ChatTab FATAL Error: Could not find ActionDetails with id 'action_details'. Check chattab.kv naming and structure.")
+             # Decide if this is fatal or just a warning
+             # return # Stop initialization if fatal
 
         # Now that chat_box is linked, bind the backend_initialized property change
         self.bind(backend_initialized=self._update_chat_box_initialization)
@@ -166,6 +182,12 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print("ChatTab: Chat-specific settings saved.")
 
     # _save_llm_settings is inherited from LLMConfigMixin
+
+    # --- Action Handling ---
+    def on_action_selected(self, instance, action_data):
+        """Handles the 'on_action_selected' event from ActionsList."""
+        print(f"ChatTab: Received selected action data: {action_data.get('tool_name')}")
+        self.selected_action_data = action_data
 
     # --- Backend Initialization and Update (Remains largely the same) ---
     def _initialize_backend_thread(self):
@@ -340,34 +362,45 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             # Schedule error display back on the main thread
             error_message = f"An error occurred in async task: {e}"
             # Ensure receive_response is robust enough to handle errors even if thinking message wasn't added
-            Clock.schedule_once(lambda dt: self.receive_response(error_message))
+            # Pass an empty list for tools in case of error
+            Clock.schedule_once(lambda dt: self.receive_response(error_message, [])) # Pass empty list
 
     async def _get_llm_response_async(self, prompt: str):
-        """Async function to get response from LLM and schedule UI update."""
+        """Async function to get response and successful tool details from LLM and schedule UI update."""
         try:
             # Ensure the LLM instance is up-to-date (optional, could rely on callbacks)
             # self._update_llm_instance() # Might be redundant if callbacks work reliably
 
             print(f"ChatTab: Calling LLM instance get_response for: '{prompt[:50]}...'")
-            # The get_response method in ChatBoxLLM handles the full process
-            response, _ = await self.llm_instance.get_response(prompt) # Ignore the second element (None)
-            print(f"ChatTab: Received response from LLM instance.")
+            # The get_response method now returns (response, successful_tool_details_list)
+            response, successful_tool_details_list = await self.llm_instance.get_response(prompt)
+            print(f"ChatTab: Received response and tool details: {successful_tool_details_list} from LLM instance.")
 
-            # Schedule the UI update back on the main Kivy thread
-            Clock.schedule_once(lambda dt: self.receive_response(response))
+            # Schedule the UI update back on the main Kivy thread, passing both response and the list of dictionaries
+            Clock.schedule_once(lambda dt: self.receive_response(response, successful_tool_details_list))
 
         except Exception as e:
             print(f"ChatTab: Error during LLM interaction: {e}")
             error_message = f"An error occurred: {e}"
-            # Schedule the error message display back on the main Kivy thread
-            Clock.schedule_once(lambda dt: self.receive_response(error_message))
+            # Schedule the error message display back on the main Kivy thread, pass empty list for tools
+            Clock.schedule_once(lambda dt: self.receive_response(error_message, [])) # Pass empty list
 
-    def receive_response(self, response: str):
-        """Handle receiving the final response and update ChatBox UI."""
+    def receive_response(self, response: str, successful_tool_details_list: list):
+        """Handle receiving the final response and successful tool details, update ChatBox and ActionsList UI."""
         print(f"ChatTab: Updating ChatBox UI with response: {response[:100]}...")
+        print(f"ChatTab: Received successful tool details: {successful_tool_details_list}")
 
         # Replace the "Thinking..." message with the actual response in ChatBox
         self.add_message("Lily", response, replace_last=True)
+
+        # Update the ActionsList with the detailed dictionaries
+        if self.actions_list and successful_tool_details_list:
+            print(f"ChatTab: Adding successful tool details to ActionsList...")
+            for tool_details in successful_tool_details_list:
+                # Pass the entire dictionary to add_action
+                self.actions_list.add_action(tool_details)
+        elif not self.actions_list:
+            print("ChatTab Warning: actions_list widget not found, cannot add tool calls.")
 
         if self.tts_enabled:
             print(f"ChatTab: TTS Enabled: Speaking response (Simulated)")
@@ -388,6 +421,11 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print("ChatTab: Clearing chat history.")
         if self.chat_box:
             self.chat_box.clear_history() # Clears display and adds system message
+
+        # Clear the ActionsList as well
+        if self.actions_list:
+            self.actions_list.clear_actions()
+            print("ChatTab: Cleared ActionsList.")
 
         # Optionally, clear the LLM's internal history if applicable
         if self.llm_instance and hasattr(self.llm_instance, 'clear_history'):
