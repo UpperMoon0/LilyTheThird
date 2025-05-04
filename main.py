@@ -5,6 +5,7 @@ Config.remove_option('input', 'wm_touch') # Disable problematic touch provider
 import kivy
 kivy.require('2.0.0') # Ensure Kivy version compatibility
 
+import asyncio # Import asyncio
 from kivy.app import App
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
 from kivy.uix.boxlayout import BoxLayout
@@ -102,5 +103,29 @@ class LilyKivyApp(App):
         """Maximizes the application window."""
         Window.maximize()
 
+    async def app_func(self):
+        """Async function to run the Kivy app with asyncio."""
+        # This is the main async task that runs the Kivy event loop
+        await self.async_run(async_lib='asyncio')
+        # Code here will run after the Kivy app exits
+        print("Kivy App exited.")
+        # You might need to cancel other pending asyncio tasks here
+        # for a clean shutdown, depending on your application structure.
+        # For example, if VTubeTab starts background tasks:
+        # if hasattr(self.root, 'vtube_tab_item') and hasattr(self.root.vtube_tab_item.children[0], 'vts'):
+        #     vts_instance = self.root.vtube_tab_item.children[0].vts
+        #     if vts_instance and vts_instance.ws.connected:
+        #         print("Closing VTS connection on exit...")
+        #         await vts_instance.close()
+
+
 if __name__ == '__main__':
-    LilyKivyApp().run()
+    # Run the Kivy app within the asyncio event loop
+    app = LilyKivyApp()
+    try:
+        asyncio.run(app.app_func())
+    except KeyboardInterrupt:
+        print("App interrupted by user (Ctrl+C).")
+    finally:
+        # Optional: Add any final cleanup needed after asyncio loop finishes
+        print("Application shutdown complete.")
