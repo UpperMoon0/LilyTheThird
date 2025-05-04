@@ -303,16 +303,6 @@ class VTubeTab(BoxLayout):
             print(f"Exception while triggering hotkey '{hotkey_id}': {e}")
             # Update UI to show error
 
-    def trigger_example_hotkey(self, hotkey_id: str = "YourHotkeyID"):
-        """
-         Schedules the asynchronous trigger_hotkey function.
-         This is called from the Kivy UI thread.
-        Replace "YourHotkeyID" with an actual hotkey ID from VTS.
-        """
-        print(f"Scheduling hotkey trigger for: {hotkey_id}")
-        # Use Clock to schedule the async task to run in the event loop
-        Clock.schedule_once(lambda dt: asyncio.create_task(self.trigger_hotkey(hotkey_id)))
-
     # --- Parameter Fetching and Control Methods ---
 
     async def _fetch_available_parameters(self):
@@ -441,50 +431,16 @@ class VTubeTab(BoxLayout):
             print(f"Exception while setting parameters via generic request: {e}")
             # Optionally update UI
 
-    def schedule_set_parameters(self, param_values: list[dict]):
-        """Schedules the async set_parameter_values function from the Kivy thread."""
-        print(f"Scheduling parameter set: {param_values}")
-        Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values)))
-
-    def set_happy_expression(self):
-        """Sets parameters for a 'happy' expression using available params."""
-        params = [
-            # {"id": "FaceAngleX", "value": 0}, # Optional: Reset if needed
-            # {"id": "FaceAngleY", "value": 0}, # Optional: Reset if needed
-            {"id": "MouthSmile", "value": 1.0}, # Smile!
-            {"id": "EyeOpenLeft", "value": 1.0}, # Eyes open
+    def set_wink_smile_expression(self):
+        """Sets the VTube Studio model parameters for a 'Wink Smile' expression."""
+        print("Scheduling 'Wink Smile' expression parameter set...")
+        param_values = [
+            {"id": "EyeOpenLeft", "value": 0.0},
             {"id": "EyeOpenRight", "value": 1.0},
-            {"id": "FaceAngry", "value": 0.0}, # Ensure not angry
-            # Add other adjustments if needed based on model behavior
+            {"id": "MouthSmile", "value": 0.8},
+            {"id": "MouthOpen", "value": 0.1},
+            {"id": "TongueOut", "value": 0.2}
+            # Add other parameters to reset if needed, e.g., FaceAngry: 0.0
         ]
-        self.schedule_set_parameters(params)
-
-    def set_angry_expression(self):
-        """Sets parameters for an 'angry' expression using available params."""
-        params = [
-            # {"id": "FaceAngleX", "value": 0}, # Optional: Reset if needed
-            # {"id": "FaceAngleY", "value": 0}, # Optional: Reset if needed
-            {"id": "MouthSmile", "value": 0.0}, # No smile
-            {"id": "FaceAngry", "value": 1.0}, # Angry!
-            {"id": "EyeOpenLeft", "value": 0.85}, # Eyes slightly narrowed (adjust as needed)
-            {"id": "EyeOpenRight", "value": 0.85},
-            # FaceAngry likely controls brows, adjust BrowLeftY/BrowRightY if needed
-            # {"id": "BrowLeftY", "value": 0.0}, # Example: Force brows down if FaceAngry doesn't cover it
-            # {"id": "BrowRightY", "value": 0.0},
-        ]
-        self.schedule_set_parameters(params)
-
-    def reset_expression(self):
-        """Resets expression parameters to a neutral state using available params."""
-        # Resetting to default values (usually 0 for expressions, 1 for EyeOpen)
-        params = [
-            {"id": "MouthSmile", "value": 0.0},
-            {"id": "FaceAngry", "value": 0.0},
-            {"id": "EyeOpenLeft", "value": 1.0}, # Assuming default is 1.0 (open)
-            {"id": "EyeOpenRight", "value": 1.0}, # Assuming default is 1.0 (open)
-            {"id": "Brows", "value": 0.0}, # Reset general brow param if used
-            {"id": "BrowLeftY", "value": 0.0}, # Reset specific brow params
-            {"id": "BrowRightY", "value": 0.0},
-            # Add other parameters known to affect expression if needed
-        ]
-        self.schedule_set_parameters(params)
+        # Schedule the async task to run
+        Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values)))

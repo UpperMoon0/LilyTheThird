@@ -26,28 +26,12 @@
             on_press: root.toggle_connection()
             disabled: self.text in ["Connecting...", "Disconnecting..."] # Disable based on text
 
-    # Example Hotkey Trigger Button (Keep or remove as needed)
+    # --- New Expression Button ---
     Button:
-        text: "Trigger Example Hotkey (Check VTS)"
+        text: "Set Wink Smile"
         size_hint_y: None
         height: '40dp'
-        on_press: root.trigger_example_hotkey("YourHotkeyIDHere") # Replace with actual ID
-
-    # Expression Buttons (Keep or remove as needed)
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '40dp'
-        spacing: '5dp'
-        Button:
-            text: "Set Happy"
-            on_press: root.set_happy_expression()
-        Button:
-            text: "Set Angry"
-            on_press: root.set_angry_expression()
-        Button:
-            text: "Reset Expression"
-            on_press: root.reset_expression()
+        on_press: root.set_wink_smile_expression()
 
     # --- Parameter List Display ---
     Label:
