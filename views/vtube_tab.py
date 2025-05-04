@@ -447,50 +447,44 @@ class VTubeTab(BoxLayout):
         Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values)))
 
     def set_happy_expression(self):
-        """Sets parameters for a 'happy' expression."""
+        """Sets parameters for a 'happy' expression using available params."""
         params = [
-            {"id": "FaceAngleX", "value": 0, "weight": 0.5}, # Example reset
-            {"id": "FaceAngleY", "value": 0, "weight": 0.5}, # Example reset
-            {"id": "MouthSmile", "value": 1.0, "weight": 1.0}, # Smile!
-            {"id": "EyeOpenLeft", "value": 1.0, "weight": 1.0}, # Eyes open
-            {"id": "EyeOpenRight", "value": 1.0, "weight": 1.0},
-            {"id": "BrowInnerUp", "value": 0.5, "weight": 1.0}, # Brows slightly up
-            {"id": "BrowOuterUpLeft", "value": 0.4, "weight": 1.0},
-            {"id": "BrowOuterUpRight", "value": 0.4, "weight": 1.0},
-            {"id": "BrowDownLeft", "value": 0.0, "weight": 1.0}, # Ensure brows aren't down
-            {"id": "BrowDownRight", "value": 0.0, "weight": 1.0},
+            # {"id": "FaceAngleX", "value": 0}, # Optional: Reset if needed
+            # {"id": "FaceAngleY", "value": 0}, # Optional: Reset if needed
+            {"id": "MouthSmile", "value": 1.0}, # Smile!
+            {"id": "EyeOpenLeft", "value": 1.0}, # Eyes open
+            {"id": "EyeOpenRight", "value": 1.0},
+            {"id": "FaceAngry", "value": 0.0}, # Ensure not angry
+            # Add other adjustments if needed based on model behavior
         ]
         self.schedule_set_parameters(params)
 
     def set_angry_expression(self):
-        """Sets parameters for an 'angry' expression."""
+        """Sets parameters for an 'angry' expression using available params."""
         params = [
-            {"id": "FaceAngleX", "value": 0, "weight": 0.5}, # Example reset
-            {"id": "FaceAngleY", "value": 0, "weight": 0.5}, # Example reset
-            {"id": "MouthSmile", "value": 0.0, "weight": 1.0}, # No smile
-            {"id": "EyeOpenLeft", "value": 0.85, "weight": 1.0}, # Eyes slightly narrowed
-            {"id": "EyeOpenRight", "value": 0.85, "weight": 1.0},
-            {"id": "BrowInnerUp", "value": 0.0, "weight": 1.0}, # Brows not up
-            {"id": "BrowOuterUpLeft", "value": 0.0, "weight": 1.0},
-            {"id": "BrowOuterUpRight", "value": 0.0, "weight": 1.0},
-            {"id": "BrowDownLeft", "value": 1.0, "weight": 1.0}, # Brows down!
-            {"id": "BrowDownRight", "value": 1.0, "weight": 1.0},
+            # {"id": "FaceAngleX", "value": 0}, # Optional: Reset if needed
+            # {"id": "FaceAngleY", "value": 0}, # Optional: Reset if needed
+            {"id": "MouthSmile", "value": 0.0}, # No smile
+            {"id": "FaceAngry", "value": 1.0}, # Angry!
+            {"id": "EyeOpenLeft", "value": 0.85}, # Eyes slightly narrowed (adjust as needed)
+            {"id": "EyeOpenRight", "value": 0.85},
+            # FaceAngry likely controls brows, adjust BrowLeftY/BrowRightY if needed
+            # {"id": "BrowLeftY", "value": 0.0}, # Example: Force brows down if FaceAngry doesn't cover it
+            # {"id": "BrowRightY", "value": 0.0},
         ]
         self.schedule_set_parameters(params)
 
     def reset_expression(self):
-        """Resets expression parameters to a neutral state."""
-        # Note: Default values might vary per model. 0 is common for many expression params.
-        # EyeOpen default is usually 1.
+        """Resets expression parameters to a neutral state using available params."""
+        # Resetting to default values (usually 0 for expressions, 1 for EyeOpen)
         params = [
-            {"id": "MouthSmile", "value": 0.0, "weight": 0.8},
-            {"id": "EyeOpenLeft", "value": 1.0, "weight": 0.8},
-            {"id": "EyeOpenRight", "value": 1.0, "weight": 0.8},
-            {"id": "BrowInnerUp", "value": 0.0, "weight": 0.8},
-            {"id": "BrowOuterUpLeft", "value": 0.0, "weight": 0.8},
-            {"id": "BrowOuterUpRight", "value": 0.0, "weight": 0.8},
-            {"id": "BrowDownLeft", "value": 0.0, "weight": 0.8},
-            {"id": "BrowDownRight", "value": 0.0, "weight": 0.8},
-            # Add other parameters you want to reset if needed
+            {"id": "MouthSmile", "value": 0.0},
+            {"id": "FaceAngry", "value": 0.0},
+            {"id": "EyeOpenLeft", "value": 1.0}, # Assuming default is 1.0 (open)
+            {"id": "EyeOpenRight", "value": 1.0}, # Assuming default is 1.0 (open)
+            {"id": "Brows", "value": 0.0}, # Reset general brow param if used
+            {"id": "BrowLeftY", "value": 0.0}, # Reset specific brow params
+            {"id": "BrowRightY", "value": 0.0},
+            # Add other parameters known to affect expression if needed
         ]
         self.schedule_set_parameters(params)

@@ -6,6 +6,9 @@
     spacing: '10dp'
     padding: '10dp'
 
+    # RGB Strip moved to top, default height
+    RGBStrip:
+
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
@@ -66,7 +69,4 @@
             spacing: '2dp'
             # Labels will be added here dynamically by on_available_parameters
 
-    # RGB Strip (Keep or remove as needed)
-    RGBStrip:
-        size_hint_y: None
-        height: '20dp'
+    # RGB Strip removed from here
