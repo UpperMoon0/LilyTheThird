@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="89d26201-6667-457c-b89b-899e5d4129a8" name="Changes" comment="Refactor song queue management to allow optional message sending when adding songs">
+      <change beforePath="$PROJECT_DIR$/discord_integration/commands/voice/play.py" beforeDir="false" afterPath="$PROJECT_DIR$/discord_integration/commands/voice/play.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;UpperMoon0&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/UpperMoon0/LilyTheThird.git&quot;,
+    &quot;accountId&quot;: &quot;7e9f89e7-67f5-410f-9ec6-5e1f582213bf&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="2jy3vZMaQXnluJllS8A4ZjTSi01" />
+  <component name="ProjectViewState">
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python.Run.executor": "Run",
+    "Python.kg_handler.executor": "Run",
+    "Python.kg_queries.executor": "Run",
+    "Python.kg_text_processing.executor": "Run",
+    "Python.knowledge_graph_handler.executor": "Run",
+    "Python.llm_api.executor": "Run",
+    "Python.main.executor": "Run",
+    "Python.ollama_test.executor": "Run",
+    "Python.se_extractor.executor": "Run",
+    "Python.set_up.executor": "Run",
+    "Python.test.executor": "Run",
+    "Python.tts.executor": "Run",
+    "Python.vtube.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "D:/Dev/Workspace/Python/AI-Slop-Master",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="D:\Dev\Workspace\Python\LilyTheThird\discord_integration\commands\music" />
+      <recent name="D:\Dev\Workspace\Python\LilyTheThird\llm" />
+      <recent name="D:\Dev\Workspace\Python\LilyTheThird\discord_integration\commands\gtnh_test" />
+      <recent name="D:\Dev\Workspace\Python\LilyTheThird" />
+      <recent name="D:\Dev\Workspace\Python\LilyTheThird\tabs" />
+    </key>
+  </component>
+  <component name="RunManager">
+    <configuration name="Run" type="PythonConfigurationType" factoryName="Python">
+      <module name="LilyTheThird" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <EXTENSION ID="net.ashald.envfile">
+        <option name="IS_ENABLED" value="false" />
+        <option name="IS_SUBST" value="false" />
+        <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+        <option name="IS_IGNORE_MISSING_FILES" value="false" />
+        <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+        <ENTRIES>
+          <ENTRY IS_ENABLED="true" PARSER="runconfig" IS_EXECUTABLE="false" />
+        </ENTRIES>
+      </EXTENSION>
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-822845ee3bb5-JavaScript-PY-243.23654.177" />
+        <option value="bundled-python-sdk-91d3a02ef49d-43b77aa2d136-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-243.23654.177" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="89d26201-6667-457c-b89b-899e5d4129a8" name="Changes" comment="" />
+      <created>1722345726755</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1722345726755</updated>
+      <workItem from="1722345729945" duration="6048000" />
+      <workItem from="1722439315246" duration="597000" />
+      <workItem from="1726799522114" duration="10839000" />
+      <workItem from="1726900739778" duration="868000" />
+      <workItem from="1733547167138" duration="37833000" />
+      <workItem from="1734019792852" duration="1344000" />
+      <workItem from="1734531622074" duration="630000" />
+      <workItem from="1736776936225" duration="2035000" />
+      <workItem from="1736779895803" duration="4850000" />
+      <workItem from="1736784932292" duration="6189000" />
+      <workItem from="1736791654233" duration="1796000" />
+      <workItem from="1736793505220" duration="2390000" />
+      <workItem from="1736795972473" duration="5707000" />
+      <workItem from="1736831595762" duration="247000" />
+      <workItem from="1736831881102" duration="12226000" />
+      <workItem from="1736846322155" duration="21273000" />
+      <workItem from="1737012343120" duration="1794000" />
+      <workItem from="1737015801866" duration="1014000" />
+      <workItem from="1737366222371" duration="197000" />
+      <workItem from="1737390927781" duration="13864000" />
+      <workItem from="1737482155761" duration="233000" />
+      <workItem from="1737972810151" duration="806000" />
+      <workItem from="1737974211789" duration="5443000" />
+      <workItem from="1738153997455" duration="189000" />
+      <workItem from="1738154867447" duration="5000" />
+      <workItem from="1738154972997" duration="2193000" />
+      <workItem from="1738157305768" duration="207000" />
+      <workItem from="1738163832092" duration="652000" />
+      <workItem from="1738167983041" duration="1172000" />
+      <workItem from="1738601599611" duration="236000" />
+      <workItem from="1741091166522" duration="445000" />
+      <workItem from="1741091711273" duration="5204000" />
+      <workItem from="1741097884196" duration="1170000" />
+      <workItem from="1741454008095" duration="6000" />
+      <workItem from="1742301969656" duration="209000" />
+    </task>
+    <task id="LOCAL-00001" summary="Add clear and skip commands for song queue management in Discord bot">
+      <option name="closed" value="true" />
+      <created>1741094080938</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1741094080938</updated>
+    </task>
+    <task id="LOCAL-00002" summary="Refactor song queue management to allow optional message sending when adding songs">
+      <option name="closed" value="true" />
+      <created>1741096164125</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1741096164125</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Add clear and skip commands for song queue management in Discord bot" />
+    <MESSAGE value="Refactor song queue management to allow optional message sending when adding songs" />
+    <option name="LAST_COMMIT_MESSAGE" value="Refactor song queue management to allow optional message sending when adding songs" />
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/LilyTheThird$llm_api.coverage" NAME="llm_api Coverage Results" MODIFIED="1733586413455" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$ollama_test.coverage" NAME="ollama_test Coverage Results" MODIFIED="1738164385800" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$kg_text_processing.coverage" NAME="kg_text_processing Coverage Results" MODIFIED="1733590396109" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/kg" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$knowledge_graph_handler.coverage" NAME="knowledge_graph_handler Coverage Results" MODIFIED="1733567805585" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/kg" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$kg_queries.coverage" NAME="kg_queries Coverage Results" MODIFIED="1733586016231" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/kg" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$se_extractor.coverage" NAME="se_extractor Coverage Results" MODIFIED="1726820479601" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$USER_HOME$/AppData/Local/JetBrains/PyCharm2024.1/remote_sources/1429274957/-668002715/openvoice_cli" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$main.coverage" NAME="main Coverage Results" MODIFIED="1736838329146" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$vtube.coverage" NAME="vtube Coverage Results" MODIFIED="1736857786696" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tabs" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$kg_handler.coverage" NAME="kg_handler Coverage Results" MODIFIED="1733586199274" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/kg" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$test.coverage" NAME="test Coverage Results" MODIFIED="1736857631728" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$Run.coverage" NAME="Run Coverage Results" MODIFIED="1741099048855" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$set_up.coverage" NAME="set_up Coverage Results" MODIFIED="1733548845280" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/kg" />
+    <SUITE FILE_PATH="coverage/LilyTheThird$tts.coverage" NAME="tts Coverage Results" MODIFIED="1736838162216" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+  </component>
+</project>
