@@ -227,18 +227,10 @@ class VTubeTab(BoxLayout):
             # Run the async connection function
             Clock.schedule_once(lambda dt: asyncio.create_task(self._connect_vts()))
         else:
-            # --- Modified Disconnect Behavior ---
-            # When connected, clicking "Disconnect" will only reset the UI state.
-            # It will NOT actually close the websocket connection to avoid duplicate plugin issues.
-            # User must restart the app to fully disconnect the plugin from VTS.
-            print("Disconnect button clicked: Resetting UI state only. Connection remains active.")
-            self.is_connected = False
-            self.button_text = "Connect"
-            self.status_text = "Not Connected (UI Reset)"
-            # Re-enable button as we are simulating disconnection
-            if hasattr(self.ids, 'connect_button'):
-                self.ids.connect_button.disabled = False
-            # DO NOT call Clock.schedule_once(lambda dt: asyncio.create_task(self._disconnect_vts()))
+            # Run the async disconnection function
+            self.status_text = "Disconnecting..." # Update status immediately
+            self.button_text = "Disconnecting..."
+            Clock.schedule_once(lambda dt: asyncio.create_task(self._disconnect_vts()))
 
     # --- Example VTS Interaction (Optional) ---
     # You can add methods here to interact with VTS once connected
