@@ -1,4 +1,5 @@
 import asyncio
+import os # Added for file operations
 import pyvts
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, BooleanProperty, ObjectProperty
@@ -44,17 +45,15 @@ class VTubeTab(BoxLayout):
         connection_successful = False # Flag to track success for finally block
 
         try:
-            # Re-initialize vts instance if it was set to None after a disconnect
+            # Always use the existing self.vts instance created in __init__
             if self.vts is None:
-                print("Re-initializing pyvts instance for connection...")
-                self.vts = pyvts.vts(
-                    pluginname=self.plugin_name,
-                    pluginauthor=self.plugin_developer,
-                    host=self.vts_host,
-                    port=self.vts_port
-                )
+                 # This should ideally not happen if __init__ always runs first
+                 print("ERROR: VTS instance is None. Cannot connect.")
+                 self.status_text = "Error: VTS instance missing"
+                 self.button_text = "Connect"
+                 return # Exit if instance is missing
 
-            # Always attempt connection/reconnection. Assume pyvts handles the state.
+            # Always attempt connection/reconnection using the persistent instance.
             print("Attempting VTS connection/reconnection...")
             # Ensure connect is only called if not already connected by checking ws state
             if not (hasattr(self.vts, 'ws') and self.vts.ws.connected):
@@ -127,6 +126,19 @@ class VTubeTab(BoxLayout):
                         self.status_text = "Authentication timed out. Please try connecting again."
                         self.is_connected = False
                         self.button_text = "Connect"
+
+                        # --- Delete token file on timeout ---
+                        token_file = "pyvts_token.txt"
+                        if os.path.exists(token_file):
+                            try:
+                                os.remove(token_file)
+                                print(f"Removed token file '{token_file}' due to authentication timeout.")
+                            except OSError as e:
+                                print(f"Error removing token file '{token_file}': {e}")
+                        else:
+                            print(f"Token file '{token_file}' not found, nothing to remove.")
+                        # --- End delete token file ---
+
                         # Close connection if authentication ultimately failed
                         if self.vts and hasattr(self.vts, 'ws') and self.vts.ws.connected:
                             await self.vts.close()
@@ -193,12 +205,7 @@ class VTubeTab(BoxLayout):
                 # print("Post-disconnect delay complete.")
             except Exception as e:
                 print(f"Error during VTS disconnection: {e}")
-                # Continue cleanup even if close fails
-
-        # Only set vts to None if close was attempted and successful
-        if closed_successfully:
-             self.vts = None
-             print("VTS instance set to None.")
+                 # Continue cleanup even if close fails
 
         # Reset state after attempting close
         self.is_connected = False
