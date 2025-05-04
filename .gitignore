@@ -5,3 +5,4 @@
 /outputs
 /downloads
 *.pyc
+pyvts_token.txt
