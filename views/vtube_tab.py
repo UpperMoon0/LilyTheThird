@@ -92,11 +92,14 @@ class VTubeTab(BoxLayout):
                 print("VTS Authentication Failed or indeterminate. Requesting new token...")
                 self.status_text = "Authenticating... (Check VTube Studio for prompt)"
                 try:
+                    print(">>> Calling request_authenticate_token() NOW...") # DEBUG PRINT
                     await self.vts.request_authenticate_token()
+                    print(">>> Finished request_authenticate_token(). Pop-up should be visible in VTS.") # DEBUG PRINT
                     print("VTS Token Requested. Waiting for user approval...")
                     self.status_text = "Authenticating... (Check VTube Studio for prompt)"
 
                     # --- Start Polling for Authentication ---
+                    print(">>> Starting polling loop NOW...") # DEBUG PRINT
                     auth_success = False
                     for attempt in range(30): # Try for 30 seconds
                         await asyncio.sleep(1) # Wait 1 second between checks
@@ -139,10 +142,29 @@ class VTubeTab(BoxLayout):
                             print(f"Token file '{token_file}' not found, nothing to remove.")
                         # --- End delete token file ---
 
-                        # Close connection if authentication ultimately failed
+                        # --- Explicitly close connection FIRST ---
                         if self.vts and hasattr(self.vts, 'ws') and self.vts.ws.connected:
-                            await self.vts.close()
-                            print("VTS connection closed due to authentication timeout.")
+                            try:
+                                print("Explicitly closing VTS connection before reset...")
+                                await self.vts.close()
+                                print("VTS connection closed.")
+                            except Exception as close_err:
+                                print(f"Error during explicit close before reset: {close_err}")
+                        # --- End explicit close ---
+
+                        # --- Reset VTS instance ---
+                        print("Resetting VTS instance state...")
+                        self.vts = None # Clear the old instance reference
+                        # Re-initialize for the next attempt
+                        self.vts = pyvts.vts(
+                            pluginname=self.plugin_name,
+                            pluginauthor=self.plugin_developer,
+                            host=self.vts_host,
+                            port=self.vts_port
+                        )
+                        print("VTS instance re-initialized.")
+                        # --- End reset VTS instance ---
+
                     # --- End Polling ---
 
                 except Exception as token_err:

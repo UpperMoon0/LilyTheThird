@@ -1,41 +1,39 @@
 #:kivy 2.0.0
-#:import RGBStrip views.components.rgb_strip 
+#:import RGBStrip views.components.rgb_strip
 
 <VTubeTab>:
     orientation: 'vertical'
-    padding: dp(20)  # Add padding around the layout
-    spacing: dp(15)  # Space between widgets
-    # size_hint_y: None # Remove this to allow the tab to fill space if needed
-    # height: self.minimum_height # Remove this
+    padding: dp(20)
+    spacing: dp(15)
 
-    # Add the RGB Strip at the very top
+    # RGB Strip at the top
     RGBStrip:
-        # Height is set in the component's Python code (3dp)
-        # Width will automatically match the parent (VTubeTab)
+        size_hint_y: None # Explicitly set no vertical size hint
+        height: dp(3)     # Set its height
 
-    BoxLayout: # Use another BoxLayout to center the content vertically within the tab space if needed
-        orientation: 'vertical'
-        size_hint_y: None
-        height: self.minimum_height
-        pos_hint: {'center_x': 0.5, 'center_y': 0.5} # Center this inner box
+    # Connection Button
+    Button:
+        id: connect_button
+        text: root.button_text
+        size_hint_x: None       # Use fixed width
+        size_hint_y: None       # Use fixed height
+        width: dp(200)
+        height: dp(40)
+        pos_hint: {'center_x': 0.5} # Center horizontally
+        on_press: root.toggle_connection()
+        font_size: '16sp'
 
-        Button:
-            id: connect_button
-            text: root.button_text
-            size_hint_x: None # Disable horizontal size hint to use fixed width
-            size_hint_y: None # Disable vertical size hint to use fixed height
-            width: dp(200)    # Match PyQt width (using dp for density independence)
-            height: dp(40)   # Match PyQt height
-            pos_hint: {'center_x': 0.5} # Center button horizontally
-            on_press: root.toggle_connection()
-            font_size: '16sp' # Match CSS font size
+    # Status Label
+    Label:
+        id: status_label
+        text: root.status_text
+        size_hint_y: None       # Use height based on content
+        height: self.texture_size[1] + dp(10)
+        halign: 'center'
+        valign: 'middle'
+        font_size: '14sp'
+        color: (0.33, 0.33, 0.33, 1) # #555
 
-        Label:
-            id: status_label
-            text: root.status_text
-            size_hint_y: None # Disable vertical size hint
-            height: self.texture_size[1] + dp(10) # Height based on text content + padding
-            halign: 'center' # Center text horizontally
-            valign: 'middle' # Center text vertically
-            font_size: '14sp' # Match CSS font size
-            color: (0.33, 0.33, 0.33, 1) # Match CSS color #555
+    # Spacer to push content above it to the top
+    Widget:
+        size_hint_y: 1 # Take up remaining vertical space
