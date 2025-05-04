@@ -1,39 +1,72 @@
-#:kivy 2.0.0
-#:import RGBStrip views.components.rgb_strip
+#:kivy 1.11.1
+#:import RGBStrip views.components.rgb_strip.RGBStrip
 
 <VTubeTab>:
     orientation: 'vertical'
-    padding: dp(20)
-    spacing: dp(15)
+    spacing: '10dp'
+    padding: '10dp'
 
-    # RGB Strip at the top
-    RGBStrip:
-        size_hint_y: None # Explicitly set no vertical size hint
-        height: dp(3)     # Set its height
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '40dp'
 
-    # Connection Button
+        Label:
+            id: status_label
+            text: root.status_text
+            size_hint_x: 0.7
+
+        Button:
+            id: connect_button
+            text: root.button_text
+            size_hint_x: 0.3
+            on_press: root.toggle_connection()
+            disabled: self.text in ["Connecting...", "Disconnecting..."] # Disable based on text
+
+    # Example Hotkey Trigger Button (Keep or remove as needed)
     Button:
-        id: connect_button
-        text: root.button_text
-        size_hint_x: None       # Use fixed width
-        size_hint_y: None       # Use fixed height
-        width: dp(200)
-        height: dp(40)
-        pos_hint: {'center_x': 0.5} # Center horizontally
-        on_press: root.toggle_connection()
-        font_size: '16sp'
+        text: "Trigger Example Hotkey (Check VTS)"
+        size_hint_y: None
+        height: '40dp'
+        on_press: root.trigger_example_hotkey("YourHotkeyIDHere") # Replace with actual ID
 
-    # Status Label
+    # Expression Buttons (Keep or remove as needed)
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '40dp'
+        spacing: '5dp'
+        Button:
+            text: "Set Happy"
+            on_press: root.set_happy_expression()
+        Button:
+            text: "Set Angry"
+            on_press: root.set_angry_expression()
+        Button:
+            text: "Reset Expression"
+            on_press: root.reset_expression()
+
+    # --- Parameter List Display ---
     Label:
-        id: status_label
-        text: root.status_text
-        size_hint_y: None       # Use height based on content
-        height: self.texture_size[1] + dp(10)
-        halign: 'center'
+        text: "Available Parameters:"
+        size_hint_y: None
+        height: '30dp'
+        halign: 'left'
         valign: 'middle'
-        font_size: '14sp'
-        color: (0.33, 0.33, 0.33, 1) # #555
+        text_size: self.width, None # Important for alignment
 
-    # Spacer to push content above it to the top
-    Widget:
-        size_hint_y: 1 # Take up remaining vertical space
+    ScrollView:
+        size_hint_y: 1 # Allow it to take available vertical space
+        do_scroll_x: False # Only vertical scrolling needed
+        BoxLayout:
+            id: param_list_layout # ID for Python code to access
+            orientation: 'vertical'
+            size_hint_y: None # Important for ScrollView
+            height: self.minimum_height # Grow height based on content
+            spacing: '2dp'
+            # Labels will be added here dynamically by on_available_parameters
+
+    # RGB Strip (Keep or remove as needed)
+    RGBStrip:
+        size_hint_y: None
+        height: '20dp'

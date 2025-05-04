@@ -1,10 +1,13 @@
 import asyncio
+import asyncio
 import os # Added for file operations
+import uuid # Import uuid for request IDs
 import pyvts
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, BooleanProperty, ObjectProperty
+from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty # Added ListProperty
 from kivy.lang import Builder
 from kivy.clock import Clock
+from kivy.uix.label import Label # Added for displaying parameters
 from views.components.rgb_strip import RGBStrip # Import the strip
 
 # Load the corresponding kv file automatically by Kivy convention (vtubetab.kv)
@@ -19,6 +22,7 @@ class VTubeTab(BoxLayout):
     is_connected = BooleanProperty(False)
     button_text = StringProperty("Connect")
     vts = ObjectProperty(None, allownone=True) # Store the pyvts instance
+    available_parameters = ListProperty([]) # To store fetched parameters
 
     # Default VTS connection details (can be made configurable later)
     plugin_name = "LilyTheThird"
@@ -87,6 +91,10 @@ class VTubeTab(BoxLayout):
                 self.button_text = "Disconnect"
                 print("VTS Authentication Successful")
                 connection_successful = True # Mark as successful
+                # --- Fetch parameters after successful authentication ---
+                print("Authentication successful, fetching parameters...")
+                asyncio.create_task(self._fetch_available_parameters())
+                # --- End fetch parameters ---
             else:
                 # Authentication failed or didn't return True - Token likely missing or invalid, request a new one
                 print("VTS Authentication Failed or indeterminate. Requesting new token...")
@@ -114,6 +122,10 @@ class VTubeTab(BoxLayout):
                                 self.button_text = "Disconnect"
                                 connection_successful = True # Mark as successful
                                 auth_success = True
+                                # --- Fetch parameters after successful authentication ---
+                                print("Authentication successful after token approval, fetching parameters...")
+                                asyncio.create_task(self._fetch_available_parameters())
+                                # --- End fetch parameters ---
                                 break # Exit the loop on success
                             else:
                                 # Update status but keep trying
@@ -233,6 +245,7 @@ class VTubeTab(BoxLayout):
         self.is_connected = False
         self.button_text = "Connect"
         self.status_text = "Not Connected"
+        self.available_parameters = [] # Clear parameters on disconnect
         # Re-enable button only if it exists in ids
         if hasattr(self.ids, 'connect_button'):
             self.ids.connect_button.disabled = False
@@ -261,21 +274,223 @@ class VTubeTab(BoxLayout):
             self.button_text = "Disconnecting..."
             Clock.schedule_once(lambda dt: asyncio.create_task(self._disconnect_vts()))
 
-    # --- Example VTS Interaction (Optional) ---
-    # You can add methods here to interact with VTS once connected
-    # For example, triggering a hotkey:
-    # async def trigger_hotkey(self, hotkey_id):
-    #     if self.is_connected and self.vts:
-    #         try:
-    #             response = await self.vts.request(self.vts.requestTriggerHotkey(hotkeyID=hotkey_id))
-    #             print(f"Hotkey {hotkey_id} triggered: {response}")
-    #             # Handle response if needed
-    #         except Exception as e:
-    #             print(f"Error triggering hotkey {hotkey_id}: {e}")
-    #     else:
-    #         print("Cannot trigger hotkey: Not connected to VTube Studio.")
+    # --- VTS Interaction Methods ---
+    async def trigger_hotkey(self, hotkey_id: str):
+        """Asynchronously triggers a VTube Studio hotkey by its ID."""
+        if not self.is_connected or not self.vts:
+            print(f"Cannot trigger hotkey '{hotkey_id}': Not connected to VTube Studio.")
+            # Optionally provide user feedback here (e.g., update a status label)
+            return
 
-    # def trigger_example_hotkey(self):
-    #      # Example: Call this from a button press in the kv file
-    #      # Replace "YourHotkeyID" with an actual hotkey ID from VTS
-    #      Clock.schedule_once(lambda dt: asyncio.create_task(self.trigger_hotkey("YourHotkeyID")))
+        print(f"Attempting to trigger hotkey: {hotkey_id}")
+        try:
+            # Construct the request payload using the pyvts helper
+            hotkey_request = self.vts.requestTriggerHotkey(hotkeyID=hotkey_id)
+            # Send the request
+            response = await self.vts.request(hotkey_request)
+            print(f"Hotkey '{hotkey_id}' trigger response: {response}")
+            # You might want to check the response for success/failure if needed
+            # Example: Check if response indicates an error
+            if response and response.get('data', {}).get('errorID'):
+                 error_msg = response.get('data', {}).get('message', 'Unknown VTS Error')
+                 print(f"Error triggering hotkey '{hotkey_id}': {error_msg}")
+                 # Update UI to show error
+            else:
+                 print(f"Hotkey '{hotkey_id}' triggered successfully (based on response).")
+                 # Update UI to show success (optional)
+
+        except Exception as e:
+            print(f"Exception while triggering hotkey '{hotkey_id}': {e}")
+            # Update UI to show error
+
+    def trigger_example_hotkey(self, hotkey_id: str = "YourHotkeyID"):
+        """
+         Schedules the asynchronous trigger_hotkey function.
+         This is called from the Kivy UI thread.
+        Replace "YourHotkeyID" with an actual hotkey ID from VTS.
+        """
+        print(f"Scheduling hotkey trigger for: {hotkey_id}")
+        # Use Clock to schedule the async task to run in the event loop
+        Clock.schedule_once(lambda dt: asyncio.create_task(self.trigger_hotkey(hotkey_id)))
+
+    # --- Parameter Fetching and Control Methods ---
+
+    async def _fetch_available_parameters(self):
+        """Fetches the list of available input parameters from VTube Studio."""
+        if not self.is_connected or not self.vts:
+            print("Cannot fetch parameters: Not connected.")
+            return
+
+        print("Attempting to fetch available parameters...")
+        try:
+            request_id = str(uuid.uuid4())
+            payload = {
+                "apiName": "VTubeStudioPublicAPI",
+                "apiVersion": "1.0",
+                "requestID": request_id,
+                "messageType": "InputParameterListRequest"
+                # No data field needed for this request type
+            }
+            print(f"Sending InputParameterListRequest payload: {payload}")
+            response = await self.vts.request(payload)
+            print(f"InputParameterListRequest response: {response}")
+
+            # Corrected the messageType check based on VTS response log
+            if response and response.get("messageType") == "InputParameterListResponse":
+                default_params = response.get("data", {}).get("defaultParameters", [])
+                custom_params = response.get("data", {}).get("customParameters", [])
+                # Combine default and custom parameters (or handle them separately)
+                # Storing the whole dict for potential future use (min/max values)
+                all_params = default_params + custom_params
+                self.available_parameters = all_params
+                print(f"Fetched {len(all_params)} parameters.")
+                # print(f"Available parameters: {self.available_parameters}") # Optional: very verbose
+            elif response and response.get('data', {}).get('errorID'):
+                error_msg = response.get('data', {}).get('message', 'Unknown VTS Error')
+                print(f"Error fetching parameters: {error_msg}")
+                self.available_parameters = [] # Clear on error
+            elif response and response.get("messageType") == "APIError":
+                 error_msg = response.get('data', {}).get('message', 'Unknown VTS API Error')
+                 print(f"API Error fetching parameters: {error_msg}")
+                 self.available_parameters = [] # Clear on error
+            else:
+                print("Unknown response format when fetching parameters.")
+                self.available_parameters = [] # Clear on unknown error
+
+        except Exception as e:
+            print(f"Exception while fetching parameters: {e}")
+            self.available_parameters = [] # Clear on exception
+
+    def on_available_parameters(self, instance, value):
+        """Kivy property observer, schedules UI update when parameters are fetched."""
+        # Schedule the UI update for the next frame to ensure stability
+        Clock.schedule_once(self._update_parameter_ui)
+
+    def _update_parameter_ui(self, dt=None):
+        """Updates the parameter list UI based on the available_parameters property."""
+        print("Updating parameter list UI (scheduled)...")
+        param_list_layout = self.ids.get('param_list_layout')
+        if not param_list_layout:
+            print("Error: param_list_layout not found in ids during scheduled update.")
+            return
+
+        param_list_layout.clear_widgets()
+        value = self.available_parameters # Use the current value of the property
+
+        # Set height dynamically based on number of items
+        # Adjust multiplier as needed for label height/padding
+        param_list_layout.height = len(value) * 30 # Example: 30 pixels per label
+
+        if not value:
+            param_list_layout.add_widget(Label(text="No parameters found or error fetching.", size_hint_y=None, height=30))
+        else:
+            for param_data in value:
+                param_name = param_data.get('name', 'Unknown Parameter')
+                # You could add more info like min/max here if needed
+                label_text = f"{param_name}"
+                param_label = Label(text=label_text, size_hint_y=None, height=30)
+                param_list_layout.add_widget(param_label)
+        print("Parameter list UI update complete (scheduled).")
+
+
+    async def set_parameter_values(self, param_values: list[dict]):
+        """
+        Asynchronously sets multiple VTube Studio parameter values.
+        param_values: A list of dictionaries, e.g.,
+                      [{ "id": "ParamName1", "value": 0.8 },
+                       { "id": "ParamName2", "value": -0.5 }]
+        """
+        if not self.is_connected or not self.vts:
+            print("Cannot set parameters: Not connected to VTube Studio.")
+            return
+
+        print(f"Attempting to set parameters via generic request: {param_values}")
+        try:
+            # Construct the full request payload manually for InjectParameterDataRequest
+            request_id = str(uuid.uuid4()) # Generate a unique ID
+            payload = {
+                "apiName": "VTubeStudioPublicAPI",
+                "apiVersion": "1.0",
+                "requestID": request_id,
+                "messageType": "InjectParameterDataRequest",
+                "data": {
+                    # "faceFound": False, # Optional, defaults likely okay
+                    "mode": "set", # Use "set" to directly set values
+                    "parameterValues": param_values # Pass the list directly
+                }
+            }
+
+            print(f"Sending InjectParameterDataRequest payload: {payload}")
+            # Use the generic request method
+            response = await self.vts.request(payload)
+            print(f"InjectParameterDataRequest response: {response}")
+
+            # Check response for errors (structure might vary slightly)
+            if response and response.get('data', {}).get('errorID'):
+                 error_msg = response.get('data', {}).get('message', 'Unknown VTS Error')
+                 print(f"Error setting parameters via InjectParameterDataRequest: {error_msg}")
+                 # Optionally update UI or raise an exception
+            elif response and response.get("messageType") == "APIError":
+                 # Handle APIError messageType if it occurs
+                 error_msg = response.get('data', {}).get('message', 'Unknown VTS API Error')
+                 print(f"API Error setting parameters: {error_msg}")
+            else:
+                 print("Parameters set successfully via InjectParameterDataRequest (based on response).")
+
+        except Exception as e:
+            print(f"Exception while setting parameters via generic request: {e}")
+            # Optionally update UI
+
+    def schedule_set_parameters(self, param_values: list[dict]):
+        """Schedules the async set_parameter_values function from the Kivy thread."""
+        print(f"Scheduling parameter set: {param_values}")
+        Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values)))
+
+    def set_happy_expression(self):
+        """Sets parameters for a 'happy' expression."""
+        params = [
+            {"id": "FaceAngleX", "value": 0, "weight": 0.5}, # Example reset
+            {"id": "FaceAngleY", "value": 0, "weight": 0.5}, # Example reset
+            {"id": "MouthSmile", "value": 1.0, "weight": 1.0}, # Smile!
+            {"id": "EyeOpenLeft", "value": 1.0, "weight": 1.0}, # Eyes open
+            {"id": "EyeOpenRight", "value": 1.0, "weight": 1.0},
+            {"id": "BrowInnerUp", "value": 0.5, "weight": 1.0}, # Brows slightly up
+            {"id": "BrowOuterUpLeft", "value": 0.4, "weight": 1.0},
+            {"id": "BrowOuterUpRight", "value": 0.4, "weight": 1.0},
+            {"id": "BrowDownLeft", "value": 0.0, "weight": 1.0}, # Ensure brows aren't down
+            {"id": "BrowDownRight", "value": 0.0, "weight": 1.0},
+        ]
+        self.schedule_set_parameters(params)
+
+    def set_angry_expression(self):
+        """Sets parameters for an 'angry' expression."""
+        params = [
+            {"id": "FaceAngleX", "value": 0, "weight": 0.5}, # Example reset
+            {"id": "FaceAngleY", "value": 0, "weight": 0.5}, # Example reset
+            {"id": "MouthSmile", "value": 0.0, "weight": 1.0}, # No smile
+            {"id": "EyeOpenLeft", "value": 0.85, "weight": 1.0}, # Eyes slightly narrowed
+            {"id": "EyeOpenRight", "value": 0.85, "weight": 1.0},
+            {"id": "BrowInnerUp", "value": 0.0, "weight": 1.0}, # Brows not up
+            {"id": "BrowOuterUpLeft", "value": 0.0, "weight": 1.0},
+            {"id": "BrowOuterUpRight", "value": 0.0, "weight": 1.0},
+            {"id": "BrowDownLeft", "value": 1.0, "weight": 1.0}, # Brows down!
+            {"id": "BrowDownRight", "value": 1.0, "weight": 1.0},
+        ]
+        self.schedule_set_parameters(params)
+
+    def reset_expression(self):
+        """Resets expression parameters to a neutral state."""
+        # Note: Default values might vary per model. 0 is common for many expression params.
+        # EyeOpen default is usually 1.
+        params = [
+            {"id": "MouthSmile", "value": 0.0, "weight": 0.8},
+            {"id": "EyeOpenLeft", "value": 1.0, "weight": 0.8},
+            {"id": "EyeOpenRight", "value": 1.0, "weight": 0.8},
+            {"id": "BrowInnerUp", "value": 0.0, "weight": 0.8},
+            {"id": "BrowOuterUpLeft", "value": 0.0, "weight": 0.8},
+            {"id": "BrowOuterUpRight", "value": 0.0, "weight": 0.8},
+            {"id": "BrowDownLeft", "value": 0.0, "weight": 0.8},
+            {"id": "BrowDownRight", "value": 0.0, "weight": 0.8},
+            # Add other parameters you want to reset if needed
+        ]
+        self.schedule_set_parameters(params)

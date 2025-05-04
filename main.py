@@ -6,10 +6,11 @@ import kivy
 kivy.require('2.0.0') # Ensure Kivy version compatibility
 
 import asyncio # Import asyncio
-from kivy.app import App
+from kivymd.app import MDApp # Import MDApp from KivyMD
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label # Import Label for loading indicator
+from kivymd.uix.label import MDLabel # Use MDLabel for consistency if needed elsewhere
+from kivy.uix.label import Label # Keep standard Label for simple placeholders if preferred
 from kivy.core.window import Window # Import Window
 from kivy.clock import Clock # Import Clock
 from kivy.lang import Builder # Import Builder
@@ -89,12 +90,17 @@ class MainAppLayout(BoxLayout):
             # Display error message in the tab
             error_message = f"Error loading {tab_item.text}:\n{e}"
             tab_item.clear_widgets()
+            # Use standard Label for the error message for simplicity, or switch to MDLabel
             tab_item.add_widget(Label(text=error_message, halign='center', valign='middle'))
 
 
-class LilyKivyApp(App):
+class LilyKivyApp(MDApp): # Inherit from MDApp
     """Main Kivy Application Class."""
     def build(self):
+        # Set KivyMD theme (optional, but recommended)
+        self.theme_cls.theme_style = "Dark"  # or "Light"
+        self.theme_cls.primary_palette = "BlueGray" # Example palette
+
         self.title = "Lily AI - Kivy Interface"
         Clock.schedule_once(self.maximize_window, 0)
         return MainAppLayout()
