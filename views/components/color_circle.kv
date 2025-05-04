@@ -1,0 +1,16 @@
+#:kivy 2.0.0
+
+<ColorCircle>:
+    # Set size hints to None so the widget takes its explicit size
+    size_hint: None, None
+    # Bind the widget's size to the circle_size property from the Python class
+    size: root.circle_size, root.circle_size
+
+    canvas:
+        # Set the drawing color based on the circle_color property
+        Color:
+            rgba: root.circle_color
+        # Draw an ellipse (which will be a circle since width and height are equal)
+        Ellipse:
+            pos: self.pos # Position the ellipse at the widget's position
+            size: self.size # Make the ellipse the same size as the widget

@@ -1,0 +1,175 @@
+#:kivy 2.0.0
+#:import ColorCircle views.components.color_circle.ColorCircle
+#:import LLMSelector views.components.llm_selector.LLMSelector
+#:import RGBStrip views.components.rgb_strip
+
+<DiscordTab>:
+    orientation: 'vertical'
+    padding: dp(20)
+    spacing: dp(20)
+
+    # Add the RGB Strip at the very top
+    RGBStrip:
+        # Height is set in the component's Python code (3dp)
+        # Width will automatically match the parent (DiscordTab)
+    # Assign the ColorCircle instance to the status_circle property in the Python class
+    # status_circle: status_circle_id # REMOVE THIS LINE - Kivy handles this automatically via id matching ObjectProperty
+
+    # Status Section
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint_y: None
+        height: self.minimum_height
+        spacing: dp(10)
+        padding: dp(10)
+        # Optional: Add background/border like in CSS
+        # canvas.before:
+        #     Color:
+        #         rgba: (1, 1, 1, 1) # White background
+        #     RoundedRectangle:
+        #         pos: self.pos
+        #         size: self.size
+        #         radius: [dp(8),]
+
+        # Status Circle (Centered)
+        BoxLayout:
+            size_hint_x: None # Allow centering the layout itself
+            width: self.minimum_width # Size to content
+            size_hint_y: None
+            height: dp(30) # Height for the circle container
+            pos_hint: {'center_x': 0.5}
+            ColorCircle:
+                id: status_circle_id
+                circle_size: dp(25) # Smaller circle size as per CSS
+                pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+                # Color and animation are handled in Python
+
+        # Start/Stop Button (Centered)
+        BoxLayout:
+            size_hint_x: None # Allow centering the layout itself
+            width: self.minimum_width # Size to content
+            size_hint_y: None
+            height: dp(40)
+            pos_hint: {'center_x': 0.5}
+            Button:
+                text: root.toggle_button_text
+                size_hint: None, None
+                size: dp(200), dp(40) # Match CSS
+                pos_hint: {'center_x': 0.5}
+                on_press: root.toggle_bot()
+                font_size: '16sp'
+                # background_color: (0, 0.47, 1, 1) # Match CSS #007bff (approx)
+
+        # Status Label (Centered)
+        Label:
+            text: root.status_text
+            size_hint_y: None
+            height: self.texture_size[1]
+            pos_hint: {'center_x': 0.5}
+            font_size: '14sp'
+            color: (0.33, 0.33, 0.33, 1) # Match CSS #555
+
+    # Input/Config Section
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint_y: None
+        height: self.minimum_height
+        spacing: dp(15)
+        padding: dp(10)
+        # Optional: Add background/border like in CSS
+        # canvas.before:
+        #     Color:
+        #         rgba: (1, 1, 1, 1) # White background
+        #     RoundedRectangle:
+        #         pos: self.pos
+        #         size: self.size
+        #         radius: [dp(8),]
+
+        # Guild ID Input
+        TextInput:
+            id: guild_id_input
+            text: root.guild_id
+            hint_text: "Enter Guild ID"
+            size_hint_x: None # Allow centering
+            width: dp(300)    # Set a fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
+            size_hint_y: None
+            height: dp(40) # Slightly taller input
+            multiline: False
+            font_size: '14sp'
+            on_text: root.guild_id = self.text
+
+        # Channel ID Input
+        TextInput:
+            id: channel_id_input
+            text: root.channel_id
+            hint_text: "Enter Channel ID"
+            size_hint_x: None # Allow centering
+            width: dp(300)    # Set a fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.channel_id = self.text
+
+        # Reusable LLM Selector Component
+        LLMSelector:
+            # Center the component itself
+            size_hint_x: 0.4 # Set width to 40% of parent
+            # width: dp(350) # Removed fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
+            # Bind component properties to the root (DiscordTab) properties
+            selected_provider: root.selected_provider
+            selected_model: root.selected_model
+            llm_providers: root.llm_providers
+            llm_models: root.llm_models
+            # RESTORED explicit bindings to ensure root properties are updated
+            on_selected_provider: root.selected_provider = self.selected_provider
+            on_selected_model: root.selected_model = self.selected_model
+            # Customize labels for Discord context
+            provider_label_text: "Discord LLM Provider:"
+            model_label_text: "Discord LLM Model:"
+
+        # Save Button is removed as the mixin handles saving automatically
+
+    # Message Section (Visibility controlled by opacity and disabled state)
+    BoxLayout:
+        id: message_section
+        orientation: 'vertical'
+        size_hint_y: None
+        height: self.minimum_height if root.message_section_visible else 0
+        opacity: 1 if root.message_section_visible else 0
+        disabled: not root.message_section_visible
+        spacing: dp(15)
+        padding: [dp(10), dp(10), dp(10), 0] # Padding top/sides
+
+        TextInput:
+            id: message_input
+            text: root.message_text
+            hint_text: "Type your message here..."
+            size_hint_x: None # Allow centering
+            width: dp(300)    # Set a fixed width
+            pos_hint: {'center_x': 0.5} # Center horizontally
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.message_text = self.text
+
+        BoxLayout: # Centering layout for the button
+            size_hint_y: None
+            height: dp(40)
+            Button:
+                id: send_message_button
+                text: "Send Message"
+                size_hint: None, None
+                size: dp(200), dp(40) # Match CSS
+                pos_hint: {'center_x': 0.5}
+                on_press: root.send_message()
+                font_size: '16sp'
+                # background_color: (0, 0.47, 1, 1) # Match CSS #007bff (approx)
+
+    # Add a spacer to push content upwards if needed
+    Widget:
+        size_hint_y: 1

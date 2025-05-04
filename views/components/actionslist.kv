@@ -1,0 +1,48 @@
+#:kivy 2.0.0
+
+<ActionsList>:
+    orientation: 'vertical'
+    spacing: dp(5)
+    padding: dp(5)
+    # Add a background color or visual distinction if desired
+    canvas.before:
+        Color:
+            rgba: 0.2, 0.2, 0.2, 1 # Dark grey background
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Label:
+        text: 'Actions'
+        size_hint_y: None
+        height: dp(30) # Fixed height for the title
+        font_size: '16sp'
+        bold: True
+        halign: 'center'
+        canvas.before:
+            Color:
+                rgba: 0.15, 0.15, 0.15, 1 # Slightly darker grey for title background
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+    ScrollView:
+        id: scroll_view
+        size_hint_y: 1 # Take remaining vertical space
+        do_scroll_x: False # Disable horizontal scrolling
+        bar_width: dp(10) # Make scrollbar visible
+
+        BoxLayout:
+            id: actions_container
+            orientation: 'vertical'
+            size_hint_y: None # Height will be set dynamically
+            height: self.minimum_height # Start with minimum height
+            spacing: dp(2) # Small spacing between action items
+            padding: dp(5) # Padding inside the scrollable area
+
+            # Action items (Labels) will be added here dynamically by the Python code
+            # Example placeholder (will be removed by update_actions_display):
+            # Label:
+            #     text: '{tool 1 name}'
+            #     size_hint_y: None
+            #     height: root.item_height

@@ -1,0 +1,65 @@
+#:kivy 2.0.0
+
+<LLMSelector>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: self.minimum_height # Adjust height based on content
+    spacing: dp(10) # Space between the rows
+    padding: dp(10) # Add padding inside the border
+
+    canvas.before:
+        Color:
+            rgba: 0.5, 0.5, 0.5, 1 # Border color (gray)
+        Line:
+            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2) # Draw rectangle slightly inside bounds
+            width: 1 # Border width
+
+    # Title Label
+    Label:
+        text: "LLM Configuration"
+        size_hint_y: None
+        height: self.texture_size[1] + dp(5) # Add a little padding below
+        font_size: '16sp' # Make title slightly larger
+        bold: True
+        halign: 'left'
+        valign: 'top'
+        text_size: self.width - dp(20), None # Allow wrapping within padding
+
+    # LLM Provider Row
+    BoxLayout:
+        size_hint_y: None
+        height: '30sp' # Use scalable pixels
+        Label:
+            text: root.provider_label_text # Use property for label text
+            size_hint_x: 0.4
+            text_size: self.width, None
+            halign: 'right'
+            valign: 'middle'
+        Spinner:
+            id: provider_spinner # Keep id for internal reference if needed
+            text: root.selected_provider # Bind to the component's property
+            values: root.llm_providers # Bind to the component's property
+            size_hint_x: 0.6
+            # Update the component's property ONLY
+            on_text:
+                root.selected_provider = self.text
+
+    # LLM Model Row
+    BoxLayout:
+        size_hint_y: None
+        height: '30sp' # Use scalable pixels
+        Label:
+            text: root.model_label_text # Use property for label text
+            size_hint_x: 0.4
+            text_size: self.width, None
+            halign: 'right'
+            valign: 'middle'
+        Spinner:
+            id: model_spinner # Keep id for internal reference if needed
+            text: root.selected_model # Bind to the component's property
+            values: root.llm_models # Bind to the component's property
+            size_hint_x: 0.6
+            disabled: not root.llm_models # Disable if no models available
+            # Update the component's property ONLY
+            on_text:
+                root.selected_model = self.text

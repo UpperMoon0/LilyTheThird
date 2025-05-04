@@ -1,0 +1,71 @@
+#:kivy 2.0.0
+#:include views/components/llmselector.kv
+
+<ChatboxSettings>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: self.minimum_height # Adjust height based on content
+    spacing: dp(10)
+    padding: dp(10) # Add padding inside the border
+
+    canvas.before:
+        Color:
+            rgba: 0.5, 0.5, 0.5, 1 # Border color (gray)
+        Line:
+            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2) # Draw rectangle slightly inside bounds
+            width: 1 # Border width
+
+    # Title Label
+    Label:
+        text: "Chat Settings"
+        size_hint_y: None
+        height: self.texture_size[1] + dp(5) # Add a little padding below
+        font_size: '16sp' # Make title slightly larger
+        bold: True
+        halign: 'left'
+        valign: 'top'
+        text_size: self.width - dp(20), None # Allow wrapping within padding
+
+    # TTS Checkbox Row
+    BoxLayout:
+        size_hint_y: None
+        height: dp(30)
+        CheckBox:
+            id: tts_checkbox
+            active: root.tts_enabled # Bind to the component's property
+            size_hint_x: None
+            width: dp(40)
+            on_active: root.tts_enabled = self.active # Update the component's property
+        Label:
+            text: "Enable TTS" # Simplified label for the component
+            size_hint_x: 1
+            text_size: self.width, None
+            halign: 'left'
+            valign: 'middle'
+
+    # Clear History Button Row
+    BoxLayout:
+        size_hint_y: None
+        height: dp(40)
+        padding: [0, dp(10), 0, 0] # Add some top padding
+        Button:
+            id: clear_history_button
+            text: "Clear History"
+            size_hint: 1, 1 # Make button fill the row
+            # Dispatch an event when pressed
+            on_press: root.dispatch('on_clear_history')
+            font_size: '16sp'
+
+    # LLM Selector Component (Now included here)
+    LLMSelector: # Use the Class name directly (import should be handled by lilykivy.kv)
+        id: llm_selector_in_settings # Give it a unique id if needed
+        size_hint_y: None # Let it take its own height
+        height: self.minimum_height # Adjust height based on content
+        # Bind properties to the root (ChatboxSettings)
+        llm_providers: root.llm_providers
+        llm_models: root.llm_models
+        selected_provider: root.selected_provider
+        selected_model: root.selected_model
+        # Bubble up events by dispatching them from the root
+        on_selected_provider: root.dispatch('on_selected_provider', self.selected_provider)
+        on_selected_model: root.dispatch('on_selected_model', self.selected_model)

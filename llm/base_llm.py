@@ -1,7 +1,8 @@
 import json
 import asyncio # Import asyncio for sleep
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple # Added Tuple
+from datetime import datetime, timezone # Added datetime and timezone
 
 from dotenv import load_dotenv
 
@@ -123,10 +124,11 @@ class BaseLLMOrchestrator(ABC):
 
     # Removed _execute_tool_step as its logic is integrated into _process_message loops
 
-    async def _process_message(self, user_message: str, **kwargs) -> str:
+    async def _process_message(self, user_message: str, **kwargs) -> Tuple[str, List[Dict]]: # Changed return type hint
         """
         Core logic for processing a user message, handling memory retrieval,
         tool interactions (initial fetch, main loop, final save), and final response generation.
+        Returns the final text response and a list of successfully executed tool call dictionaries.
         kwargs are passed to hook methods like _get_base_system_messages.
         """
         # 1. Get context-specific base system messages
@@ -142,6 +144,7 @@ class BaseLLMOrchestrator(ABC):
         self.history_manager.add_message('user', prepared_user_message)
 
         # --- Tool Usage Flow ---
+        successful_tool_calls = [] # Initialize list to track successful calls
         allowed_tools_overall = self._get_allowed_tools() # Get all tools allowed in this context
         max_tool_calls = self._get_max_tool_calls()
         tool_calls_made = 0
@@ -327,13 +330,23 @@ class BaseLLMOrchestrator(ABC):
 
             # --- After the while loop (handles success, definition error, arg error after max retries, or exec error after max retries) ---
             # Add the final tool result (or error) to history
-            final_tool_status = "Success"
+            final_tool_status = "Success" # Assume success initially
             if tool_result is None:
                 tool_result = "Error: Tool execution did not produce a result or failed during argument generation."
                 final_tool_status = f"Failed (Args/Definition - {use_retry_count + 1} attempts)"
             elif isinstance(tool_result, str) and tool_result.startswith("Error:"):
                 # This case means it failed after the final attempt (or retries were disabled)
                 final_tool_status = f"Failed (Execution - {use_retry_count + 1} attempts)" # Show final attempt count
+            elif final_tool_status == "Success": # Only append if it was actually successful
+                # Append full details dictionary instead of just the name
+                successful_tool_call_details = {
+                    "tool_name": tool_name,
+                    "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
+                    "result": tool_result,
+                    "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
+                }
+                successful_tool_calls.append(successful_tool_call_details)
+                print(f"[{self.__class__.__name__}] Added details for successful '{tool_name}' call to list.")
 
             tool_result_message_content = {
                 "tool_used": tool_name,
@@ -479,12 +492,23 @@ class BaseLLMOrchestrator(ABC):
 
             # --- After the final memory while loop ---
             # Add the final tool result (or error) to history
-            final_mem_status = "Success"
+            final_mem_status = "Success" # Assume success initially
             if tool_result is None:
                 tool_result = "Error: Final memory tool execution did not produce a result or failed during argument generation."
                 final_mem_status = f"Failed (Args/Definition - {final_mem_retry_count + 1} attempts)"
             elif isinstance(tool_result, str) and tool_result.startswith("Error:"):
                 final_mem_status = f"Failed (Execution - {final_mem_retry_count + 1} attempts)"
+            elif final_mem_status == "Success": # Only append if it was actually successful
+                 # Append full details dictionary instead of just the name
+                successful_tool_call_details = {
+                    "tool_name": chosen_tool_name,
+                    "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
+                    "result": tool_result,
+                    "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
+                }
+                successful_tool_calls.append(successful_tool_call_details)
+                print(f"[{self.__class__.__name__}] Added details for successful final memory op '{chosen_tool_name}' call to list.")
+
 
             tool_result_message_content = {
                 "tool_used": chosen_tool_name,
@@ -543,7 +567,7 @@ class BaseLLMOrchestrator(ABC):
             # Update history with the final assistant message
             self.history_manager.add_message('assistant', final_message)
 
-        return final_message
+        return final_message, successful_tool_calls # Return both response and list
 
     def close(self):
         """Closes resources, like the MongoDB connection."""

@@ -1,54 +1,106 @@
-import os
-import sys
-import threading # Import threading
-from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
+from kivy.config import Config
+Config.remove_option('input', 'wm_pen') # Disable problematic touch provider
+Config.remove_option('input', 'wm_touch') # Disable problematic touch provider
+
+import kivy
+kivy.require('2.0.0') # Ensure Kivy version compatibility
+
+from kivy.app import App
+from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.label import Label # Import Label for loading indicator
+from kivy.core.window import Window # Import Window
+from kivy.clock import Clock # Import Clock
+from kivy.lang import Builder # Import Builder
+
+# Import Views and Components
+from views.vtube_tab import VTubeTab
+# Explicitly load KV files for the dynamically created tabs
+Builder.load_file('views/chattab.kv')
+Builder.load_file('views/discordtab.kv')
+Builder.load_file('views/vtubetab.kv')
+# Load component KV files if they aren't loaded automatically elsewhere
+# Builder.load_file('views/components/chatbox.kv') # Example if needed
 
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
-from views.vtube_tab import VTubeTab
-from settings_manager import load_settings
 
-def clear_output_folder():
-    output_folder = "outputs"
-    if os.path.exists(output_folder):
-        for filename in os.listdir(output_folder):
-            if filename.startswith("audio"):
-                file_path = os.path.join(output_folder, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        print(f"Deleted {file_path}")
-                except Exception as e:
-                    pass
+class MainAppLayout(BoxLayout):
+    """Root layout containing the TabbedPanel."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Orientation is vertical by default for BoxLayout
 
-class MainWindow(QMainWindow):
-       def __init__(self):
-           super(MainWindow, self).__init__()
+        # Create the TabbedPanel
+        # Set do_default_tab=True and ensure default_tab is set after adding the desired tab.
+        tab_panel = TabbedPanel(do_default_tab=True, tab_pos='top_left') # Default tab enabled, tabs on top_left, removed fixed width
 
-           # Load settings early
-           self.settings = load_settings()
+        # --- Create Chat Tab Item (Placeholder) ---
+        chat_tab_item = TabbedPanelItem(text='Chat')
+        chat_tab_item.add_widget(Label(text='Loading Chat...')) # Placeholder
+        tab_panel.add_widget(chat_tab_item)
+        # Set Chat Tab as the default selected tab
+        tab_panel.default_tab = chat_tab_item # Set this AFTER adding the chat tab
+        self.chat_tab_item = chat_tab_item # Store reference
 
-           self.tabs = QTabWidget(self)
-           # Pass settings to ChatTab if it needs them directly (already handled via import)
-           self.chat_tab = ChatTab() # ChatTab handles memory internally
-           self.discord_tab = DiscordTab()
-           self.vtube_tab = VTubeTab()
+        # --- Create Discord Tab Item (Placeholder) ---
+        discord_tab_item = TabbedPanelItem(text='Discord')
+        discord_tab_item.add_widget(Label(text='Loading Discord...')) # Placeholder
+        tab_panel.add_widget(discord_tab_item)
+        self.discord_tab_item = discord_tab_item # Store reference
 
-           self.tabs.addTab(self.chat_tab, "Chat")
-           self.tabs.addTab(self.discord_tab, "Discord")
-           self.tabs.addTab(self.vtube_tab, "Vtube")
+        # --- Create VTube Tab Item (Placeholder) ---
+        vtube_tab_item = TabbedPanelItem(text='VTube')
+        vtube_tab_item.add_widget(Label(text='Loading VTube...')) # Placeholder
+        tab_panel.add_widget(vtube_tab_item)
+        self.vtube_tab_item = vtube_tab_item # Store reference
 
-           self.setCentralWidget(self.tabs)
-           self.setWindowTitle("Lily III")
-           clear_output_folder() # Clear output folder on startup
-           self.showMaximized()
+        # Store the tab_panel as an instance attribute
+        self.tab_panel = tab_panel
+        # --- RGB Strip removed from here ---
 
-       def closeEvent(self, event):
-           # No global MongoDB handler to close here
-           clear_output_folder()
-           event.accept()
+        # Add the TabbedPanel to the root layout
+        self.add_widget(self.tab_panel)
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    sys.exit(app.exec_())
+        # Schedule the creation of tab contents on the main thread after the layout is built
+        Clock.schedule_once(self._create_tabs)
+
+    def _create_tabs(self, dt):
+        """Creates and adds the content for each tab on the main thread."""
+        print("MainAppLayout: Creating tab content on main thread.")
+        self._create_tab_content(self.chat_tab_item, ChatTab)
+        self._create_tab_content(self.discord_tab_item, DiscordTab)
+        self._create_tab_content(self.vtube_tab_item, VTubeTab)
+
+    def _create_tab_content(self, tab_item, content_class):
+        """Instantiates and adds the content widget to the tab item."""
+        try:
+            # Instantiate the actual content widget (must be on main thread)
+            content = content_class()
+            print(f"MainAppLayout: Content for {tab_item.text} instantiated.")
+            # REMOVED explicit Builder.apply(content) - Rely on pre-loading KV files
+            print(f"MainAppLayout: Checking IDs for {tab_item.text} after instantiation: {content.ids}") # Debug print (might still be empty here)
+            tab_item.clear_widgets()
+            tab_item.add_widget(content)
+            # The ids should be populated by the time _post_init runs in the content widget
+        except Exception as e:
+            print(f"MainAppLayout: Error creating content for {tab_item.text}: {e}")
+            # Display error message in the tab
+            error_message = f"Error loading {tab_item.text}:\n{e}"
+            tab_item.clear_widgets()
+            tab_item.add_widget(Label(text=error_message, halign='center', valign='middle'))
+
+
+class LilyKivyApp(App):
+    """Main Kivy Application Class."""
+    def build(self):
+        self.title = "Lily AI - Kivy Interface"
+        Clock.schedule_once(self.maximize_window, 0)
+        return MainAppLayout()
+
+    def maximize_window(self, dt):
+        """Maximizes the application window."""
+        Window.maximize()
+
+if __name__ == '__main__':
+    LilyKivyApp().run()

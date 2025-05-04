@@ -1,314 +1,433 @@
 import asyncio
-import os
 import threading
-import speech_recognition as sr
+from kivy.uix.boxlayout import BoxLayout
+from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty # Updated imports
+from kivy.clock import Clock
 
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot, QMetaObject, Q_ARG, QSize
-from PyQt5.QtGui import QFont, QRegion, QPixmap, QIcon
-from PyQt5.QtWidgets import (QLineEdit, QTextEdit, QVBoxLayout, QWidget,
-                             QCheckBox, QPushButton, QLabel, QHBoxLayout, QComboBox)
-# Removed: from actions import action_handler
-from llm.chatbox_llm import ChatBoxLLM
-from tts import generate_speech_from_provider
-# Removed: from kg import kg_handler
-from config.models import OPENAI_MODELS, GEMINI_MODELS
-# Import settings manager
+# Import settings manager functions
 from settings_manager import load_settings, save_settings
+# Import the ChatBoxLLM
+from llm.chatbox_llm import ChatBoxLLM
+# Import the LLM Config Mixin
+from views.llm_config_mixin import LLMConfigMixin
+# Import component classes used in the KV file
+from views.components.chatbox_settings import ChatboxSettings
+from views.components.chat_box import ChatBox
+from views.components.actions_list import ActionsList # Import the new component
+
+# Define colors for markup
+USER_COLOR_HEX = "FFFFFF" # White
+LLM_COLOR_HEX = "FFFFFF"  # White
+SYSTEM_COLOR_HEX = "00FF00" # Green (Lime)
+
+# Inherit from BoxLayout and the Mixin
+class ChatTab(BoxLayout, LLMConfigMixin):
+    """
+    Kivy equivalent of the ChatTab QWidget, using LLMConfigMixin and ChatBox component.
+    """
+    # --- Properties specific to ChatTab (excluding those moved to ChatBox) ---
+    # prompt_text = StringProperty("") # MOVED to ChatBox
+    # response_text = StringProperty("") # MOVED to ChatBox
+    tts_enabled = BooleanProperty(False) # Renamed from tts_provider_enabled for consistency
+    # is_recording = BooleanProperty(False) # MOVED to ChatBox (state managed here, UI in ChatBox)
+    # record_button_icon = StringProperty("assets/mic_idle.png") # MOVED to ChatBox
+    temperature = NumericProperty(0.7) # Default temperature
+
+    # Flag to indicate if the backend LLM is ready
+    backend_initialized = BooleanProperty(False)
+    initialization_status = StringProperty("Initializing backend...") # Status message
+
+    # Object properties to hold references to widgets if needed
+    # prompt_input = ObjectProperty(None) # MOVED to ChatBox
+    send_button = ObjectProperty(None) # Keep if separate send button exists
+    chat_box = ObjectProperty(None) # Reference to ChatBox instance
+    actions_list = ObjectProperty(None) # ADDED reference to ActionsList instance
+    action_details = ObjectProperty(None) # ADDED reference to ActionDetails instance
+    llm_instance: ChatBoxLLM = None # To hold the LLM instance
+    selected_action_data = ObjectProperty(None, allownone=True) # ADDED property for selected action
+
+    # Internal state for recording (if needed beyond UI)
+    _is_currently_recording = BooleanProperty(False)
+
+    # --- LLMConfigMixin Implementation ---
+    def _get_provider_setting_key(self) -> str:
+        return 'selected_provider' # Key used in settings for ChatTab provider
+
+    def _get_model_setting_key(self) -> str:
+        return 'selected_model' # Key used in settings for ChatTab model
+
+    # --- Initialization ---
+    def __init__(self, **kwargs):
+        # Explicitly load KV string *before* super init
+        # Builder.load_string(CHAT_TAB_KV) # Moved outside class definition
+        super().__init__(**kwargs)
+        # Load general settings first
+        self._load_chat_settings()
+        # Load LLM specific settings using the mixin method
+        self._load_llm_settings()
+        # Bindings
+        self.bind(selected_provider=self.on_selected_provider_changed_chat)
+        self.bind(selected_model=self.on_selected_model_changed_chat)
+        Clock.schedule_once(self._post_init)
+
+    def _load_chat_settings(self):
+        """Load settings specific to ChatTab (excluding LLM provider/model)."""
+        settings = load_settings()
+        print("ChatTab: Loading non-LLM settings:", settings)
+        # Use .get() with defaults
+        self.tts_enabled = settings.get('tts_provider_enabled', False) # Match key in settings
+        self.temperature = settings.get('temperature', 0.7) # Load temperature
+
+    def _post_init(self, dt):
+        """Tasks to run after widgets are loaded."""
+        # Link chat_box property FIRST
+        self.chat_box = self.ids.get('chat_box')
+        if not self.chat_box:
+             print("ChatTab FATAL Error: Could not find ChatBox with id 'chat_box'. Check chattab.kv naming and structure.")
+             return # Stop initialization
+        # Link actions_list property
+        self.actions_list = self.ids.get('actions_list')
+        if not self.actions_list:
+             print("ChatTab FATAL Error: Could not find ActionsList with id 'actions_list'. Check chattab.kv naming and structure.")
+             # Decide if this is fatal or just a warning
+             # return # Stop initialization if fatal
+        # Link action_details property
+        self.action_details = self.ids.get('action_details')
+        if not self.action_details:
+             print("ChatTab FATAL Error: Could not find ActionDetails with id 'action_details'. Check chattab.kv naming and structure.")
+             # Decide if this is fatal or just a warning
+             # return # Stop initialization if fatal
+
+        # Now that chat_box is linked, bind the backend_initialized property change
+        self.bind(backend_initialized=self._update_chat_box_initialization)
+        # Also, immediately update the chat_box's state if backend is already initialized (unlikely here, but safe)
+        self._update_chat_box_initialization(self, self.backend_initialized)
 
 
-def clear_output_folder():
-    # Remove old audio files from the outputs folder
-    output_folder = "outputs"
-    if os.path.exists(output_folder):
-        for filename in os.listdir(output_folder):
-            if filename.startswith("audio"):
-                file_path = os.path.join(output_folder, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        print(f"Deleted {file_path}")
-                except Exception as e:
-                    pass
+        # Initial population of models
+        self.update_models(initial_load=True)
 
-class ChatTab(QWidget):
-    # Signal to update the chat with user input and assistant response
-    updateResponse = pyqtSignal(str, str)
+        # Add initial status message *after* linking chat_box
+        # No need to schedule this separately now, as chat_box is confirmed linked
+        self.add_message("System", self.initialization_status, scroll=False)
 
-    def __init__(self):
-        super().__init__()
-        self._initializing = True # Flag to prevent signals during setup
-        self.settings = load_settings() # Load settings first
+        # Start backend initialization in a separate thread
+        threading.Thread(target=self._initialize_backend_thread, daemon=True).start()
 
-        # --- UI Setup (largely the same, but apply loaded settings) ---
+    # update_models and set_update_flag are now inherited from LLMConfigMixin
 
-        # LLM Provider Selector
-        self.provider_label = QLabel("Select LLM Provider:", self)
-        self.provider_selector = QComboBox(self)
-        self.provider_selector.addItems(["OpenAI", "Gemini"])
-        # Set loaded provider *before* connecting signals
-        provider_index = self.provider_selector.findText(self.settings.get('selected_provider', 'OpenAI'))
-        if provider_index != -1:
-            self.provider_selector.setCurrentIndex(provider_index)
-        # Connect signal LATER
+    # --- Callbacks for saving settings ---
+    # These methods now handle ChatTab specific actions (like updating LLM instance)
+    # and call the appropriate mixin methods for saving LLM config or chat-specific settings.
 
-        # LLM Model Selector
-        self.model_label = QLabel("Select Model:", self)
-        self.model_selector = QComboBox(self)
-        # Populate models based on the *loaded* provider first
-        self._update_model_selector(set_from_settings=True)
-        # Connect signal LATER
+    # Note: The actual binding happens in __init__ to these specific methods.
+    def on_selected_provider_changed_chat(self, instance, value):
+        """Callback when provider changes. Updates models, then schedules save and LLM update."""
+        print(f"ChatTab: Provider changed to {value}")
+        # 1. Update models and set the default selected_model for the new provider
+        self.update_models() # This now sets self.selected_model correctly
 
-        # Avatar setup
-        self.avatar_label = QLabel(self)
-        self.avatar_label.setFixedSize(300, 300)
-        self.avatar_label.setAlignment(Qt.AlignCenter)
-        avatar_pixmap = QPixmap("assets/avatar.png")
-        avatar_pixmap = avatar_pixmap.scaled(self.avatar_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.avatar_label.setPixmap(avatar_pixmap)
-        mask_region = QRegion(0, 0, self.avatar_label.width(), self.avatar_label.height(), QRegion.Ellipse)
-        self.avatar_label.setMask(mask_region)
-        avatar_layout = QHBoxLayout()
-        avatar_layout.setAlignment(Qt.AlignCenter)
-        avatar_layout.addWidget(self.avatar_label)
+        # 2. Schedule save and update AFTER update_models finishes and clears its flag
+        Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.1) # Small delay
 
-        # Prompt input field and voice record button setup
-        self.prompt_input = QLineEdit(self)
-        font = QFont("Arial", 14)
-        self.prompt_input.setFont(font)
-
-        self.record_button = QPushButton(self)
-        self.record_button.setStyleSheet("width: 100px; height: 30px;")
-        self.record_button.setIcon(QIcon("assets/mic_idle.png"))
-        self.record_button.setIconSize(QSize(30, 30))
-        self.record_button.clicked.connect(self.record_voice)
-
-        # Layout for text input and record button
-        prompt_layout = QHBoxLayout()
-        prompt_layout.addWidget(self.prompt_input)
-        prompt_layout.addWidget(self.record_button)
-
-        # Create response box and other controls
-        self.response_box = QTextEdit(self)
-        self.response_box.setReadOnly(True)
-        self.tts_provider_enabled = QCheckBox("Enable TTS (TTS-Provider)", self)
-        self.tts_provider_enabled.setChecked(self.settings.get('tts_provider_enabled', False))
-        # Connect signal LATER
-
-        self.clear_history_button = QPushButton("Clear History", self)
-
-        # Removed KG Memory checkbox and status display
-
-        # Main layout for the ChatTab
-        layout = QVBoxLayout()
-        layout.addLayout(avatar_layout)
-        layout.addLayout(prompt_layout)
-        layout.addWidget(self.response_box)
-        layout.addWidget(self.tts_provider_enabled)
-        # Removed KG widgets from layout
-        provider_layout = QHBoxLayout()
-        provider_layout.addWidget(self.provider_label)
-        provider_layout.addWidget(self.provider_selector)
-        model_layout = QHBoxLayout()
-        model_layout.addWidget(self.model_label)
-        model_layout.addWidget(self.model_selector)
-        layout.addLayout(provider_layout)
-        layout.addLayout(model_layout)
-        layout.addWidget(self.clear_history_button)
-        self.setLayout(layout)
-
-        # Connect other signals
-        self.prompt_input.returnPressed.connect(self.get_response)
-        self.clear_history_button.clicked.connect(self.clear_history)
-        self.updateResponse.connect(self.on_update_response)
-
-        # Initialize LLM based on loaded settings
-        self._initialize_llm()
-
-        # NOW connect the signals that should trigger saving settings
-        self.provider_selector.currentIndexChanged.connect(self.on_provider_changed)
-        self.model_selector.currentIndexChanged.connect(self.on_model_changed)
-        self.tts_provider_enabled.stateChanged.connect(self._save_current_settings)
-        # Removed KG checkbox signal connection
-
-        self._initializing = False  # Setup complete
-        clear_output_folder()
-
-    def _save_current_settings(self):
-        """Gathers current settings and saves them."""
-        if self._initializing: # Don't save during initial setup
+    def _save_and_update_llm_after_provider_change(self, dt):
+        """Helper function scheduled after provider change to save and update."""
+        print(f"ChatTab: Saving and potentially updating LLM after provider change.")
+        # Ensure the flag isn't somehow still set (belt and suspenders)
+        if self._updating_models:
+            print("ChatTab: Warning - _updating_models still true during scheduled save/update. Retrying later.")
+            Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.2)
             return
 
-        current_settings = {
-            'tts_provider_enabled': self.tts_provider_enabled.isChecked(),
-            # Removed 'enable_kg_memory'
-            'selected_provider': self.provider_selector.currentText(),
-            'selected_model': self.model_selector.currentText()
-        }
-        # Update the in-memory settings object as well
-        self.settings.update(current_settings)
-        save_settings(self.settings)
+        self._save_llm_settings() # Save the new provider and the default model set by update_models
 
-    def _update_model_selector(self, set_from_settings=False):
-        """Populates the model selector based on the selected provider."""
-        selected_provider = self.provider_selector.currentText().lower()
-        # Block signals during modification to prevent premature triggers
-        self.model_selector.blockSignals(True)
-        self.model_selector.clear() # Clear existing items
+        # Trigger LLM instance update if ready
+        if self.backend_initialized:
+            print(f"ChatTab: Triggering LLM update after provider change.")
+            self._start_llm_instance_update_thread()
+        else:
+            print("ChatTab: Provider changed, backend not ready. Settings saved.")
 
-        model_list = []
-        if selected_provider == 'openai':
-            model_list = OPENAI_MODELS
-        elif selected_provider == 'gemini':
-            model_list = GEMINI_MODELS
+    def on_selected_model_changed_chat(self, instance, value):
+        """Callback when model changes (user interaction or default set). Saves and triggers LLM update."""
+        print(f"--- ChatTab: on_selected_model_changed_chat triggered with value: {value}, _updating_models: {self._updating_models} ---") # Keep for now
+        if value and hasattr(self, 'llm_models') and value in self.llm_models:
+            print(f"ChatTab: User selected model: {value}. Saving and updating LLM.")
+            self._save_llm_settings() # Save LLM settings (handled by mixin)
+            # Specific ChatTab action: Trigger LLM instance update if ready
+            if self.backend_initialized:
+                self._start_llm_instance_update_thread()
+            else:
+                print("ChatTab: Model changed by user, backend not ready. Settings saved.")
+        elif not value:
+             print(f"ChatTab: Model selection cleared or invalid by user.")
 
-        if model_list:
-            self.model_selector.addItems(model_list)
-            if set_from_settings:
-                # Try to set the loaded model
-                loaded_model = self.settings.get('selected_model')
-                model_index = self.model_selector.findText(loaded_model)
-                if model_index != -1:
-                    self.model_selector.setCurrentIndex(model_index)
-                elif model_list: # Fallback to first if loaded model not found
-                    self.model_selector.setCurrentIndex(0)
-            elif model_list: # Default to first if not setting from saved
-                self.model_selector.setCurrentIndex(0)
+    def on_tts_enabled(self, instance, value):
+        """Callback when TTS checkbox changes."""
+        print(f"ChatTab: TTS Enabled changed to: {value}")
+        self._save_chat_settings() # Save only chat-specific settings
+        # Add logic if needed when TTS state changes (e.g., load/unload TTS engine)
 
-        self.model_selector.blockSignals(False) # Unblock signals
-        # Save settings if the model was changed *not* during initial load
-        if not set_from_settings:
-             self._save_current_settings()
+    def on_temperature(self, instance, value):
+        """Callback when temperature slider changes."""
+        print(f"ChatTab: Temperature changed to: {value:.2f}")
+        self._save_chat_settings() # Save only chat-specific settings
 
-    def _initialize_llm(self):
-        """Initializes or re-initializes the ChatBoxLLM based on the selected provider and model."""
-        selected_provider = self.provider_selector.currentText().lower()
-        selected_model = self.model_selector.currentText()
+    def _save_chat_settings(self):
+        """Helper method to save only the ChatTab specific settings."""
+        settings = load_settings() # Load existing settings first
+        settings['tts_provider_enabled'] = self.tts_enabled # Match key in settings
+        settings['temperature'] = self.temperature # Save temperature
+        save_settings(settings)
+        print("ChatTab: Chat-specific settings saved.")
 
-        if not selected_model:
-             print("--- Initialize LLM: No model selected, skipping. ---")
-             self.chatBoxLLM = None
+    # _save_llm_settings is inherited from LLMConfigMixin
+
+    # --- Action Handling ---
+    def on_action_selected(self, instance, action_data):
+        """Handles the 'on_action_selected' event from ActionsList."""
+        print(f"ChatTab: Received selected action data: {action_data.get('tool_name')}")
+        self.selected_action_data = action_data
+
+    # --- Backend Initialization and Update (Remains largely the same) ---
+    def _initialize_backend_thread(self):
+        """Runs LLM initialization in a background thread."""
+        print("ChatTab: Backend initialization thread started.")
+        instance = None
+        error_message = None
+        try:
+            # This is the blocking call
+            instance = ChatBoxLLM(provider=self.selected_provider, model_name=self.selected_model)
+            print("ChatTab: Backend ChatBoxLLM instance created successfully in thread.")
+        except Exception as e:
+            print(f"ChatTab: Error initializing backend LLM instance in thread: {e}")
+            error_message = f"Error initializing backend: {e}"
+            instance = None
+
+        # Schedule the final update on the main Kivy thread
+        Clock.schedule_once(lambda dt: self._finish_backend_initialization(instance, error_message))
+
+    def _finish_backend_initialization(self, instance, error_message):
+        """Called on the main thread to update UI after backend init."""
+        print("ChatTab: Finishing backend initialization on main thread.")
+        status_message = ""
+        if instance:
+            self.llm_instance = instance
+            # Set the flag. The binding added in _post_init will trigger _update_chat_box_initialization
+            self.backend_initialized = True
+            status_message = "Backend initialized successfully."
+            print("ChatTab: Backend marked as initialized.")
+
+            # --- Model Mismatch Check ---
+            if self.llm_instance and self.selected_model != self.llm_instance.model: # Use .model instead of .model_name
+                print(f"ChatTab: Model mismatch after init ({self.selected_model} vs {self.llm_instance.model}). Triggering update.")
+                self._start_llm_instance_update_thread()
+            # --- END ADDED CHECK ---
+
+        else:
+            self.llm_instance = None
+            self.backend_initialized = False # Set the flag. Binding will trigger update.
+            status_message = error_message or "Backend initialization failed."
+            print(f"ChatTab: Backend initialization failed: {status_message}")
+
+        # Update the system message using add_message
+        # Replace the initial "Initializing..." message
+        self.add_message("System", status_message, replace_last=True) # This should now work as chat_box is linked
+
+    def _update_chat_box_initialization(self, instance, value):
+        """Callback when backend_initialized changes to update the ChatBox."""
+        # This should only be called after _post_init successfully linked chat_box and added the binding
+        if self.chat_box:
+            self.chat_box.backend_initialized = value
+            print(f"ChatTab: Updated chat_box.backend_initialized to {value}")
+        else:
+            # This case should ideally not happen now
+            print("ChatTab CRITICAL Warning: _update_chat_box_initialization called but self.chat_box is None!")
+
+    def _start_llm_instance_update_thread(self):
+        """Starts a background thread to update the LLM instance without freezing the UI."""
+        if not self.backend_initialized: # Should ideally be checked before calling
+             print("ChatTab: Backend not initialized, skipping LLM instance update trigger.")
              return
 
-        # Prevent re-initialization if settings haven't changed (unless initializing)
-        if not self._initializing and hasattr(self, 'chatBoxLLM') and self.chatBoxLLM and \
-           self.chatBoxLLM.provider == selected_provider and \
-           self.chatBoxLLM.model == selected_model:
-            print(f"--- Initialize LLM: Settings unchanged ({selected_provider}/{selected_model}), skipping. ---")
+        if not self.selected_provider or not self.selected_model:
+            print("ChatTab: Cannot update LLM instance, provider or model not selected.")
+            self.add_message("System", "Error: Cannot switch LLM. Provider or model missing.")
             return
 
-        print(f"--- Initializing LLM: Provider={selected_provider}, Model={selected_model} ---")
+        # Show updating status via add_message
+        print(f"ChatTab: _start_llm_instance_update_thread: Using provider='{self.selected_provider}', model='{self.selected_model}'")
+        self.add_message("System", f"Switching LLM to {self.selected_provider} - {self.selected_model}...", replace_last=True) # Replace previous status
+
+        # Start the update in a background thread
+        print(f"ChatTab: Starting LLM update thread (Old Instance ID: {id(self.llm_instance) if self.llm_instance else None})") # Log ID before thread start
+        threading.Thread(target=self._run_llm_update_in_thread, daemon=True).start()
+
+    def _run_llm_update_in_thread(self):
+        """Runs the potentially blocking LLM update in a background thread."""
+        print(f"ChatTab: LLM update thread running for {self.selected_provider} - {self.selected_model}")
+        new_instance = None
+        error_message = None
+        old_instance_id = id(self.llm_instance) if self.llm_instance else None # Log old ID inside thread
+        print(f"ChatTab: [Thread] Old LLM instance ID: {old_instance_id}") # Log old ID inside thread
         try:
-            self.chatBoxLLM = ChatBoxLLM(provider=selected_provider, model_name=selected_model)
-            # Clear history only if not initializing (avoids clearing on startup)
-            if not self._initializing:
-                self.clear_history(notify=False)
-                self.response_box.append(f"Switched LLM to: {selected_provider.capitalize()} - {selected_model}")
-        except ValueError as e:
-            print(f"--- Error initializing LLM: {e} ---")
-            if hasattr(self, 'response_box'):
-                 self.response_box.append(f'<span style="color: red;">Error: Could not initialize {selected_provider.capitalize()} ({selected_model}). Check API key/config.</span>')
-            self.chatBoxLLM = None
-        # Save settings after successful initialization or change
-        self._save_current_settings()
+            # Close existing instance *before* creating the new one in the thread
+            # Ensure thread safety if close() has side effects, but usually okay.
+            if self.llm_instance and hasattr(self.llm_instance, 'close'):
+                print("ChatTab: Closing previous LLM instance in update thread...")
+                self.llm_instance.close()
+                print("ChatTab: Previous LLM instance closed in update thread.")
 
-    def on_provider_changed(self):
-        """Handles the change in the provider selection."""
-        if self._initializing:
-            print("--- on_provider_changed SKIPPING (during init) ---")
-            return
-        print("--- on_provider_changed START ---")
-        self._update_model_selector() # Update models (saves settings inside)
-        # Initialize LLM because provider change implies model change (to default)
-        # _initialize_llm will handle saving and appending messages
-        self._initialize_llm()
-        print("--- on_provider_changed END ---")
+            # Create the new instance (potentially blocking)
+            print(f"ChatTab: [Thread] Instantiating ChatBoxLLM with provider='{self.selected_provider}', model='{self.selected_model}'") # DEBUG PRINT
+            new_instance = ChatBoxLLM(provider=self.selected_provider, model_name=self.selected_model)
+            new_instance_id = id(new_instance) if new_instance else None
+            print(f"ChatTab: [Thread] New LLM instance created successfully (ID: {new_instance_id}).")
 
+        except Exception as e:
+            print(f"ChatTab: [Thread] Error updating LLM instance: {e}")
+            error_message = f"Error updating LLM: {e}"
+            new_instance = None # Ensure instance is None on error
 
-    def on_model_changed(self):
-        """Handles the change in the model selection."""
-        if self._initializing:
-            print("--- on_model_changed SKIPPING (during init) ---")
-            return
-        print("--- on_model_changed START ---")
-        # Check if model text is actually valid before initializing
-        if self.model_selector.currentText():
-             # _initialize_llm will handle saving and appending messages
-             self._initialize_llm()
+        # Schedule the final update on the main Kivy thread
+        Clock.schedule_once(lambda dt: self._finish_llm_instance_update(new_instance, error_message))
+
+    def _finish_llm_instance_update(self, new_instance, error_message):
+        """Called on the main thread to finalize the LLM instance update."""
+        print("ChatTab: Finishing LLM instance update on main thread.")
+        update_status = ""
+        if new_instance:
+            self.llm_instance = new_instance
+            # Keep backend_initialized as True, just update the instance
+            update_status = f"LLM switched to {self.selected_provider} - {self.selected_model}"
+            print(f"ChatTab: {update_status}")
         else:
-             print("--- on_model_changed SKIPPING (empty model text) ---")
-        print("--- on_model_changed END ---")
+            # Update failed, keep the old instance? Or set to None?
+            # Setting to None and marking backend as uninitialized might be safer.
+            self.llm_instance = None
+            self.backend_initialized = False # Mark as failed if update fails
+            update_status = error_message or "LLM update failed."
+            print(f"ChatTab: LLM update failed: {update_status}")
 
+        # Update the system message via add_message, replacing the "Switching..." message
+        self.add_message("System", update_status, replace_last=True)
+        print(f"ChatTab: Finished LLM instance update. Current Instance ID: {id(self.llm_instance) if self.llm_instance else None}")
 
-    def get_response(self):
-        if not self.chatBoxLLM:
-            self.response_box.append('<span style="color: red;">LLM not initialized. Please select a valid provider and ensure API key is set.</span>')
+    # --- Chat Interaction Methods ---
+
+    def toggle_recording(self):
+        """Handles the on_toggle_recording event from ChatBox."""
+        self._is_currently_recording = not self._is_currently_recording
+        if self._is_currently_recording:
+            print("ChatTab: Recording started (Simulated)")
+            # Add actual voice recording logic here
+            # Example: Start recording -> on result -> self.send_prompt(result); self.toggle_recording()
+        else:
+            print("ChatTab: Recording stopped (Simulated)")
+            # Add logic to process recorded audio if needed
+
+        # Update the ChatBox UI state
+        if self.chat_box:
+            self.chat_box.set_recording_state(self._is_currently_recording)
+
+    def send_prompt(self, prompt: str):
+        """Handles the on_send_prompt event from ChatBox."""
+        # Check if backend is ready before sending
+        if not self.backend_initialized or not self.llm_instance:
+            print("ChatTab: Send attempt failed - Backend not initialized or LLM instance missing.")
+            self.add_message("System", "Error: Backend not ready. Please wait or check logs.")
             return
-        user_text = self.prompt_input.text().strip()
-        if not user_text: return
-        self.prompt_input.setDisabled(True)
-        threading.Thread(target=self._get_response_thread, args=(user_text,), daemon=True).start()
 
-    def _get_response_thread(self, user_text):
-        # Call the async get_response using asyncio.run() within the thread
+        if not prompt: # Should not happen if ChatBox validates, but check anyway
+            return
+
+        print(f"ChatTab: Received prompt from ChatBox: {prompt}")
+        self.add_message("You", prompt) # Add user message to ChatBox display
+        # Input is cleared within ChatBox._dispatch_send_prompt
+
+        # Add a "Thinking..." message to ChatBox display
+        self.add_message("Lily", "Thinking...")
+
+        # Run the async LLM call in a separate thread
+        thread = threading.Thread(target=self._run_async_in_thread, args=(prompt,), daemon=True)
+        thread.start()
+
+    def _run_async_in_thread(self, prompt: str):
+        """Helper function to run the async LLM call in a separate thread."""
         try:
-            # ChatBoxLLM.get_response is now async
-            message, _ = asyncio.run(self.chatBoxLLM.get_response(user_text))
+            # Run the async function using asyncio.run() in this new thread
+            asyncio.run(self._get_llm_response_async(prompt))
         except Exception as e:
-            print(f"Error running chatBoxLLM.get_response: {e}")
-            # Emit an error message back to the UI
-            self.updateResponse.emit(user_text, f"Error processing request: {e}")
-            return # Stop processing if LLM call failed
+            print(f"ChatTab: Error running async task in thread: {e}")
+            # Schedule error display back on the main thread
+            error_message = f"An error occurred in async task: {e}"
+            # Ensure receive_response is robust enough to handle errors even if thinking message wasn't added
+            # Pass an empty list for tools in case of error
+            Clock.schedule_once(lambda dt: self.receive_response(error_message, [])) # Pass empty list
 
-        # Call TTS-Provider if enabled
-        if self.tts_provider_enabled.isChecked():
-            # Run the async TTS function in a separate thread
-            threading.Thread(
-                target=lambda: asyncio.run(generate_speech_from_provider(message)),
-                daemon=True
-            ).start()
-
-        self.updateResponse.emit(user_text, message)
-
-    def on_update_response(self, user_text, assistant_message):
-        self.response_box.append(f"You: {user_text}")
-        self.response_box.append(f"Lily: {assistant_message}")
-        self.prompt_input.clear()
-        self.prompt_input.setDisabled(False)
-
-    def clear_history(self, notify=True):
-        if self.chatBoxLLM:
-            self.chatBoxLLM.message_history = []
-        # Clear the visual chat display
-        self.response_box.clear()
-        if notify:
-            self.response_box.append("History cleared.")
-
-    # Removed enable_kg_features method
-
-    def record_voice(self):
-        threading.Thread(target=self._record_voice_thread, daemon=True).start()
-
-    def _record_voice_thread(self):
-        recognizer = sr.Recognizer()
+    async def _get_llm_response_async(self, prompt: str):
+        """Async function to get response and successful tool details from LLM and schedule UI update."""
         try:
-            with sr.Microphone() as source:
-                recognizer.adjust_for_ambient_noise(source, duration=1)
-                print("Recording... Please speak now.")
-                QMetaObject.invokeMethod(self, "start_recording_ui", Qt.QueuedConnection)
-                audio = recognizer.listen(source, phrase_time_limit=5)
-                recognized_text = recognizer.recognize_google(audio)
-                print("Recognized text:", recognized_text)
-                QMetaObject.invokeMethod(self.prompt_input, "setText", Qt.QueuedConnection, Q_ARG(str, recognized_text))
+            # Ensure the LLM instance is up-to-date (optional, could rely on callbacks)
+            # self._update_llm_instance() # Might be redundant if callbacks work reliably
+
+            print(f"ChatTab: Calling LLM instance get_response for: '{prompt[:50]}...'")
+            # The get_response method now returns (response, successful_tool_details_list)
+            response, successful_tool_details_list = await self.llm_instance.get_response(prompt)
+            print(f"ChatTab: Received response and tool details: {successful_tool_details_list} from LLM instance.")
+
+            # Schedule the UI update back on the main Kivy thread, passing both response and the list of dictionaries
+            Clock.schedule_once(lambda dt: self.receive_response(response, successful_tool_details_list))
+
         except Exception as e:
-            print("Voice recognition error:", e)
-        finally:
-            QMetaObject.invokeMethod(self, "reset_record_icon", Qt.QueuedConnection)
+            print(f"ChatTab: Error during LLM interaction: {e}")
+            error_message = f"An error occurred: {e}"
+            # Schedule the error message display back on the main Kivy thread, pass empty list for tools
+            Clock.schedule_once(lambda dt: self.receive_response(error_message, [])) # Pass empty list
 
-    @pyqtSlot()
-    def reset_record_icon(self):
-        self.record_button.setIcon(QIcon("assets/mic_idle.png"))
+    def receive_response(self, response: str, successful_tool_details_list: list):
+        """Handle receiving the final response and successful tool details, update ChatBox and ActionsList UI."""
+        print(f"ChatTab: Updating ChatBox UI with response: {response[:100]}...")
+        print(f"ChatTab: Received successful tool details: {successful_tool_details_list}")
 
-    @pyqtSlot()
-    def start_recording_ui(self):
-        self.record_button.setIcon(QIcon("assets/mic_on.png"))
-        self.response_box.append('<span style="color: red;">Recording... Please speak now.</span>')
+        # Replace the "Thinking..." message with the actual response in ChatBox
+        self.add_message("Lily", response, replace_last=True)
+
+        # Update the ActionsList with the detailed dictionaries
+        if self.actions_list and successful_tool_details_list:
+            print(f"ChatTab: Adding successful tool details to ActionsList...")
+            for tool_details in successful_tool_details_list:
+                # Pass the entire dictionary to add_action
+                self.actions_list.add_action(tool_details)
+        elif not self.actions_list:
+            print("ChatTab Warning: actions_list widget not found, cannot add tool calls.")
+
+        if self.tts_enabled:
+            print(f"ChatTab: TTS Enabled: Speaking response (Simulated)")
+            # Add actual TTS logic here
+
+    def add_message(self, sender_type, text, scroll: bool = True, replace_last: bool = False):
+        """Adds a message to the ChatBox display."""
+        # Check if chat_box is linked. It should be after _post_init runs.
+        if self.chat_box:
+            self.chat_box.add_message(sender_type, text, scroll=scroll, replace_last=replace_last)
+        else:
+            # This indicates _post_init hasn't run or failed to link
+            print(f"ChatTab Error: chat_box not available in add_message. Message '{text}' lost.")
+            # Avoid trying to link here, rely on _post_init
+
+    def clear_history(self):
+        """Clears the chat history display in ChatBox and LLM internal history."""
+        print("ChatTab: Clearing chat history.")
+        if self.chat_box:
+            self.chat_box.clear_history() # Clears display and adds system message
+
+        # Clear the ActionsList as well
+        if self.actions_list:
+            self.actions_list.clear_actions()
+            print("ChatTab: Cleared ActionsList.")
+
+        # Optionally, clear the LLM's internal history if applicable
+        if self.llm_instance and hasattr(self.llm_instance, 'clear_history'):
+            print("ChatTab: Clearing LLM internal history.")
+            self.llm_instance.clear_history()

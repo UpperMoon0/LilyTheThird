@@ -30,7 +30,10 @@ DEFAULT_SETTINGS = {
     'tts_provider_enabled': False,
     'selected_provider': 'OpenAI',
     'selected_model': DEFAULT_OPENAI_MODEL, # Use default OpenAI model
+    'temperature': 0.7, # Default temperature for Chat Tab
     # Discord Tab Settings
+    'discord_guild_id': '', # Default Guild ID
+    'discord_channel_id': '', # Default Channel ID
     'discord_selected_provider': 'OpenAI', # Default Discord provider
     'discord_selected_model': DEFAULT_OPENAI_MODEL # Default Discord model
 }
@@ -97,12 +100,13 @@ def load_settings():
                 else: # Handle case where provider might be missing or invalid
                     print(f"Warning: Invalid or missing provider '{provider}' for key '{provider_key}'. Cannot validate model.")
                     return # Cannot validate without a valid provider
-
+                
                 if model not in valid_models:
                     print(f"Warning: Loaded model '{model}' (key: {model_key}) not valid for provider '{provider}' (key: {provider_key}). Resetting to default '{default_model}'.")
                     settings[model_key] = default_model
-                    # Optionally save the corrected settings back immediately
-                    # save_settings(settings) # Be careful about potential loops if save fails
+
+                else:
+                    print(f"Model '{model}' is valid for provider '{provider}'.") # ADDED LOG
 
             # Validate models for both chat and discord settings
             validate_model(final_settings, 'selected_provider', 'selected_model')

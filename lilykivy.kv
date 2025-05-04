@@ -1,0 +1,11 @@
+#:kivy 2.0.0
+
+<MainAppLayout>:
+    # Target the TabbedPanelHeader *within* MainAppLayout
+    # This assumes the TabbedPanel is a direct child or descendant
+    TabbedPanelHeader:
+        # Make the header only as wide as its content (the tabs)
+        size_hint_x: None
+        # Bind its width to the sum of its children's widths (the actual tabs)
+        # This should make the header container only as wide as needed for the tabs.
+        width: sum(c.width for c in self.children)
