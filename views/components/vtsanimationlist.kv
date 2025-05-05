@@ -1,0 +1,72 @@
+#:kivy 2.0.0
+
+<VTSAnimationListItem>:
+    size_hint_y: None
+    height: dp(40)
+    spacing: dp(5)
+    padding: [dp(5), 0] # Horizontal padding
+
+    Button:
+        text: root.animation_name
+        size_hint_x: 0.6 # Take most of the space
+        on_press: root.trigger_animation()
+
+    Button:
+        text: "Edit"
+        size_hint_x: 0.2
+        # background_color: (0.7, 0.7, 0.7, 1) # Optional styling
+        on_press: root.edit_animation()
+
+    Button:
+        text: "Delete"
+        size_hint_x: 0.2
+        # background_color: (0.9, 0.5, 0.5, 1) # Optional styling
+        on_press: root.delete_animation()
+
+
+<VTSAnimationList>:
+    orientation: 'vertical'
+    spacing: dp(5)
+    padding: dp(5)
+    canvas.before:
+        Color:
+            rgba: 0.18, 0.18, 0.18, 1 # Slightly different background
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Label:
+        text: 'VTube Studio Animations'
+        size_hint_y: None
+        height: dp(30)
+        font_size: '16sp'
+        bold: True
+        halign: 'center'
+        canvas.before:
+            Color:
+                rgba: 0.12, 0.12, 0.12, 1 # Darker title background
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+    ScrollView:
+        id: scroll_view
+        size_hint_y: 1
+        do_scroll_x: False
+        bar_width: dp(10)
+
+        BoxLayout:
+            id: animations_container
+            orientation: 'vertical'
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: dp(2)
+            padding: dp(5)
+            # Animation items (VTSAnimationListItem) will be added here dynamically
+
+    Button:
+        id: add_animation_button
+        text: "Add New Animation"
+        size_hint_y: None
+        height: dp(40)
+        on_press: root.add_new_animation()

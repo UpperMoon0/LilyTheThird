@@ -8,8 +8,9 @@ from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, Lis
 from kivy.lang import Builder
 from kivy.clock import Clock
 # Removed Label import as it's handled by the component
-from views.components.rgb_strip import RGBStrip # Import the strip
-from views.components.vts_param_list import VTSParamList # Import the new component
+from views.components.rgb_strip import RGBStrip
+from views.components.vts_param_list import VTSParamList
+from views.components.vts_animation_list import VTSAnimationList # Import the animation list component
 
 # Load the corresponding kv file automatically by Kivy convention (vtubetab.kv)
 # Builder.load_file('views/vtube_tab.kv') # REMOVED - Rely on automatic loading
@@ -412,16 +413,37 @@ class VTubeTab(BoxLayout):
             print(f"Exception while setting parameters via generic request: {e}")
             # Optionally update UI
 
-    def set_wink_smile_expression(self):
-        """Sets the VTube Studio model parameters for a 'Wink Smile' expression."""
-        print("Scheduling 'Wink Smile' expression parameter set...")
-        param_values = [
-            {"id": "EyeOpenLeft", "value": 0.0},
-            {"id": "EyeOpenRight", "value": 1.0},
-            {"id": "MouthSmile", "value": 0.8},
-            {"id": "MouthOpen", "value": 0.1},
-            {"id": "TongueOut", "value": 0.2}
-            # Add other parameters to reset if needed, e.g., FaceAngry: 0.0
-        ]
-        # Schedule the async task to run
+    # Removed set_wink_smile_expression method
+
+    def trigger_vts_animation(self, animation_data: dict):
+        """
+        Triggered by the VTSAnimationList component.
+        Sets the parameter values defined in the animation data.
+        """
+        param_values = animation_data.get("parameters", [])
+        anim_name = animation_data.get("name", "Unnamed")
+        if not param_values:
+            print(f"Animation '{anim_name}' has no parameters defined.")
+            return
+
+        print(f"Scheduling '{anim_name}' animation parameter set...")
+        # Schedule the async task to run using the existing method
         Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values)))
+
+    # --- Placeholder handlers for future functionality ---
+    def handle_add_animation(self):
+        """Placeholder triggered by VTSAnimationList's 'Add' button."""
+        print("VTubeTab: Add New Animation requested.")
+        # TODO: Implement logic to open an animation creation dialog
+
+    def handle_edit_animation(self, animation_data):
+        """Placeholder triggered by VTSAnimationList's 'Edit' button."""
+        anim_name = animation_data.get("name", "Unnamed")
+        print(f"VTubeTab: Edit Animation requested for '{anim_name}'.")
+        # TODO: Implement logic to open an animation editing dialog
+
+    def handle_delete_animation(self, animation_data):
+        """Placeholder triggered by VTSAnimationList's 'Delete' button."""
+        anim_name = animation_data.get("name", "Unnamed")
+        print(f"VTubeTab: Delete Animation requested for '{anim_name}'.")
+        # TODO: Implement logic to confirm and delete the animation file

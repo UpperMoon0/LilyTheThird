@@ -1,6 +1,7 @@
 #:kivy 2.0.0
 #:import RGBStrip views.components.rgb_strip.RGBStrip
 #:import VTSParamList views.components.vts_param_list.VTSParamList
+#:import VTSAnimationList views.components.vts_animation_list.VTSAnimationList
 
 <VTubeTab>:
     orientation: 'vertical'
@@ -27,12 +28,14 @@
             on_press: root.toggle_connection()
             disabled: self.text in ["Connecting...", "Disconnecting..."] # Disable based on text
 
-    # --- New Expression Button ---
-    Button:
-        text: "Set Wink Smile"
-        size_hint_y: None
-        height: '40dp'
-        on_press: root.set_wink_smile_expression()
+    # --- Animation List Component (Replaces old button) ---
+    VTSAnimationList:
+        id: vts_animation_list_widget
+        size_hint_y: 0.4 # Give it some vertical space, adjust as needed
+        # Connect the component's event to the root widget's (VTubeTab) method
+        # Pass only the second argument (animation_data)
+        on_trigger_animation: root.trigger_vts_animation(args[1])
+        on_add_animation: root.handle_add_animation() # Connect add event
 
     # --- Parameter List Display ---
     Label:
