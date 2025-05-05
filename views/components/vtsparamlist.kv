@@ -1,0 +1,78 @@
+#:kivy 2.0.0
+
+<VTSParamListItem>:
+    orientation: 'vertical' # Stack name and slider vertically
+    size_hint_y: None
+    height: dp(50) # Fixed height for each item
+    padding: [dp(5), dp(2)]
+    spacing: dp(2)
+
+    BoxLayout: # Row for Name and Value Label
+        size_hint_y: None
+        height: dp(20)
+        Label:
+            text: root.param_name
+            size_hint_x: 0.7
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+            shorten: True
+            shorten_from: 'right'
+        Label:
+            # Display value formatted to 2 decimal places
+            text: f"{root.param_value:.2f}"
+            size_hint_x: 0.3
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+
+    Slider:
+        id: param_slider
+        min: root.param_min
+        max: root.param_max
+        value: root.param_value
+        step: (root.param_max - root.param_min) / 100.0 # Example step, adjust as needed
+        size_hint_y: None
+        height: dp(25)
+        on_value: root.on_slider_value(self, self.value)
+
+
+<VTSParamList>:
+    orientation: 'vertical'
+    spacing: dp(5)
+    padding: dp(5)
+    canvas.before:
+        Color:
+            rgba: 0.15, 0.15, 0.15, 1 # Slightly darker background
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    Label:
+        text: 'VTube Studio Parameters'
+        size_hint_y: None
+        height: dp(30)
+        font_size: '16sp'
+        bold: True
+        halign: 'center'
+        canvas.before:
+            Color:
+                rgba: 0.1, 0.1, 0.1, 1 # Even darker for title background
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+    ScrollView:
+        id: scroll_view
+        size_hint_y: 1
+        do_scroll_x: False
+        bar_width: dp(10)
+
+        BoxLayout:
+            id: params_container
+            orientation: 'vertical'
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: dp(2)
+            padding: dp(5)
+            # Parameter items (VTSParamListItem) will be added here dynamically

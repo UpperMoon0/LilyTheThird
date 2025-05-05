@@ -1,5 +1,6 @@
-#:kivy 1.11.1
+#:kivy 2.0.0
 #:import RGBStrip views.components.rgb_strip.RGBStrip
+#:import VTSParamList views.components.vts_param_list.VTSParamList
 
 <VTubeTab>:
     orientation: 'vertical'
@@ -42,15 +43,8 @@
         valign: 'middle'
         text_size: self.width, None # Important for alignment
 
-    ScrollView:
+    # Replace the old ScrollView/BoxLayout with the VTSParamList component
+    VTSParamList:
+        id: vts_param_list_widget # ID for Python code to access
         size_hint_y: 1 # Allow it to take available vertical space
-        do_scroll_x: False # Only vertical scrolling needed
-        BoxLayout:
-            id: param_list_layout # ID for Python code to access
-            orientation: 'vertical'
-            size_hint_y: None # Important for ScrollView
-            height: self.minimum_height # Grow height based on content
-            spacing: '2dp'
-            # Labels will be added here dynamically by on_available_parameters
-
-    # RGB Strip removed from here
+        # The component itself contains the ScrollView and manages its content

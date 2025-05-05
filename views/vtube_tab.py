@@ -4,11 +4,12 @@ import os # Added for file operations
 import uuid # Import uuid for request IDs
 import pyvts
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty # Added ListProperty
+from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty
 from kivy.lang import Builder
 from kivy.clock import Clock
-from kivy.uix.label import Label # Added for displaying parameters
+# Removed Label import as it's handled by the component
 from views.components.rgb_strip import RGBStrip # Import the strip
+from views.components.vts_param_list import VTSParamList # Import the new component
 
 # Load the corresponding kv file automatically by Kivy convention (vtubetab.kv)
 # Builder.load_file('views/vtube_tab.kv') # REMOVED - Rely on automatic loading
@@ -353,35 +354,15 @@ class VTubeTab(BoxLayout):
 
     def on_available_parameters(self, instance, value):
         """Kivy property observer, schedules UI update when parameters are fetched."""
-        # Schedule the UI update for the next frame to ensure stability
-        Clock.schedule_once(self._update_parameter_ui)
-
-    def _update_parameter_ui(self, dt=None):
-        """Updates the parameter list UI based on the available_parameters property."""
-        print("Updating parameter list UI (scheduled)...")
-        param_list_layout = self.ids.get('param_list_layout')
-        if not param_list_layout:
-            print("Error: param_list_layout not found in ids during scheduled update.")
-            return
-
-        param_list_layout.clear_widgets()
-        value = self.available_parameters # Use the current value of the property
-
-        # Set height dynamically based on number of items
-        # Adjust multiplier as needed for label height/padding
-        param_list_layout.height = len(value) * 30 # Example: 30 pixels per label
-
-        if not value:
-            param_list_layout.add_widget(Label(text="No parameters found or error fetching.", size_hint_y=None, height=30))
+        """Kivy property observer, updates the VTSParamList component."""
+        vts_param_list_widget = self.ids.get('vts_param_list_widget')
+        if vts_param_list_widget:
+            print(f"Updating VTSParamList component with {len(value)} parameters.")
+            vts_param_list_widget.set_parameters(value)
         else:
-            for param_data in value:
-                param_name = param_data.get('name', 'Unknown Parameter')
-                # You could add more info like min/max here if needed
-                label_text = f"{param_name}"
-                param_label = Label(text=label_text, size_hint_y=None, height=30)
-                param_list_layout.add_widget(param_label)
-        print("Parameter list UI update complete (scheduled).")
+            print("Error: vts_param_list_widget not found in ids. Cannot update parameters.")
 
+    # Removed _update_parameter_ui method as the component handles its own UI updates.
 
     async def set_parameter_values(self, param_values: list[dict]):
         """
