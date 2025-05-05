@@ -1,18 +1,24 @@
 import asyncio
 import asyncio
-import os # Added for file operations
-import uuid # Import uuid for request IDs
+import os
+import uuid
+import json # Added for save/load and clipboard
 import pyvts
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty, DictProperty
 from kivy.lang import Builder
 from kivy.clock import Clock
+from kivy.core.clipboard import Clipboard # Added for clipboard functions
+from kivy.uix.popup import Popup # Added for showing messages
+from kivy.uix.label import Label # Added for popup content
 from views.components.rgb_strip import RGBStrip
 from views.components.vts_animation_list import VTSAnimationList
-# from views.components.vts_param_list import VTSParamList # No longer needed directly for inline editor
-from views.components.animation_modal import AnimationModal # Import the modal
+# VTSParamList is now used within AnimationEditorPanel, no direct import needed here unless accessed directly
+# from views.components.vts_param_list import VTSParamList
+from views.components.animation_editor_panel import AnimationEditorPanel # Import the new panel component
 
 # Load the corresponding kv file automatically by Kivy convention (vtubetab.kv)
+# Builder.load_file('views/vtubetab.kv') # Kivy usually handles this
 
 class VTubeTab(BoxLayout):
     """
@@ -32,11 +38,11 @@ class VTubeTab(BoxLayout):
     vts_port = 8001
 
     # --- Editor State Properties ---
-    is_editing = BooleanProperty(False) # True when adding or editing an animation (via modal now)
-    # editing_animation_data = DictProperty(None, allownone=True) # State managed by modal
+    is_editing = BooleanProperty(False) # True when the inline editor panel is active
+    editing_animation_data = DictProperty(None, allownone=True) # Data for the animation being edited/added
 
-    # --- Modal Instance ---
-    animation_modal = ObjectProperty(None) # Reference to the modal instance
+    # --- No Modal Instance Needed ---
+    # animation_modal = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -47,9 +53,8 @@ class VTubeTab(BoxLayout):
             host=self.vts_host,
             port=self.vts_port
         )
-        # Instantiate the modal
-        self.animation_modal = AnimationModal()
-        # No need to clear editor on startup anymore
+        # No need to instantiate modal
+        self.cancel_edit() # Ensure editor is initially hidden/disabled
 
     async def _connect_vts(self):
         """Asynchronously connect to VTube Studio."""
@@ -360,8 +365,14 @@ class VTubeTab(BoxLayout):
         except Exception as e:
             print(f"Exception while fetching parameters: {e}")
             self.available_parameters = [] # Clear on exception
+        finally:
+            # Ensure editor state is consistent with connection status
+            if not self.is_connected:
+                self.cancel_edit() # Hide editor if connection fails/drops
+            # Re-enable button correctly based on outcome (moved from original finally)
+            if hasattr(self.ids, 'connect_button'):
+                self.ids.connect_button.disabled = False
 
-    # Removed on_available_parameters method - parameter list is now in the modal
 
     async def set_parameter_values(self, param_values: list[dict]):
         """
@@ -445,65 +456,235 @@ class VTubeTab(BoxLayout):
         print(f"Scheduling '{anim_name}' animation parameter set...")
         Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values_list)))
 
-    # --- Modal Interaction Logic ---
+    # --- Inline Editor Interaction Logic ---
 
-    def _refresh_animation_list_after_save(self):
-        """Callback function passed to the modal to refresh the list on save."""
-        print("VTubeTab: Refreshing animation list after modal save.")
+    def _refresh_animation_list(self):
+        """Refreshes the VTSAnimationList widget."""
+        print("VTubeTab: Refreshing animation list.")
         anim_list_widget = self.ids.get('vts_animation_list_widget')
         if anim_list_widget:
             anim_list_widget.load_animations()
         else:
             print("Error: Cannot refresh list, vts_animation_list_widget not found.")
 
-    # --- Button Handlers (Now trigger the modal) ---
-
     def handle_add_new_animation_button(self):
-        """Opens the AnimationModal for adding a new animation."""
+        """Shows and prepares the inline editor panel for adding a new animation."""
         if not self.is_connected or not self.available_parameters:
+            self._show_popup("Error", "Connect to VTS and load parameters first.")
             print("Cannot add animation: Connect to VTS and ensure parameters are loaded.")
-            # TODO: Show user feedback (e.g., popup or status message)
-            return
-        if not self.animation_modal:
-            print("Error: AnimationModal instance not found.")
             return
 
-        print("VTubeTab: Opening modal for new animation.")
-        self.animation_modal.open_modal(
-            available_params=self.available_parameters,
-            data=None, # No data for new animation
-            save_callback=self._refresh_animation_list_after_save
-        )
+        editor_panel = self.ids.get('editor_panel')
+        if not editor_panel:
+            print("Error: editor_panel not found in VTubeTab ids.")
+            return
+
+        print("VTubeTab: Activating editor panel for new animation.")
+        self.editing_animation_data = {} # Clear any previous edit data
+        self.is_editing = True # This will make the panel visible via KV binding
+        # Populate the panel with available params and no existing data
+        editor_panel.populate_editor(self.available_parameters, None)
 
     def handle_edit_animation_selection(self, animation_data):
-        """Opens the AnimationModal with the selected animation's data."""
+        """Shows and prepares the inline editor panel with the selected animation's data."""
         if not self.is_connected or not self.available_parameters:
+            self._show_popup("Error", "Connect to VTS and load parameters first.")
             print("Cannot edit animation: Connect to VTS and ensure parameters are loaded.")
-            # TODO: Show user feedback
             return
-        if not self.animation_modal:
-            print("Error: AnimationModal instance not found.")
+
+        editor_panel = self.ids.get('editor_panel')
+        if not editor_panel:
+            print("Error: editor_panel not found in VTubeTab ids.")
             return
 
         anim_name = animation_data.get("name", "Unnamed")
-        print(f"VTubeTab: Opening modal to edit '{anim_name}'.")
-        self.animation_modal.open_modal(
-            available_params=self.available_parameters,
-            data=animation_data, # Pass selected data
-            save_callback=self._refresh_animation_list_after_save
-        )
+        print(f"VTubeTab: Activating editor panel to edit '{anim_name}'.")
+        self.editing_animation_data = animation_data # Store data being edited
+        self.is_editing = True # Make panel visible
+        # Populate the panel with available params and the selected data
+        editor_panel.populate_editor(self.available_parameters, animation_data)
+
+    def save_edited_animation(self, save_data):
+        """
+        Handles the 'on_save_animation' event from the AnimationEditorPanel.
+        Saves the animation data to a JSON file.
+        """
+        anim_name = save_data.get("name")
+        current_params = save_data.get("parameters")
+        original_filename_base = save_data.get("_filename") # Present if editing
+
+        if not anim_name or current_params is None:
+            print("Error: Invalid data received from editor panel for saving.")
+            self._show_popup("Save Error", "Invalid data received from editor.")
+            return
+
+        # Determine filename
+        if original_filename_base: # Editing existing
+            filename_base = original_filename_base
+        else: # Adding new
+            # Basic sanitization for filename
+            filename_base = "".join(c for c in anim_name if c.isalnum() or c in (' ', '_', '-')).rstrip()
+            filename_base = filename_base.replace(' ', '_')
+            if not filename_base:
+                filename_base = "unnamed_animation"
+
+        filename = f"{filename_base}.json"
+        animations_dir = self.get_animations_dir()
+        if not animations_dir:
+            print("Error: Cannot determine animations directory for saving.")
+            self._show_popup("Save Error", "Could not determine animations directory.")
+            return
+
+        filepath = os.path.join(animations_dir, filename)
+
+        # Data structure to save (ensure parameters are dict, not list)
+        data_to_write = {
+            "name": anim_name,
+            "parameters": current_params # Already a dict {name: value} from VTSParamList
+        }
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data_to_write, f, indent=4)
+            print(f"Animation saved successfully to: {filepath}")
+            self._show_popup("Success", f"Animation '{anim_name}' saved.")
+
+            self._refresh_animation_list() # Update the list on the left
+            self.cancel_edit() # Hide the editor panel
+
+        except Exception as e:
+            print(f"Error saving animation file {filepath}: {e}")
+            self._show_popup("Save Error", f"Error saving file:\n{e}")
+
+    def cancel_edit(self):
+        """Handles the 'on_cancel_edit' event. Hides the editor panel."""
+        print("VTubeTab: Cancelling edit.")
+        self.is_editing = False
+        self.editing_animation_data = None
+
+    def copy_param_names_to_clipboard(self):
+        """Handles 'on_copy_names'. Copies parameter names to clipboard."""
+        editor_panel = self.ids.get('editor_panel')
+        if not editor_panel or not editor_panel.ids.get('editor_param_list'):
+            print("Error: Cannot copy names, editor panel or param list not found.")
+            self._show_popup("Error", "Could not find parameter list widget.")
+            return
+
+        param_list_widget = editor_panel.ids.editor_param_list
+        all_params_data = param_list_widget._all_parameters # Access internal list
+        param_names = [p.get('name') for p in all_params_data if p.get('name')]
+
+        if not param_names:
+            print("No parameter names found to copy.")
+            self._show_popup("Info", "No parameter names available to copy.")
+            return
+
+        try:
+            json_string = json.dumps(param_names, indent=4)
+            Clipboard.copy(json_string)
+            print(f"Copied {len(param_names)} parameter names to clipboard.")
+            self._show_popup("Success", f"Copied {len(param_names)} parameter names\nto clipboard as JSON.")
+        except Exception as e:
+            print(f"Error converting parameter names to JSON or copying: {e}")
+            self._show_popup("Error", f"Failed to copy names:\n{e}")
+
+    def set_animation_from_clipboard(self):
+        """Handles 'on_set_from_clipboard'. Sets editor values from clipboard JSON."""
+        editor_panel = self.ids.get('editor_panel')
+        if not editor_panel:
+             print("Error: Cannot set from clipboard, editor panel not found.")
+             self._show_popup("Error", "Editor panel not found.")
+             return
+
+        # Get references to widgets inside the editor panel
+        animation_name_input = editor_panel.ids.get('editor_animation_name_input')
+        param_list_widget = editor_panel.ids.get('editor_param_list')
+
+        if not param_list_widget or not animation_name_input:
+            print("Error: Cannot set from clipboard, editor widgets not linked.")
+            self._show_popup("Error", "Editor widgets not properly linked.")
+            return
+
+        clipboard_content = Clipboard.paste()
+        if not clipboard_content:
+            print("Clipboard is empty.")
+            self._show_popup("Info", "Clipboard is empty.")
+            return
+
+        try:
+            data = json.loads(clipboard_content)
+        except json.JSONDecodeError:
+            print("Error: Clipboard content is not valid JSON.")
+            self._show_popup("Error", "Clipboard content is not valid JSON.")
+            return
+        except Exception as e:
+            print(f"Error reading clipboard JSON: {e}")
+            self._show_popup("Error", f"Error reading clipboard:\n{e}")
+            return
+
+        # Validate data structure
+        if not isinstance(data, dict) or \
+           'name' not in data or not isinstance(data.get('name'), str) or \
+           'parameters' not in data or not isinstance(data.get('parameters'), dict):
+            print("Error: Clipboard JSON has incorrect structure.")
+            self._show_popup("Error", "Clipboard JSON format incorrect.\nExpected: {'name': '...', 'parameters': {...}}")
+            return
+
+        # --- Apply data ---
+        new_anim_name = data['name']
+        clipboard_params = data['parameters'] # Should be {name: value}
+
+        # Update animation name input
+        animation_name_input.text = new_anim_name
+
+        # Update parameter values in the list
+        current_full_params = param_list_widget._all_parameters # Get full structure
+        updated_params_list = []
+        params_updated_count = 0
+        params_not_found_count = 0
+
+        for param_struct in current_full_params:
+            param_name = param_struct.get('name')
+            new_param_struct = param_struct.copy() # Work on a copy
+
+            if param_name and param_name in clipboard_params:
+                new_value = clipboard_params[param_name]
+                if isinstance(new_value, (int, float)):
+                    min_val = new_param_struct.get('min', 0)
+                    max_val = new_param_struct.get('max', 1)
+                    clamped_value = max(min_val, min(float(new_value), max_val)) # Ensure float
+                    new_param_struct['value'] = clamped_value
+                    params_updated_count += 1
+                else:
+                    print(f"Warning: Invalid value type for '{param_name}' in clipboard.")
+            elif param_name:
+                 params_not_found_count += 1
+
+            updated_params_list.append(new_param_struct)
+
+        # Update the VTSParamList with the modified list
+        param_list_widget.set_parameters(updated_params_list)
+
+        print(f"Set animation from clipboard: Name='{new_anim_name}', {params_updated_count} parameters updated.")
+        msg = f"Set animation: '{new_anim_name}'\n{params_updated_count} parameters updated."
+        if params_not_found_count > 0:
+            msg += f"\n({params_not_found_count} parameters not found in clipboard data.)"
+            self._show_popup("Success (with warnings)", msg)
+        else:
+            self._show_popup("Success", msg)
 
 
-    # --- Removed Inline Editor Panel Logic ---
-    # def _populate_editor(self, animation_data=None): ... (Removed)
-    # def save_edited_animation(self): ... (Removed - handled by modal)
-    # def cancel_edit(self): ... (Removed - handled by modal)
+    # --- Helper Functions ---
+    def _show_popup(self, title, message):
+        """Helper to show a simple popup message."""
+        popup = Popup(title=title,
+                      content=Label(text=message, halign='center', valign='middle'),
+                      size_hint=(0.6, 0.3),
+                      auto_dismiss=True)
+        popup.open()
 
-
-    # --- Helper Function (Still needed by modal via callback chain) ---
     def get_animations_dir(self):
-        """Gets the path to the animations directory (consistent with VTSAnimationList)."""
-        # Duplicated from modal logic for now, could be refactored into a utility
+        """Gets the path to the animations directory."""
         app_data_root = os.getenv('APPDATA')
         if not app_data_root:
              print("Error: Could not determine APPDATA directory.")

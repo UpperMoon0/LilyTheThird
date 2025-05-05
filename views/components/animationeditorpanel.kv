@@ -1,0 +1,73 @@
+#:kivy 2.0.0
+#:import VTSParamList views.components.vts_param_list.VTSParamList
+
+<AnimationEditorPanel>:
+    # Inherits BoxLayout properties (orientation, spacing, padding set by parent in vtubetab.kv)
+
+    # --- Editor Title ---
+    Label:
+        id: editor_title # ID for Python access in AnimationEditorPanel
+        text: "Animation Editor" # Default text
+        size_hint_y: None
+        height: dp(30)
+        font_size: '18sp'
+        bold: True
+        halign: 'center'
+
+    # --- Animation Name Input ---
+    BoxLayout:
+        size_hint_y: None
+        height: dp(35)
+        Label:
+            text: "Name:"
+            size_hint_x: 0.2
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+        TextInput:
+            id: editor_animation_name_input # ID for Python access in AnimationEditorPanel
+            size_hint_x: 0.8
+            multiline: False
+            write_tab: False
+
+    # --- Parameter List ---
+    Label:
+        text: "Set Parameter Values:"
+        size_hint_y: None
+        height: dp(25)
+        halign: 'left'
+        valign: 'middle'
+        text_size: self.width, None
+        bold: True
+
+    VTSParamList:
+        id: editor_param_list # ID for Python access in AnimationEditorPanel
+        size_hint_y: 1 # Take remaining vertical space
+
+    # --- Action Buttons ---
+    BoxLayout:
+        size_hint_y: None
+        height: dp(45)
+        spacing: dp(5)
+
+        Button:
+            text: "Save"
+            size_hint_x: 0.25
+            on_press: root.trigger_save() # Call trigger method in Python class
+
+        Button:
+            text: "Copy Names"
+            tooltip_text: "Copy parameter names to clipboard (JSON)"
+            size_hint_x: 0.25
+            on_press: root.trigger_copy_names() # Call trigger method
+
+        Button:
+            text: "Set from JSON"
+            tooltip_text: "Set animation name & values from clipboard JSON"
+            size_hint_x: 0.25
+            on_press: root.trigger_set_from_clipboard() # Call trigger method
+
+        Button:
+            text: "Cancel"
+            size_hint_x: 0.25
+            on_press: root.trigger_cancel() # Call trigger method

@@ -2,6 +2,7 @@
 #:import RGBStrip views.components.rgb_strip.RGBStrip
 #:import VTSAnimationList views.components.vts_animation_list.VTSAnimationList
 #:import VTSParamList views.components.vts_param_list.VTSParamList
+#:import AnimationEditorPanel views.components.animation_editor_panel.AnimationEditorPanel # Import the new panel
 
 <VTubeTab>:
     orientation: 'vertical'
@@ -62,17 +63,16 @@
                 on_edit_animation: root.handle_edit_animation_selection(args[1]) # Renamed handler
                 # on_delete_animation: root.handle_delete_animation(args[1]) # Keep if delete is implemented
 
-        # --- Column B: Placeholder (60% width) ---
-        # The editor panel is now replaced by the AnimationModal popup.
-        # We can leave this column empty or add other controls later.
-        BoxLayout:
-            id: column_b_placeholder # Renamed ID
-            orientation: 'vertical'
+        # --- Column B: Inline Animation Editor Panel (60% width) ---
+        AnimationEditorPanel:
+            id: editor_panel # ID to access the panel instance from VTubeTab
             size_hint_x: 0.6
-            spacing: '10dp'
-            # Optional: Add a placeholder label or keep it empty
-            Label:
-                text: "Select an animation to trigger,\nor use 'Add'/'Edit' below."
-                halign: 'center'
-                valign: 'center'
-                color: 0.7, 0.7, 0.7, 1 # Dim color
+            # Control visibility/interactivity from VTubeTab's is_editing property
+            disabled: not root.is_editing
+            opacity: 1 if root.is_editing else 0 # Hide completely when not editing
+
+            # Bind the panel's events to methods in VTubeTab (root)
+            on_save_animation: root.save_edited_animation(args[1]) # Pass data arg
+            on_cancel_edit: root.cancel_edit()
+            on_copy_names: root.copy_param_names_to_clipboard()
+            on_set_from_clipboard: root.set_animation_from_clipboard()
