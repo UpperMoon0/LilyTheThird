@@ -55,79 +55,24 @@
             VTSAnimationList:
                 id: vts_animation_list_widget
                 size_hint_y: 1 # Take remaining space in column A
+                disabled: not root.is_connected # Disable when not connected
                 # Connect events to root (VTubeTab) methods
                 on_trigger_animation: root.trigger_vts_animation(args[1])
                 on_add_animation: root.handle_add_new_animation_button() # Renamed handler for clarity
                 on_edit_animation: root.handle_edit_animation_selection(args[1]) # Renamed handler
                 # on_delete_animation: root.handle_delete_animation(args[1]) # Keep if delete is implemented
 
-        # --- Column B: Editor Panel (60% width) ---
+        # --- Column B: Placeholder (60% width) ---
+        # The editor panel is now replaced by the AnimationModal popup.
+        # We can leave this column empty or add other controls later.
         BoxLayout:
-            id: column_b_editor
+            id: column_b_placeholder # Renamed ID
             orientation: 'vertical'
             size_hint_x: 0.6
             spacing: '10dp'
-            # Add a visual separator/background (optional)
-            canvas.before:
-                Color:
-                    rgba: 0.15, 0.15, 0.15, 0.9 # Slightly dark background
-                Rectangle:
-                    pos: self.pos
-                    size: self.size
-
+            # Optional: Add a placeholder label or keep it empty
             Label:
-                id: editor_title_label
-                text: "Animation Editor" # Default title
-                size_hint_y: None
-                height: dp(30)
-                font_size: '18sp'
-                bold: True
+                text: "Select an animation to trigger,\nor use 'Add'/'Edit' below."
                 halign: 'center'
-
-            BoxLayout: # Name Input Row
-                size_hint_y: None
-                height: dp(35)
-                Label:
-                    text: "Name:"
-                    size_hint_x: 0.2
-                    halign: 'right'
-                    valign: 'middle'
-                    text_size: self.size
-                TextInput:
-                    id: editor_animation_name_input # ID for Python access
-                    size_hint_x: 0.8
-                    multiline: False
-                    write_tab: False
-
-            Label: # Parameters Title
-                text: "Set Parameter Values:"
-                size_hint_y: None
-                height: dp(25)
-                halign: 'left'
-                valign: 'middle'
-                text_size: self.width, None
-                bold: True
-
-            VTSParamList:
-                id: editor_param_list # ID for Python access
-                size_hint_y: 1 # Take remaining vertical space in editor
-
-            BoxLayout: # Action Buttons Row
-                size_hint_y: None
-                height: dp(45)
-                spacing: dp(10)
-
-                Button:
-                    id: editor_save_button
-                    text: "Save Animation"
-                    size_hint_x: 1.0 # Changed from 0.5 to take full width
-                    on_press: root.save_edited_animation()
-                    disabled: not root.is_editing # Disable if not editing/adding
-
-                # Removed the Cancel button
-                # Button:
-                #     id: editor_cancel_button
-                #     text: "Cancel / Clear"
-                #     size_hint_x: 0.5
-                #     on_press: root.cancel_edit()
-                #     disabled: not root.is_editing # Disable if not editing/adding
+                valign: 'center'
+                color: 0.7, 0.7, 0.7, 1 # Dim color

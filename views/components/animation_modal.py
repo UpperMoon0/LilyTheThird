@@ -5,6 +5,10 @@ from kivy.properties import ObjectProperty, DictProperty, BooleanProperty, ListP
 from kivy.lang import Builder
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.clipboard import Clipboard
+from kivy.uix.popup import Popup # For showing simple messages
+from kivy.uix.label import Label # For popup content
+
 
 # Load KV file for this component (assuming it exists)
 # Builder.load_file('views/components/animationmodal.kv') # Will load later or via main kv
@@ -97,6 +101,141 @@ class AnimationModal(ModalView):
 
         # Update the VTSParamList component within the modal
         self.param_list_widget.set_parameters(params_to_display)
+
+    def _show_popup(self, title, message):
+        """Helper to show a simple popup message."""
+        popup = Popup(title=title,
+                      content=Label(text=message, halign='center', valign='middle'),
+                      size_hint=(0.6, 0.3),
+                      auto_dismiss=True)
+        popup.open()
+
+    def copy_param_names_to_clipboard(self):
+        """Copies the names of all available parameters to the clipboard as a JSON list."""
+        if not self.param_list_widget:
+            self.param_list_widget = self.ids.get('param_list_in_modal')
+        if not self.param_list_widget:
+            print("Error: Cannot copy names, param_list_widget not found.")
+            self._show_popup("Error", "Could not find parameter list widget.")
+            return
+
+        # Get all parameter names from the underlying full list
+        all_params_data = self.param_list_widget._all_parameters
+        param_names = [p.get('name') for p in all_params_data if p.get('name')]
+
+        if not param_names:
+            print("No parameter names found to copy.")
+            self._show_popup("Info", "No parameter names available to copy.")
+            return
+
+        try:
+            json_string = json.dumps(param_names, indent=4) # Pretty print JSON
+            Clipboard.copy(json_string)
+            print(f"Copied {len(param_names)} parameter names to clipboard.")
+            self._show_popup("Success", f"Copied {len(param_names)} parameter names\nto clipboard as JSON.")
+        except Exception as e:
+            print(f"Error converting parameter names to JSON or copying: {e}")
+            self._show_popup("Error", f"Failed to copy names:\n{e}")
+
+    def set_animation_from_clipboard(self):
+        """Sets the animation name and parameter values from JSON data in the clipboard."""
+        if not self.param_list_widget:
+            self.param_list_widget = self.ids.get('param_list_in_modal')
+        if not self.animation_name_input:
+            self.animation_name_input = self.ids.get('animation_name_input')
+
+        if not self.param_list_widget or not self.animation_name_input:
+            print("Error: Cannot set from clipboard, modal widgets not linked.")
+            self._show_popup("Error", "Modal widgets not properly linked.")
+            return
+
+        clipboard_content = Clipboard.paste()
+        if not clipboard_content:
+            print("Clipboard is empty.")
+            self._show_popup("Info", "Clipboard is empty.")
+            return
+
+        try:
+            data = json.loads(clipboard_content)
+        except json.JSONDecodeError:
+            print("Error: Clipboard content is not valid JSON.")
+            self._show_popup("Error", "Clipboard content is not valid JSON.")
+            return
+        except Exception as e:
+            print(f"Error reading clipboard JSON: {e}")
+            self._show_popup("Error", f"Error reading clipboard:\n{e}")
+            return
+
+        # Validate data structure
+        if not isinstance(data, dict):
+            print("Error: Clipboard JSON is not a dictionary.")
+            self._show_popup("Error", "Clipboard JSON is not a dictionary\n(expected format: {'name': '...', 'parameters': {...}}).")
+            return
+        if 'name' not in data or not isinstance(data.get('name'), str):
+            print("Error: Clipboard JSON missing 'name' string.")
+            self._show_popup("Error", "Clipboard JSON missing 'name' string.")
+            return
+        if 'parameters' not in data or not isinstance(data.get('parameters'), dict):
+            print("Error: Clipboard JSON missing 'parameters' dictionary.")
+            self._show_popup("Error", "Clipboard JSON missing 'parameters' dictionary.")
+            return
+
+        # --- Apply data ---
+        new_anim_name = data['name']
+        clipboard_params = data['parameters']
+
+        # Update animation name input
+        self.animation_name_input.text = new_anim_name
+
+        # Update parameter values in the list
+        # Get the current full list structure (including min/max etc.)
+        current_full_params = self.param_list_widget._all_parameters
+        updated_params_list = []
+
+        params_updated_count = 0
+        params_not_found_count = 0
+
+        for param_struct in current_full_params:
+            param_name = param_struct.get('name')
+            if not param_name:
+                updated_params_list.append(param_struct) # Keep params without names as is
+                continue
+
+            new_param_struct = param_struct.copy() # Work on a copy
+
+            if param_name in clipboard_params:
+                new_value = clipboard_params[param_name]
+                # Basic validation: ensure value is numeric
+                if isinstance(new_value, (int, float)):
+                    # Clamp value within min/max bounds
+                    min_val = new_param_struct.get('min', 0)
+                    max_val = new_param_struct.get('max', 1)
+                    clamped_value = max(min_val, min(new_value, max_val))
+                    new_param_struct['value'] = clamped_value
+                    params_updated_count += 1
+                else:
+                    print(f"Warning: Invalid value type for parameter '{param_name}' in clipboard JSON (expected number, got {type(new_value)}). Keeping original value.")
+            else:
+                 params_not_found_count += 1
+                 # Keep original value if not found in clipboard
+
+            updated_params_list.append(new_param_struct)
+
+        # Update the VTSParamList with the modified list
+        # This will automatically update the cache and the visual display
+        self.param_list_widget.set_parameters(updated_params_list)
+
+        print(f"Set animation from clipboard: Name='{new_anim_name}', {params_updated_count} parameters updated.")
+        if params_not_found_count > 0:
+            print(f"Warning: {params_not_found_count} parameters from the list were not found in the clipboard JSON.")
+            self._show_popup("Success (with warnings)",
+                             f"Set animation: '{new_anim_name}'\n"
+                             f"{params_updated_count} parameters updated.\n"
+                             f"{params_not_found_count} parameters not found in clipboard data.")
+        else:
+            self._show_popup("Success",
+                             f"Set animation: '{new_anim_name}'\n"
+                             f"{params_updated_count} parameters updated.")
 
 
     def get_animations_dir(self):

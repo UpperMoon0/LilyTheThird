@@ -55,18 +55,32 @@
         BoxLayout:
             size_hint_y: None
             height: dp(45)
-            spacing: dp(10)
+            spacing: dp(5) # Reduced spacing slightly
 
             Button:
                 text: "Save"
-                size_hint_x: 0.5
+                size_hint_x: 0.25 # Adjusted size
                 on_press: root.save_animation()
                 # Optional styling
                 # background_color: (0.2, 0.6, 0.2, 1)
 
             Button:
+                id: copy_params_button # Added ID
+                text: "Copy Names"
+                tooltip_text: "Copy parameter names to clipboard (JSON)" # Added tooltip
+                size_hint_x: 0.25 # Adjusted size
+                on_press: root.copy_param_names_to_clipboard() # Link to Python method
+
+            Button:
+                id: set_from_json_button # Added ID
+                text: "Set from JSON"
+                tooltip_text: "Set animation name & values from clipboard JSON" # Added tooltip
+                size_hint_x: 0.25 # Adjusted size
+                on_press: root.set_animation_from_clipboard() # Link to Python method
+
+            Button:
                 text: "Cancel"
-                size_hint_x: 0.5
+                size_hint_x: 0.25 # Adjusted size
                 on_press: root.cancel()
                 # Optional styling
                 # background_color: (0.8, 0.3, 0.3, 1)
