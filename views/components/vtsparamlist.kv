@@ -62,6 +62,14 @@
                 pos: self.pos
                 size: self.size
 
+    TextInput:
+        id: search_input
+        size_hint_y: None
+        height: dp(30)
+        hint_text: "Search parameters..."
+        multiline: False
+        on_text: root.filter_params(self.text) # Call filter method on text change
+
     ScrollView:
         id: scroll_view
         size_hint_y: 1
