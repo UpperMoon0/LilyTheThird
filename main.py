@@ -21,8 +21,10 @@ from views.vtube_tab import VTubeTab
 Builder.load_file('views/chattab.kv')
 Builder.load_file('views/discordtab.kv')
 Builder.load_file('views/vtubetab.kv')
-# Load component KV files if they aren't loaded automatically elsewhere
-# Builder.load_file('views/components/chatbox.kv') # Example if needed
+# Explicitly load component KV files needed by the tabs
+Builder.load_file('views/components/vtsparamlist.kv')
+Builder.load_file('views/components/animationeditorpanel.kv')
+# Add other component KVs here if necessary
 
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab

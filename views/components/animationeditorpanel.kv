@@ -2,7 +2,11 @@
 #:import VTSParamList views.components.vts_param_list.VTSParamList
 
 <AnimationEditorPanel>:
+    orientation: 'vertical' # Added this line
+    spacing: dp(5)          # Added default spacing
+    padding: dp(5)          # Added default padding
     # Inherits BoxLayout properties (orientation, spacing, padding set by parent in vtubetab.kv)
+    # Note: Spacing/padding added here might override parent settings if needed, adjust as necessary
 
     # --- Editor Title ---
     Label:

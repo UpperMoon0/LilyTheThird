@@ -11,6 +11,7 @@ from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard # Added for clipboard functions
 from kivy.uix.popup import Popup # Added for showing messages
 from kivy.uix.label import Label # Added for popup content
+from kivy.uix.button import Button # Added for confirmation popup buttons
 from views.components.rgb_strip import RGBStrip
 from views.components.vts_animation_list import VTSAnimationList
 # VTSParamList is now used within AnimationEditorPanel, no direct import needed here unless accessed directly
@@ -702,23 +703,84 @@ class VTubeTab(BoxLayout):
         else:
             print("Error: Cannot filter, vts_animation_list_widget not found.")
 
-    # --- Placeholder for Delete ---
     def handle_delete_animation(self, animation_data):
-        """Placeholder triggered by VTSAnimationList's 'Delete' button."""
-        # TODO: Implement confirmation dialog and file deletion logic
+        """Handles the 'on_delete_animation' event from VTSAnimationList."""
         anim_name = animation_data.get("name", "Unnamed")
-        print(f"VTubeTab: Delete Animation requested for '{anim_name}'.")
-        # Example: Show confirmation, then if confirmed:
-        # filename_base = animation_data.get('_filename')
-        # if filename_base:
-        #     animations_dir = self.get_animations_dir()
-        #     filepath = os.path.join(animations_dir, f"{filename_base}.json")
-        #     try:
-        #         os.remove(filepath)
-        #         print(f"Deleted animation file: {filepath}")
-        #         # Refresh list
-        #         anim_list_widget = self.ids.get('vts_animation_list_widget')
-        #         if anim_list_widget: anim_list_widget.load_animations()
-        #         self.cancel_edit() # Clear editor if the deleted item was being edited
-        #     except OSError as e:
-        #         print(f"Error deleting file {filepath}: {e}")
+        filename_base = animation_data.get('_filename')
+
+        if not filename_base:
+            print(f"Error: Cannot delete animation '{anim_name}', missing filename information.")
+            self._show_popup("Delete Error", f"Could not determine the file for '{anim_name}'.")
+            return
+
+        # --- Confirmation Dialog ---
+        content = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
+        content.add_widget(Label(text=f"Are you sure you want to delete\nthe animation '{anim_name}'?\nThis cannot be undone.", halign='center'))
+        buttons = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
+
+        confirm_button = Button(text="Delete")
+        cancel_button = Button(text="Cancel")
+        buttons.add_widget(confirm_button)
+        buttons.add_widget(cancel_button)
+        content.add_widget(buttons)
+
+        popup = Popup(title="Confirm Deletion",
+                      content=content,
+                      size_hint=(0.7, 0.4),
+                      auto_dismiss=False) # Prevent dismissing by clicking outside
+
+        def _confirm_delete(instance):
+            popup.dismiss()
+            self._perform_delete(animation_data)
+
+        def _cancel_delete(instance):
+            popup.dismiss()
+            print(f"Deletion cancelled for '{anim_name}'.")
+
+        confirm_button.bind(on_press=_confirm_delete)
+        cancel_button.bind(on_press=_cancel_delete)
+
+        popup.open()
+
+    def _perform_delete(self, animation_data):
+        """Actually performs the file deletion after confirmation."""
+        anim_name = animation_data.get("name", "Unnamed")
+        filename_base = animation_data.get('_filename')
+        # Double-check filename_base just in case
+        if not filename_base:
+            print(f"Error: Filename base missing during confirmed delete for '{anim_name}'.")
+            self._show_popup("Internal Error", "Filename missing during delete.")
+            return
+
+        animations_dir = self.get_animations_dir()
+        if not animations_dir:
+            print(f"Error: Cannot determine animations directory for deleting '{anim_name}'.")
+            self._show_popup("Delete Error", "Could not determine animations directory.")
+            return
+
+        filepath = os.path.join(animations_dir, f"{filename_base}.json")
+
+        try:
+            os.remove(filepath)
+            print(f"Successfully deleted animation file: {filepath}")
+            self._show_popup("Success", f"Animation '{anim_name}' deleted.")
+
+            # Refresh the animation list
+            self._refresh_animation_list()
+
+            # If the deleted animation was being edited, close the editor
+            if self.is_editing and self.editing_animation_data and \
+               self.editing_animation_data.get('_filename') == filename_base:
+                self.cancel_edit()
+
+        except FileNotFoundError:
+            print(f"Error deleting file: {filepath} not found.")
+            self._show_popup("Delete Error", f"File not found:\n{filename_base}.json")
+            # Refresh list anyway, in case it was already gone
+            self._refresh_animation_list()
+        except OSError as e:
+            print(f"Error deleting file {filepath}: {e}")
+            self._show_popup("Delete Error", f"Error deleting file:\n{e}")
+        except Exception as e:
+            print(f"Unexpected error during deletion of {filepath}: {e}")
+            self._show_popup("Delete Error", f"An unexpected error occurred:\n{e}")

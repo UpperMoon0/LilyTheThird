@@ -10,8 +10,9 @@ from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.event import EventDispatcher # Added for dispatching events
 
-# Load KV file for this component (will create animationeditorpanel.kv next)
-# Builder.load_file('views/components/animationeditorpanel.kv') # Load in KV or main
+# KV file is now loaded centrally in main.py
+# Builder.load_file('views/components/animationeditorpanel.kv')
+
 
 class AnimationEditorPanel(BoxLayout, EventDispatcher): # Changed base class, added EventDispatcher
     """
@@ -63,22 +64,35 @@ class AnimationEditorPanel(BoxLayout, EventDispatcher): # Changed base class, ad
         self.animation_data = data if data else {} # Ensure it's a dict
         self.is_edit_mode = data is not None
 
-        # Ensure widgets are linked before accessing them
-        # Use Clock.schedule_once to allow Kivy time to process IDs if needed
-        # Using 0 delay, assuming KV is loaded when VTubeTab is built
+        # Schedule the internal population method for the next frame.
+        # This ensures Kivy has processed the panel's internal KV rules
+        # after it becomes visible/enabled in the parent.
         Clock.schedule_once(self._populate_fields_internal, 0)
 
 
-    def _populate_fields_internal(self, dt):
+    def _populate_fields_internal(self, dt): # Added dt argument back
         """Internal method to populate fields after widgets are assumed ready."""
-        # Re-check links or use self.ids directly
-        editor_title = self.ids.get('editor_title')
-        animation_name_input = self.ids.get('editor_animation_name_input')
-        param_list_widget = self.ids.get('editor_param_list')
+        # Use the references set by _link_widgets
+        editor_title = self.editor_title
+        animation_name_input = self.animation_name_input
+        param_list_widget = self.param_list_widget # Use the attribute set in _link_widgets
 
-        if not param_list_widget:
-             print("Error: editor_param_list not found in AnimationEditorPanel.")
-             return # Cannot proceed
+        # Check if the references were successfully linked earlier
+        if not self.param_list_widget:
+             print("Error: self.param_list_widget is None in _populate_fields_internal. Linking failed or happened too late.")
+             # Optionally, try linking again, though this might indicate a deeper issue
+             # self._link_widgets(0) # Be cautious with recursive calls or infinite loops
+             # param_list_widget = self.param_list_widget # Re-check after trying to link again
+             # if not param_list_widget:
+             #    return # Still failed
+             return # Cannot proceed if linking failed
+
+        if not self.animation_name_input:
+             print("Error: self.animation_name_input is None in _populate_fields_internal.")
+             return
+
+        if not self.editor_title:
+             print("Error: self.editor_title is None in _populate_fields_internal.")
 
         if not animation_name_input:
              print("Error: editor_animation_name_input not found in AnimationEditorPanel.")

@@ -2,7 +2,7 @@
 #:import RGBStrip views.components.rgb_strip.RGBStrip
 #:import VTSAnimationList views.components.vts_animation_list.VTSAnimationList
 #:import VTSParamList views.components.vts_param_list.VTSParamList
-#:import AnimationEditorPanel views.components.animation_editor_panel.AnimationEditorPanel # Import the new panel
+#:import AnimationEditorPanel views.components.animation_editor_panel.AnimationEditorPanel
 
 <VTubeTab>:
     orientation: 'vertical'
@@ -61,7 +61,7 @@
                 on_trigger_animation: root.trigger_vts_animation(args[1])
                 on_add_animation: root.handle_add_new_animation_button() # Renamed handler for clarity
                 on_edit_animation: root.handle_edit_animation_selection(args[1]) # Renamed handler
-                # on_delete_animation: root.handle_delete_animation(args[1]) # Keep if delete is implemented
+                on_delete_animation: root.handle_delete_animation(args[1]) # Add binding for delete
 
         # --- Column B: Inline Animation Editor Panel (60% width) ---
         AnimationEditorPanel:

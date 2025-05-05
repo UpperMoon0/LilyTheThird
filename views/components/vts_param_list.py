@@ -6,8 +6,8 @@ from kivy.metrics import dp
 from kivy.uix.label import Label
 from kivy.uix.slider import Slider
 
-# Load the corresponding kv file
-Builder.load_file('views/components/vtsparamlist.kv')
+# KV file is now loaded centrally in main.py
+# Builder.load_file('views/components/vtsparamlist.kv')
 
 class VTSParamListItem(BoxLayout):
     """Widget representing a single VTS parameter with name, value, min, max."""
