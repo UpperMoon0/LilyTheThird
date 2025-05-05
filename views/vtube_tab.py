@@ -4,16 +4,14 @@ import os # Added for file operations
 import uuid # Import uuid for request IDs
 import pyvts
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty
+from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty, DictProperty
 from kivy.lang import Builder
 from kivy.clock import Clock
-# Removed Label import as it's handled by the component
 from views.components.rgb_strip import RGBStrip
-from views.components.vts_param_list import VTSParamList
-from views.components.vts_animation_list import VTSAnimationList # Import the animation list component
+from views.components.vts_animation_list import VTSAnimationList
+from views.components.vts_param_list import VTSParamList # Import param list for editor
 
 # Load the corresponding kv file automatically by Kivy convention (vtubetab.kv)
-# Builder.load_file('views/vtube_tab.kv') # REMOVED - Rely on automatic loading
 
 class VTubeTab(BoxLayout):
     """
@@ -32,9 +30,12 @@ class VTubeTab(BoxLayout):
     vts_host = "127.0.0.1"
     vts_port = 8001
 
+    # --- Editor State Properties ---
+    is_editing = BooleanProperty(False) # True when adding or editing an animation
+    editing_animation_data = DictProperty(None, allownone=True) # Data being edited
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Orientation is set in the kv file
         # Initialize vts instance
         self.vts = pyvts.vts(
             pluginname=self.plugin_name,
@@ -42,6 +43,9 @@ class VTubeTab(BoxLayout):
             host=self.vts_host,
             port=self.vts_port
         )
+        # No modal instantiation needed
+        # Ensure editor is initially cleared
+        Clock.schedule_once(lambda dt: self.cancel_edit()) # Clear editor on startup
 
     async def _connect_vts(self):
         """Asynchronously connect to VTube Studio."""
@@ -353,17 +357,7 @@ class VTubeTab(BoxLayout):
             print(f"Exception while fetching parameters: {e}")
             self.available_parameters = [] # Clear on exception
 
-    def on_available_parameters(self, instance, value):
-        """Kivy property observer, schedules UI update when parameters are fetched."""
-        """Kivy property observer, updates the VTSParamList component."""
-        vts_param_list_widget = self.ids.get('vts_param_list_widget')
-        if vts_param_list_widget:
-            print(f"Updating VTSParamList component with {len(value)} parameters.")
-            vts_param_list_widget.set_parameters(value)
-        else:
-            print("Error: vts_param_list_widget not found in ids. Cannot update parameters.")
-
-    # Removed _update_parameter_ui method as the component handles its own UI updates.
+    # Removed on_available_parameters method - parameter list is now in the modal
 
     async def set_parameter_values(self, param_values: list[dict]):
         """
@@ -413,37 +407,208 @@ class VTubeTab(BoxLayout):
             print(f"Exception while setting parameters via generic request: {e}")
             # Optionally update UI
 
-    # Removed set_wink_smile_expression method
-
     def trigger_vts_animation(self, animation_data: dict):
         """
-        Triggered by the VTSAnimationList component.
+        Triggered by the VTSAnimationList component when an animation button is pressed.
         Sets the parameter values defined in the animation data.
+        Handles 'parameters' being either a dict {name: value} or a list [{'id': name, 'value': value}].
         """
-        param_values = animation_data.get("parameters", [])
+        params_data = animation_data.get("parameters") # Get the parameters data
         anim_name = animation_data.get("name", "Unnamed")
-        if not param_values:
+
+        if not params_data:
             print(f"Animation '{anim_name}' has no parameters defined.")
             return
 
+        param_values_list = []
+        if isinstance(params_data, dict):
+            # Convert dict {name: value} to list of dicts [{"id": name, "value": value}]
+            print(f"Converting parameters dict to list for animation '{anim_name}'")
+            param_values_list = [{"id": name, "value": val} for name, val in params_data.items()]
+        elif isinstance(params_data, list):
+            # Assume it's already in the correct list format [{"id": name, "value": value}]
+            # Basic validation could be added here if needed
+            print(f"Using parameters list directly for animation '{anim_name}'")
+            param_values_list = params_data
+        else:
+            print(f"Error: Unexpected type for 'parameters' in animation '{anim_name}': {type(params_data)}")
+            return # Don't proceed if the format is wrong
+
+        if not param_values_list:
+             print(f"Animation '{anim_name}' resulted in empty parameter list after processing.")
+             return
+
         print(f"Scheduling '{anim_name}' animation parameter set...")
-        # Schedule the async task to run using the existing method
-        Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values)))
+        Clock.schedule_once(lambda dt: asyncio.create_task(self.set_parameter_values(param_values_list)))
 
-    # --- Placeholder handlers for future functionality ---
-    def handle_add_animation(self):
-        """Placeholder triggered by VTSAnimationList's 'Add' button."""
-        print("VTubeTab: Add New Animation requested.")
-        # TODO: Implement logic to open an animation creation dialog
+    # --- Integrated Editor Panel Logic ---
 
-    def handle_edit_animation(self, animation_data):
-        """Placeholder triggered by VTSAnimationList's 'Edit' button."""
+    def _populate_editor(self, animation_data=None):
+        """Populates the editor panel fields."""
+        editor_name_input = self.ids.get('editor_animation_name_input')
+        editor_param_list = self.ids.get('editor_param_list')
+        editor_title = self.ids.get('editor_title_label')
+
+        if not editor_name_input or not editor_param_list or not editor_title:
+            print("Error: Editor widgets not found in VTubeTab ids.")
+            return
+
+        if animation_data: # Editing existing animation
+            self.editing_animation_data = animation_data
+            editor_title.text = f"Editing: {animation_data.get('name', 'Unnamed')}"
+            editor_name_input.text = animation_data.get('name', '')
+            saved_param_values = animation_data.get('parameters', {})
+
+            # Convert list format (old?) to dict format
+            saved_param_values_dict = {}
+            if isinstance(saved_param_values, list):
+                print("Warning: Converting old list-based parameter format to dictionary.")
+                for item in saved_param_values:
+                    if isinstance(item, dict) and 'id' in item and 'value' in item:
+                        saved_param_values_dict[item['id']] = item['value']
+                # If conversion failed or list was empty, keep it as an empty dict
+            elif isinstance(saved_param_values, dict):
+                saved_param_values_dict = saved_param_values
+            else:
+                 # Handle unexpected type if necessary, default to empty dict
+                 print(f"Warning: Unexpected type for saved_param_values: {type(saved_param_values)}. Using empty dict.")
+
+        else: # Adding new animation or clearing
+            self.editing_animation_data = None # Ensure it's cleared for 'add' mode
+            editor_title.text = "Add New Animation"
+            editor_name_input.text = ""
+            saved_param_values_dict = {} # Use the same dict variable name for consistency
+
+        # Populate parameter list
+        params_to_display = []
+        for vts_param in self.available_parameters:
+            param_name = vts_param.get('name')
+            if not param_name: continue
+            display_param = vts_param.copy()
+            # Override value if it exists in the animation being edited, else use VTS default
+            # Use the potentially converted dictionary here
+            display_param['value'] = saved_param_values_dict.get(param_name, vts_param.get('value', 0))
+            params_to_display.append(display_param)
+
+        editor_param_list.set_parameters(params_to_display)
+        self.is_editing = True # Enable save/cancel buttons
+
+    def handle_add_new_animation_button(self):
+        """Prepares the editor panel for adding a new animation."""
+        if not self.is_connected or not self.available_parameters:
+            print("Cannot add animation: Connect to VTS and ensure parameters are loaded.")
+            # TODO: Show user feedback
+            return
+        print("VTubeTab: Preparing editor for new animation.")
+        self._populate_editor(animation_data=None) # Populate with defaults
+
+    def handle_edit_animation_selection(self, animation_data):
+        """Populates the editor panel with the selected animation's data."""
+        if not self.is_connected or not self.available_parameters:
+            print("Cannot edit animation: Connect to VTS and ensure parameters are loaded.")
+            return
         anim_name = animation_data.get("name", "Unnamed")
-        print(f"VTubeTab: Edit Animation requested for '{anim_name}'.")
-        # TODO: Implement logic to open an animation editing dialog
+        print(f"VTubeTab: Loading '{anim_name}' into editor.")
+        self._populate_editor(animation_data=animation_data)
 
+    def save_edited_animation(self):
+        """Saves the animation currently in the editor panel."""
+        editor_name_input = self.ids.get('editor_animation_name_input')
+        editor_param_list = self.ids.get('editor_param_list')
+
+        if not editor_name_input or not editor_param_list:
+            print("Error: Cannot save, editor widgets not found.")
+            return
+
+        anim_name = editor_name_input.text.strip()
+        if not anim_name:
+            print("Error: Animation name cannot be empty.")
+            # TODO: Show feedback (e.g., red border on input)
+            return
+
+        current_params = editor_param_list.get_current_parameter_values()
+        save_data = {"name": anim_name, "parameters": current_params}
+
+        # Determine filename
+        if self.editing_animation_data and '_filename' in self.editing_animation_data:
+            filename_base = self.editing_animation_data['_filename'] # Reuse existing base name
+        else: # New animation
+            filename_base = "".join(c for c in anim_name if c.isalnum() or c in (' ', '_', '-')).rstrip().replace(' ', '_')
+            if not filename_base: filename_base = "unnamed_animation"
+
+        filename = f"{filename_base}.json"
+        animations_dir = self.get_animations_dir() # Use helper to get dir path
+        if not animations_dir: return # Error handled in helper
+
+        filepath = os.path.join(animations_dir, filename)
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(save_data, f, indent=4)
+            print(f"Animation saved successfully to: {filepath}")
+
+            # Refresh the animation list in Column A
+            anim_list_widget = self.ids.get('vts_animation_list_widget')
+            if anim_list_widget:
+                anim_list_widget.load_animations()
+
+            self.cancel_edit() # Clear the editor panel
+
+        except Exception as e:
+            print(f"Error saving animation file {filepath}: {e}")
+            # TODO: Show error message to the user
+
+    def cancel_edit(self):
+        """Clears the editor panel and resets its state."""
+        editor_name_input = self.ids.get('editor_animation_name_input')
+        editor_param_list = self.ids.get('editor_param_list')
+        editor_title = self.ids.get('editor_title_label')
+
+        if editor_name_input: editor_name_input.text = ""
+        if editor_param_list: editor_param_list.clear_parameters()
+        if editor_title: editor_title.text = "Animation Editor"
+
+        self.is_editing = False
+        self.editing_animation_data = None
+        print("VTubeTab: Editor cleared.")
+
+    def get_animations_dir(self):
+        """Gets the path to the animations directory (consistent with VTSAnimationList)."""
+        # Duplicated from modal logic for now, could be refactored into a utility
+        app_data_root = os.getenv('APPDATA')
+        if not app_data_root:
+             print("Error: Could not determine APPDATA directory.")
+             return None
+        animations_path = os.path.join(app_data_root, 'NsTut', 'LilyTheThird', 'vtube', 'animations')
+        os.makedirs(animations_path, exist_ok=True) # Ensure it exists
+        return animations_path
+
+    # --- Animation List Filtering ---
+    def filter_animations(self, search_text: str):
+        """Filters the displayed animations in the VTSAnimationList."""
+        anim_list_widget = self.ids.get('vts_animation_list_widget')
+        if anim_list_widget:
+            anim_list_widget.filter_display(search_text)
+        else:
+            print("Error: Cannot filter, vts_animation_list_widget not found.")
+
+    # --- Placeholder for Delete ---
     def handle_delete_animation(self, animation_data):
         """Placeholder triggered by VTSAnimationList's 'Delete' button."""
+        # TODO: Implement confirmation dialog and file deletion logic
         anim_name = animation_data.get("name", "Unnamed")
         print(f"VTubeTab: Delete Animation requested for '{anim_name}'.")
-        # TODO: Implement logic to confirm and delete the animation file
+        # Example: Show confirmation, then if confirmed:
+        # filename_base = animation_data.get('_filename')
+        # if filename_base:
+        #     animations_dir = self.get_animations_dir()
+        #     filepath = os.path.join(animations_dir, f"{filename_base}.json")
+        #     try:
+        #         os.remove(filepath)
+        #         print(f"Deleted animation file: {filepath}")
+        #         # Refresh list
+        #         anim_list_widget = self.ids.get('vts_animation_list_widget')
+        #         if anim_list_widget: anim_list_widget.load_animations()
+        #         self.cancel_edit() # Clear editor if the deleted item was being edited
+        #     except OSError as e:
+        #         print(f"Error deleting file {filepath}: {e}")

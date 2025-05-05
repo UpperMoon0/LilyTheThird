@@ -67,3 +67,18 @@ class VTSParamList(BoxLayout):
     def clear_parameters(self):
         """Clears all parameters from the list."""
         self.parameters = []
+
+    def get_current_parameter_values(self) -> dict:
+        """
+        Retrieves the current values of all parameters displayed in the list.
+
+        Returns:
+            A dictionary mapping parameter names to their current slider values.
+        """
+        current_values = {}
+        params_container = self.ids.get('params_container')
+        if params_container:
+            for child in params_container.children:
+                if isinstance(child, VTSParamListItem):
+                    current_values[child.param_name] = child.param_value
+        return current_values

@@ -66,7 +66,8 @@
         id: scroll_view
         size_hint_y: 1
         do_scroll_x: False
-        bar_width: dp(10)
+        bar_width: dp(15) # Increased from dp(10)
+        scroll_type: ['bars', 'content'] # Explicitly set default
 
         BoxLayout:
             id: params_container

@@ -19,19 +19,22 @@ class VTSAnimationListItem(BoxLayout):
     list_widget = ObjectProperty(None)
 
     def trigger_animation(self):
-        """Dispatch event to parent to trigger this animation."""
+        """Dispatch event to parent list to trigger this animation."""
         if self.list_widget:
             self.list_widget.dispatch('on_trigger_animation', self.animation_data)
 
     def edit_animation(self):
-        """Placeholder for edit action."""
+        """Dispatch event to parent list to handle editing."""
         print(f"Edit button pressed for: {self.animation_name}")
-        # TODO: Implement edit functionality (e.g., open a popup)
+        if self.list_widget:
+            self.list_widget.dispatch('on_edit_animation', self.animation_data)
 
     def delete_animation(self):
-        """Placeholder for delete action."""
+        """Dispatch event to parent list to handle deletion."""
         print(f"Delete button pressed for: {self.animation_name}")
-        # TODO: Implement delete functionality (e.g., confirm and delete file)
+        if self.list_widget:
+            # TODO: Implement confirmation dialog before dispatching delete
+            self.list_widget.dispatch('on_delete_animation', self.animation_data)
 
 
 class VTSAnimationList(BoxLayout):
@@ -39,10 +42,11 @@ class VTSAnimationList(BoxLayout):
     A widget to display a list of VTube Studio animations loaded from JSON files.
     """
     animations = ListProperty([]) # List of loaded animation dictionaries
-    vtube_tab = ObjectProperty(None) # Reference to the main VTubeTab for triggering
+    vtube_tab = ObjectProperty(None) # Reference to the main VTubeTab (might not be needed directly anymore)
 
     # Register events
-    __events__ = ('on_trigger_animation', 'on_add_animation')
+    __events__ = ('on_trigger_animation', 'on_add_animation', 'on_edit_animation', 'on_delete_animation')
+    _all_loaded_animations = ListProperty([]) # Store the full list internally
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -115,31 +119,55 @@ class VTSAnimationList(BoxLayout):
         except Exception as e:
             print(f"Error reading animations directory {animations_dir}: {e}")
 
-        self.animations = loaded_animations
+        self._all_loaded_animations = loaded_animations # Store the full list
+        self.animations = loaded_animations # Initially display all
         self.update_animations_display()
 
-    def update_animations_display(self):
-        """Clears and repopulates the animation list display."""
+    def update_animations_display(self, animations_to_display=None):
+        """
+        Clears and repopulates the animation list display.
+        Uses self.animations by default, or a provided list (e.g., filtered results).
+        """
+        if animations_to_display is None:
+            animations_to_display = self.animations
+
         anim_container = self.ids.animations_container
         anim_container.clear_widgets()
-        # Set height dynamically (adjust item height as needed)
-        item_height = dp(40) # Height for each animation item row
-        anim_container.height = len(self.animations) * item_height
+        # Set height dynamically
+        item_height = dp(40)
+        anim_container.height = len(animations_to_display) * item_height
 
-        if not self.animations:
-            anim_container.height = dp(30) # Height for the 'no animations' label
-            anim_container.add_widget(Label(text="No animations found.", size_hint_y=None, height=dp(30)))
+        if not animations_to_display:
+            # Adjust height for the label if the container becomes empty
+            anim_container.height = dp(30)
+            anim_container.add_widget(Label(text="No matching animations found.", size_hint_y=None, height=dp(30)))
         else:
-            for anim_data in self.animations:
+            for anim_data in animations_to_display:
                 item = VTSAnimationListItem(
                     animation_name=anim_data.get('name', 'Unnamed'),
-                    animation_data=anim_data,
-                    list_widget=self # Pass reference to self
+                    animation_data=anim_data, # Pass the full data
+                    list_widget=self
                 )
                 anim_container.add_widget(item)
 
+    def filter_display(self, search_text: str):
+        """Filters the displayed animations based on the search text."""
+        search_text = search_text.lower().strip()
+        if not search_text:
+            # If search is empty, display all loaded animations
+            self.animations = self._all_loaded_animations
+        else:
+            # Filter the full list based on name containment (case-insensitive)
+            self.animations = [
+                anim for anim in self._all_loaded_animations
+                if search_text in anim.get('name', '').lower()
+            ]
+        # Update the display with the filtered list
+        self.update_animations_display(self.animations)
+
+
     def add_new_animation(self):
-        """Placeholder for add action."""
+        """Dispatches the on_add_animation event."""
         print("Add New Animation button pressed.")
         self.dispatch('on_add_animation')
         # TODO: Implement add functionality (e.g., open a creation dialog)
@@ -153,4 +181,12 @@ class VTSAnimationList(BoxLayout):
 
     def on_add_animation(self):
         """Default handler for adding animation."""
+        pass
+
+    def on_edit_animation(self, animation_data):
+        """Default handler, bubbles up to VTubeTab."""
+        pass
+
+    def on_delete_animation(self, animation_data):
+        """Default handler, bubbles up to VTubeTab."""
         pass
