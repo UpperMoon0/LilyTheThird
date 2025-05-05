@@ -12,6 +12,7 @@ from kivy.core.clipboard import Clipboard # Added for clipboard functions
 from kivy.uix.popup import Popup # Added for showing messages
 from kivy.uix.label import Label # Added for popup content
 from kivy.uix.button import Button # Added for confirmation popup buttons
+from kivy.metrics import dp # Added to fix NameError
 from views.components.rgb_strip import RGBStrip
 from views.components.vts_animation_list import VTSAnimationList
 # VTSParamList is now used within AnimationEditorPanel, no direct import needed here unless accessed directly
