@@ -28,7 +28,7 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
     ```
     *   **Important**: Ensure `llm_api_keys.json` is added to your `.gitignore` file to prevent accidentally committing your keys.
 4.  **Run TTS Provider (Optional)**: If using Text-to-Speech, ensure the [TTS-Provider](https://github.com/UpperMoon0/TTS-Provider.git) server is running.
-5.  **Run MongoDB (Optional)**: If using long-term memory, ensure your MongoDB instance is running and accessible via the `MONGO_URI` in your `.env` file.
+5.  **Run MongoDB**: If using long-term memory, ensure your MongoDB instance is running and accessible via the `MONGO_URI` in your `.env` file.
 6.  **Run Application**:
     ```bash
     python main.py
