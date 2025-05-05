@@ -67,4 +67,10 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
   - Note: The Discord LLM explicitly skips the final memory save/update step for security reasons.
 
 - **VTube Studio Integration (VTube Tab)**:
-  - Connect to VTube Studio via websockets to control virtual characters.
+  - Connect to VTube Studio via WebSocket (`pyvts` library).
+  - Fetch available VTS parameters (input parameters).
+  - Load, display, and trigger custom "animations" (parameter presets) saved as JSON files in `%APPDATA%/NsTut/LilyTheThird/vtube/animations`.
+  - Create, edit, and delete these animation JSON files using an inline editor panel.
+  - Filter displayed animations and parameters using search bars.
+  - Copy parameter names or set animation data from clipboard JSON.
+  - See `docs/vtube.md` for detailed documentation.
