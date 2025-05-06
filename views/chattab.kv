@@ -1,15 +1,14 @@
 #:kivy 2.0.0
 #:import os os
-# Removed explicit imports as includes handle rule loading
 #:import CircularImage views.components.circular_image.CircularImage
 #:import RGBStrip views.components.rgb_strip
 #:import ActionsList views.components.actions_list.ActionsList
 #:import ActionDetails views.components.action_details.ActionDetails
-# Import new component
 
 # Include the KV files for the components used directly in this file
 #:include views/components/chatbox.kv
 #:include views/components/chatbox_settings.kv
+#:include views/components/circular_image.kv
 # Note: actiondetails.kv is loaded implicitly via ChatTab's KV load or Kivy convention
 # Note: llmselector.kv should be included within chatbox_settings.kv
 

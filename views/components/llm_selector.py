@@ -1,9 +1,6 @@
 # Removed: import os
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, ListProperty
-# Removed: from kivy.lang import Builder
-
-# Removed: Builder.load_file(...)
 
 class LLMSelector(BoxLayout):
     """

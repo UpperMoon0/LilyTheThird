@@ -117,15 +117,6 @@ class LilyKivyApp(MDApp): # Inherit from MDApp
         await self.async_run(async_lib='asyncio')
         # Code here will run after the Kivy app exits
         print("Kivy App exited.")
-        # You might need to cancel other pending asyncio tasks here
-        # for a clean shutdown, depending on your application structure.
-        # For example, if VTubeTab starts background tasks:
-        # if hasattr(self.root, 'vtube_tab_item') and hasattr(self.root.vtube_tab_item.children[0], 'vts'):
-        #     vts_instance = self.root.vtube_tab_item.children[0].vts
-        #     if vts_instance and vts_instance.ws.connected:
-        #         print("Closing VTS connection on exit...")
-        #         await vts_instance.close()
-
 
 if __name__ == '__main__':
     # Run the Kivy app within the asyncio event loop

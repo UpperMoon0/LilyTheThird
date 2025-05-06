@@ -1,37 +1,6 @@
 from kivy.uix.widget import Widget
 from kivy.uix.image import Image
 from kivy.properties import StringProperty, ListProperty, ObjectProperty
-from kivy.graphics import StencilPush, StencilUse, Ellipse, StencilUnUse, StencilPop, Rectangle, Color
-from kivy.lang import Builder
-from kivy.metrics import dp
-
-# Using Builder to define canvas instructions is often cleaner
-Builder.load_string("""
-<CircularImage>:
-    canvas.before:
-        StencilPush
-        Ellipse:
-            pos: self.pos  # Use the widget's position
-            size: self.size # Use the widget's size for the stencil shape
-        StencilUse
-
-    canvas:
-        # Draw the image centered and contained within the widget bounds
-        # We'll use a Rectangle with the image texture
-        Color:
-            rgba: 1, 1, 1, 1 # Ensure image is not tinted
-        Rectangle:
-            texture: self.image_texture
-            size: self._image_draw_size # Calculated size to maintain aspect ratio
-            pos: self._image_draw_pos   # Calculated position to center the contained image
-
-    canvas.after:
-        StencilUnUse
-        Ellipse:
-            pos: self.pos
-            size: self.size
-        StencilPop
-""")
 
 class CircularImage(Widget):
     """
@@ -90,4 +59,3 @@ class CircularImage(Widget):
 
         self._image_draw_size = [draw_w, draw_h]
         self._image_draw_pos = [draw_x, draw_y]
-
