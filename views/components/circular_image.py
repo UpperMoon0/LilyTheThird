@@ -1,15 +1,50 @@
+import os
+import time
+from kivy.app import App
 from kivy.uix.widget import Widget
-from kivy.uix.image import Image
+from kivy.uix.image import Image as KivyImage # Renamed to avoid conflict with PIL.Image
 from kivy.properties import StringProperty, ListProperty, ObjectProperty
 from kivy.lang import Builder
+from kivy.uix.filechooser import FileChooserIconView
+from kivy.uix.popup import Popup
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.metrics import dp
+
+try:
+    from PIL import Image as PILImage
+    from PIL import ImageOps
+except ImportError:
+    PILImage = None
+    ImageOps = None
+    # Consider raising an error or logging if PIL is critical
+    print("PIL (Pillow) library not found. Image resizing and saving will not work.")
+
 
 Builder.load_file('views/components/circular_image.kv')
+
+# Define paths at the module level or within the App class if preferred
+APP_DATA_ROOT = os.getenv('APPDATA')
+if APP_DATA_ROOT is None:
+    # Fallback for systems where APPDATA might not be set (e.g., non-Windows)
+    # Kivy's user_data_dir is a good cross-platform alternative
+    APP_DATA_ROOT = App.get_running_app().user_data_dir
+    # If using user_data_dir, the 'NsTut/LilyTheThird' part might be redundant
+    # if appname is 'LilyTheThird'. Adjust as per actual app structure.
+    # For this example, we'll assume user_data_dir itself is the base for NsTut/LilyTheThird
+    AVATAR_DIR = os.path.join(APP_DATA_ROOT, 'chat') # Simplified if user_data_dir is already NsTut/LilyTheThird
+else:
+    AVATAR_DIR = os.path.join(APP_DATA_ROOT, 'NsTut', 'LilyTheThird', 'chat')
+
+AVATAR_FILENAME = "avatar.png"
+FULL_AVATAR_PATH = os.path.join(AVATAR_DIR, AVATAR_FILENAME)
+
 
 class CircularImage(Widget):
     """
     A widget that displays an image cropped into a circle.
-    It ensures the image content maintains its aspect ratio ('contain')
-    and the circular mask adapts correctly on resize.
+    It allows users to click to select a new avatar, which is then
+    resized and saved.
     """
     source = StringProperty('')
     image_texture = ObjectProperty(None, allownone=True)
@@ -17,19 +52,50 @@ class CircularImage(Widget):
     # Internal properties to calculate drawing position and size
     _image_draw_pos = ListProperty([0, 0])
     _image_draw_size = ListProperty([0, 0])
+    _default_avatar_path = StringProperty('')
+
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._image = Image() # Internal image to load texture
+        self._image = KivyImage() # Internal Kivy image to load texture
+        self._popup = None
+
+        # Determine default avatar path (relative to app's root directory)
+        # App.get_running_app().directory gives the root path of the application
+        app_root = App.get_running_app().directory
+        self._default_avatar_path = os.path.join(app_root, 'assets', 'avatar.png')
+
+        # Ensure avatar directory exists
+        if not os.path.exists(AVATAR_DIR):
+            try:
+                os.makedirs(AVATAR_DIR)
+                print(f"Created avatar directory: {AVATAR_DIR}")
+            except OSError as e:
+                print(f"Error creating avatar directory {AVATAR_DIR}: {e}")
+                # Potentially handle this error, e.g., by disabling avatar saving
+
+        self.load_avatar()
+
         self.bind(source=self._update_image_source,
                   pos=self._update_image_draw_params,
                   size=self._update_image_draw_params)
 
+    def load_avatar(self):
+        """Loads the saved avatar or the default if not found."""
+        path_to_load = self._default_avatar_path
+        if os.path.exists(FULL_AVATAR_PATH):
+            path_to_load = FULL_AVATAR_PATH
+        
+        # Add timestamp for cache busting
+        self.source = f"{path_to_load}?_={time.time()}"
+        print(f"CircularImage: Loading avatar from {self.source}")
+
     def _update_image_source(self, instance, value):
         """Load the texture when the source changes."""
         self._image.source = value
+        # self._image.reload() # Force reload, Kivy might cache aggressively
         self.image_texture = self._image.texture
-        self._update_image_draw_params() # Update drawing params when texture is loaded/changed
+        # self._update_image_draw_params() # Update drawing params when texture is loaded/changed
 
     def on_image_texture(self, instance, value):
         """Callback when the texture is loaded."""
@@ -43,6 +109,10 @@ class CircularImage(Widget):
             return
 
         tex_w, tex_h = self.image_texture.size
+        if tex_h == 0: # Avoid division by zero if texture height is 0
+            self._image_draw_size = [0, 0]
+            self._image_draw_pos = self.pos
+            return
         aspect_ratio = tex_w / float(tex_h)
 
         # Calculate 'contain' size
@@ -62,3 +132,96 @@ class CircularImage(Widget):
 
         self._image_draw_size = [draw_w, draw_h]
         self._image_draw_pos = [draw_x, draw_y]
+
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            if touch.is_double_tap: # Or single tap, depending on desired UX
+                 self.open_file_chooser()
+                 return True # Consume the touch
+        return super().on_touch_down(touch)
+
+    def open_file_chooser(self):
+        if not PILImage:
+            print("CircularImage: PIL (Pillow) not installed. Cannot open file chooser.")
+            # Optionally show a Kivy popup to inform the user
+            error_popup = Popup(title='Error',
+                                content=Button(text='Image library (Pillow) not found.\nPlease install it to change avatar.'),
+                                size_hint=(0.6, 0.2))
+            error_popup.content.bind(on_press=error_popup.dismiss)
+            error_popup.open()
+            return
+
+        content = BoxLayout(orientation='vertical', spacing=dp(5))
+        # Use user's home directory or a sensible default if possible
+        home_dir = os.path.expanduser('~')
+        if not os.path.isdir(home_dir): # Fallback if home_dir is not accessible/valid
+            home_dir = App.get_running_app().user_data_dir
+
+        filechooser = FileChooserIconView(
+            path=home_dir,
+            filters=['*.png', '*.jpg', '*.jpeg', '*.bmp', '*.gif'],
+            dirselect=False,
+            size_hint_y=0.9
+        )
+        content.add_widget(filechooser)
+
+        btn_layout = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(5))
+        select_btn = Button(text='Select')
+        cancel_btn = Button(text='Cancel')
+        btn_layout.add_widget(select_btn)
+        btn_layout.add_widget(cancel_btn)
+        content.add_widget(btn_layout)
+
+        self._popup = Popup(title="Choose an Avatar Image",
+                            content=content,
+                            size_hint=(0.9, 0.9),
+                            auto_dismiss=False)
+
+        select_btn.bind(on_press=lambda x: self.save_avatar_from_selection(filechooser.selection))
+        cancel_btn.bind(on_press=self._popup.dismiss)
+        self._popup.open()
+
+    def save_avatar_from_selection(self, selection):
+        if self._popup:
+            self._popup.dismiss()
+            self._popup = None
+
+        if not selection:
+            return
+
+        selected_path = selection[0]
+        if not PILImage or not ImageOps:
+            print("CircularImage: PIL (Pillow) not available for image processing.")
+            return
+
+        try:
+            img = PILImage.open(selected_path)
+            
+            # Ensure image is in RGB or RGBA mode before saving as PNG
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGBA')
+
+            # Resize while maintaining aspect ratio, then crop to square
+            # This is a common way to get a 1000x1000 image without distortion
+            # Option 1: Fit within 1000x1000 then pad (if you want to keep all content)
+            # img.thumbnail((1000, 1000), PILImage.Resampling.LANCZOS)
+            # new_img = PILImage.new("RGBA", (1000, 1000), (0,0,0,0)) # Transparent background
+            # new_img.paste(img, ((1000 - img.width) // 2, (1000 - img.height) // 2))
+            # img = new_img
+
+            # Option 2: Crop to square from center (more common for avatars)
+            # Resize the smallest dimension to 1000, then crop center
+            img = ImageOps.fit(img, (1000, 1000), PILImage.Resampling.LANCZOS)
+
+
+            img.save(FULL_AVATAR_PATH, 'PNG') # Save as PNG to support transparency
+            print(f"CircularImage: Saved new avatar to {FULL_AVATAR_PATH}")
+            self.load_avatar() # Reload the avatar to display the new one
+        except Exception as e:
+            print(f"CircularImage: Error processing or saving image: {e}")
+            # Optionally show an error popup to the user
+            error_popup = Popup(title='Image Error',
+                                content=Button(text=f'Could not process image:\n{e}'),
+                                size_hint=(0.8, 0.3))
+            error_popup.content.bind(on_press=error_popup.dismiss)
+            error_popup.open()
