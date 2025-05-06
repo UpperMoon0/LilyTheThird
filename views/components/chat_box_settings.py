@@ -3,9 +3,10 @@ from kivy.properties import BooleanProperty, ListProperty, StringProperty
 from kivy.event import EventDispatcher
 from kivy.lang import Builder
 
-Builder.load_file('views/components/chatbox_settings.kv')
+# Load the KV file after the class definition
+Builder.load_file('views/components/chat_box_settings.kv')
 
-class ChatboxSettings(BoxLayout, EventDispatcher):
+class ChatBoxSettings(BoxLayout, EventDispatcher):
     """
     Component containing TTS checkbox, Clear History button, and LLM Selector.
     Dispatches events: 'on_clear_history', 'on_selected_provider', 'on_selected_model'.

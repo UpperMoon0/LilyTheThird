@@ -1,6 +1,6 @@
 #:kivy 2.0.0
 
-<ChatboxSettings>:
+<ChatBoxSettings>: 
     orientation: 'vertical'
     size_hint_y: None
     height: self.minimum_height # Adjust height based on content
@@ -60,7 +60,7 @@
         id: llm_selector_in_settings # Give it a unique id if needed
         size_hint_y: None # Let it take its own height
         height: self.minimum_height # Adjust height based on content
-        # Bind properties to the root (ChatboxSettings)
+        # Bind properties to the root (ChatBoxSettings)
         llm_providers: root.llm_providers
         llm_models: root.llm_models
         selected_provider: root.selected_provider

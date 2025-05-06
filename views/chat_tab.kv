@@ -4,7 +4,8 @@
 #:import RGBStrip views.components.rgb_strip
 #:import ActionsList views.components.actions_list.ActionsList
 #:import ActionDetails views.components.action_details.ActionDetails
-#:import ChatboxSettings views.components.chatbox_settings.ChatboxSettings
+#:import ChatBoxSettings views.components.chat_box_settings.ChatBoxSettings
+#:import ChatBox views.components.chat_box.ChatBox
 
 <ChatTab>:
     orientation: 'vertical'
@@ -55,11 +56,11 @@
             spacing: dp(10)
             padding: dp(10) # Padding for the outer controls column
 
-            # ChatboxSettings now contains LLMSelector
-            ChatboxSettings:
+            # ChatBoxSettings now contains LLMSelector
+            ChatBoxSettings:
                 id: chat_controls
                 # size_hint_y: 0.5 # REMOVED - Let it take its needed height
-                # Pass LLM properties down to ChatboxSettings
+                # Pass LLM properties down to ChatBoxSettings
                 tts_enabled: root.tts_enabled
                 llm_providers: root.llm_providers
                 llm_models: root.llm_models
