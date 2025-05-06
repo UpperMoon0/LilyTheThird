@@ -112,16 +112,30 @@ class CircularImage(Widget):
         if os.path.exists(FULL_AVATAR_PATH):
             path_to_load = FULL_AVATAR_PATH
         
-        # Add timestamp for cache busting
-        self.source = f"{path_to_load}?_={time.time()}"
-        print(f"CircularImage: Loading avatar from {self.source}")
+        # Add timestamp for cache busting to the widget's source property
+        self.source = f"{path_to_load}?_={time.time()}" 
+        # The _update_image_source method will handle loading the clean path.
+        print(f"CircularImage: Set source to {self.source}, actual load will use clean path.")
 
     def _update_image_source(self, instance, value):
         """Load the texture when the source changes."""
-        self._image.source = value
-        # self._image.reload() # Force reload, Kivy might cache aggressively
+        # Value might contain a cache-busting query string. Strip it for local file loading.
+        clean_path = value.split('?')[0]
+        
+        if self._image.source == clean_path and self._image.texture:
+            # If the clean path is the same and texture exists, force a reload
+            # This handles the case where the file content changed but path is the same.
+            print(f"CircularImage: Reloading image from {clean_path}")
+            self._image.reload()
+        else:
+            # If path is different or no texture, set source and Kivy handles loading
+            print(f"CircularImage: Setting internal KivyImage source to {clean_path}")
+            self._image.source = clean_path
+            # Kivy's Image widget reloads automatically when its source property changes.
+            # If issues persist, self._image.reload() can be called here too.
+
         self.image_texture = self._image.texture
-        # self._update_image_draw_params() # Update drawing params when texture is loaded/changed
+        # self._update_image_draw_params() # This is called by on_image_texture
 
     def on_image_texture(self, instance, value):
         """Callback when the texture is loaded."""
