@@ -206,8 +206,11 @@ class LLMClient:
                 elif self.provider == 'gemini':
                     # Re-configure genai globally for this attempt
                     genai.configure(api_key=api_key)
+                    
                     # Re-fetch the model instance using the explicit model_name parameter
-                    current_client = genai.GenerativeModel(model_name=self.model) # Explicitly use model_name
+                    current_client = genai.GenerativeModel(
+                        model_name=self.model
+                    ) # Explicitly use model_name
 
                     # Adapt messages
                     system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
@@ -223,24 +226,17 @@ class LLMClient:
                         f"IMPORTANT: Respond ONLY with a valid JSON object based on the request. Do not include any other text or explanations."
                     ]
 
-                    safety_settings_config = [
-                        {"category": HarmCategory.HARM_CATEGORY_HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
-                        {"category": HarmCategory.HARM_CATEGORY_HATE_SPEECH, "threshold": HarmBlockThreshold.BLOCK_NONE},
-                        {"category": HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, "threshold": HarmBlockThreshold.BLOCK_NONE},
-                        {"category": HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
-                    ]
                     generation_config = genai.types.GenerationConfig(
                         response_mime_type="application/json",
                         max_output_tokens=400,
-                        temperature=0.1,
-                        safety_settings=safety_settings_config
+                        temperature=0.1
                     )
 
                     # Use the potentially reconfigured client instance
                     chat_session = current_client.start_chat(history=gemini_formatted_history)
                     response = chat_session.send_message(
                         prompt_parts,
-                        generation_config=generation_config,
+                        generation_config=generation_config
                     )
                     content = response.text.strip()
                     # print(f"Raw Gemini JSON response for {purpose}: {content}") # Less verbose logging
@@ -561,8 +557,11 @@ class LLMClient:
         # print(f"--- Calling Gemini API for Final Response (Key: ...{api_key[-4:]}) ---")
         # Re-configure genai globally for this attempt
         genai.configure(api_key=api_key)
+
         # Re-fetch the model instance using the explicit model_name parameter
-        current_client = genai.GenerativeModel(model_name=self.model) # Explicitly use model_name
+        current_client = genai.GenerativeModel(
+            model_name=self.model
+        ) # Explicitly use model_name
 
         # Adapt messages
         system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
@@ -583,23 +582,16 @@ class LLMClient:
             f"IMPORTANT: Generate your final response based *only* on the information provided in the System Instructions and the preceding conversation history (including any Tool results shown). Synthesize the information accurately."
         ]
 
-        safety_settings_config = [
-            {"category": HarmCategory.HARM_CATEGORY_HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
-            {"category": HarmCategory.HARM_CATEGORY_HATE_SPEECH, "threshold": HarmBlockThreshold.BLOCK_NONE},
-            {"category": HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, "threshold": HarmBlockThreshold.BLOCK_NONE},
-            {"category": HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
-        ]
         generation_config = genai.types.GenerationConfig(
             max_output_tokens=1000,
-            temperature=random.uniform(0.2, 0.7),
-            safety_settings=safety_settings_config
+            temperature=random.uniform(0.2, 0.7)
         )
 
         # Use the reconfigured client instance
         chat_session = current_client.start_chat(history=gemini_history_to_pass)
         response = chat_session.send_message(
             prompt_parts,
-            generation_config=generation_config,
+            generation_config=generation_config
         )
 
         if response.text:
