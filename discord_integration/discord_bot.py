@@ -27,7 +27,7 @@ class DiscordBot:
 
         self.guild_id = self.config.get('guild_id', os.getenv("DISCORD_GUILD_ID"))
         self.channel_id = self.config.get('channel_id', os.getenv("DISCORD_CHANNEL_ID"))
-        self.master_id = os.getenv("MASTER_DISCORD_ID") # Load master ID
+        self.master_id = self.config.get('master_discord_id', os.getenv("MASTER_DISCORD_ID")) # Load master ID from config first
 
         # Extract LLM settings from config, default to None if not found
         llm_provider = self.config.get('discord_llm_provider', None)
@@ -55,7 +55,7 @@ class DiscordBot:
         if self.master_id:
             print(f"Master Discord ID: {self.master_id}")
         else:
-            print("Warning: MASTER_DISCORD_ID not set in .env file.")
+            print("Warning: MASTER_DISCORD_ID not found in config or .env file.")
 
     async def setup_hook(self):
         """Called during the bot setup to run asynchronous tasks."""
@@ -81,10 +81,10 @@ class DiscordBot:
 
     def start_bot(self):
         """Starts the Discord bot and logs in using the token."""
-        discord_token = os.getenv("DISCORD_TOKEN")
+        discord_token = self.config.get('discord_token', os.getenv("DISCORD_TOKEN"))
 
         if not discord_token:
-            print("DISCORD_TOKEN not found in .env file.")
+            print("DISCORD_TOKEN not found in config or .env file.")
             return
 
         intents = discord.Intents.default()
@@ -187,9 +187,9 @@ class DiscordBot:
 
 
         # Start the bot
-        discord_token = os.getenv("DISCORD_TOKEN")
-        if not discord_token:
-             print("DISCORD_TOKEN not found in .env file.")
+        # discord_token is already fetched at the beginning of this method
+        if not discord_token: # Re-check, though it should be caught earlier
+             print("DISCORD_TOKEN not found in config or .env file (checked before bot.run).")
              return
         try:
             self.bot.run(discord_token)
