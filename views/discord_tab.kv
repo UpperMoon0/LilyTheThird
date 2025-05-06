@@ -12,8 +12,6 @@
     RGBStrip:
         # Height is set in the component's Python code (3dp)
         # Width will automatically match the parent (DiscordTab)
-    # Assign the ColorCircle instance to the status_circle property in the Python class
-    # status_circle: status_circle_id # REMOVE THIS LINE - Kivy handles this automatically via id matching ObjectProperty
 
     # Status Section
     BoxLayout:
@@ -22,43 +20,33 @@
         height: self.minimum_height
         spacing: dp(10)
         padding: dp(10)
-        # Optional: Add background/border like in CSS
-        # canvas.before:
-        #     Color:
-        #         rgba: (1, 1, 1, 1) # White background
-        #     RoundedRectangle:
-        #         pos: self.pos
-        #         size: self.size
-        #         radius: [dp(8),]
 
         # Status Circle (Centered)
         BoxLayout:
-            size_hint_x: None # Allow centering the layout itself
-            width: self.minimum_width # Size to content
+            size_hint_x: None
+            width: self.minimum_width
             size_hint_y: None
-            height: dp(30) # Height for the circle container
+            height: dp(30)
             pos_hint: {'center_x': 0.5}
             ColorCircle:
-                id: status_circle_id
-                circle_size: dp(25) # Smaller circle size as per CSS
+                id: status_circle
+                circle_size: dp(25)
                 pos_hint: {'center_x': 0.5, 'center_y': 0.5}
-                # Color and animation are handled in Python
 
         # Start/Stop Button (Centered)
         BoxLayout:
-            size_hint_x: None # Allow centering the layout itself
-            width: self.minimum_width # Size to content
+            size_hint_x: None
+            width: self.minimum_width
             size_hint_y: None
             height: dp(40)
             pos_hint: {'center_x': 0.5}
             Button:
                 text: root.toggle_button_text
                 size_hint: None, None
-                size: dp(200), dp(40) # Match CSS
+                size: dp(200), dp(40)
                 pos_hint: {'center_x': 0.5}
                 on_press: root.toggle_bot()
                 font_size: '16sp'
-                # background_color: (0, 0.47, 1, 1) # Match CSS #007bff (approx)
 
         # Status Label (Centered)
         Label:
@@ -67,7 +55,7 @@
             height: self.texture_size[1]
             pos_hint: {'center_x': 0.5}
             font_size: '14sp'
-            color: (0.33, 0.33, 0.33, 1) # Match CSS #555
+            color: (0.33, 0.33, 0.33, 1)
 
     # Input/Config Section
     BoxLayout:
@@ -76,89 +64,142 @@
         height: self.minimum_height
         spacing: dp(15)
         padding: dp(10)
-        # Optional: Add background/border like in CSS
-        # canvas.before:
-        #     Color:
-        #         rgba: (1, 1, 1, 1) # White background
-        #     RoundedRectangle:
-        #         pos: self.pos
-        #         size: self.size
-        #         radius: [dp(8),]
 
         # Discord Token Input
-        TextInput:
-            id: discord_token_input
-            text: root.discord_token
-            hint_text: "Enter Discord Token"
-            password: True
+        BoxLayout:
+            orientation: 'horizontal'
             size_hint_x: None
-            width: dp(300)
+            width: dp(450) # Adjusted width to accommodate label
             pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
-            multiline: False
-            font_size: '14sp'
-            on_text: root.discord_token = self.text
+            spacing: dp(10)
+            Label:
+                text: "Discord Token:"
+                size_hint_x: 0.4
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+            TextInput:
+                id: discord_token_input
+                text: root.discord_token
+                hint_text: "Enter Discord Token"
+                password: True
+                size_hint_x: 0.6
+                size_hint_y: None
+                height: dp(40)
+                multiline: False
+                font_size: '14sp'
+                on_text: root.discord_token = self.text
 
         # Guild ID Input
-        TextInput:
-            id: guild_id_input
-            text: root.guild_id
-            hint_text: "Enter Guild ID"
+        BoxLayout:
+            orientation: 'horizontal'
             size_hint_x: None
-            width: dp(300)
+            width: dp(450) # Adjusted width
             pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
-            multiline: False
-            font_size: '14sp'
-            on_text: root.guild_id = self.text
+            spacing: dp(10)
+            Label:
+                text: "Guild ID:"
+                size_hint_x: 0.4
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+            TextInput:
+                id: guild_id_input
+                text: root.guild_id
+                hint_text: "Enter Guild ID"
+                size_hint_x: 0.6
+                size_hint_y: None
+                height: dp(40)
+                multiline: False
+                font_size: '14sp'
+                on_text: root.guild_id = self.text
 
         # Channel ID Input
-        TextInput:
-            id: channel_id_input
-            text: root.channel_id
-            hint_text: "Enter Channel ID"
+        BoxLayout:
+            orientation: 'horizontal'
             size_hint_x: None
-            width: dp(300)
+            width: dp(450) # Adjusted width
             pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
-            multiline: False
-            font_size: '14sp'
-            on_text: root.channel_id = self.text
+            spacing: dp(10)
+            Label:
+                text: "Channel ID:"
+                size_hint_x: 0.4
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+            TextInput:
+                id: channel_id_input
+                text: root.channel_id
+                hint_text: "Enter Channel ID"
+                size_hint_x: 0.6
+                size_hint_y: None
+                height: dp(40)
+                multiline: False
+                font_size: '14sp'
+                on_text: root.channel_id = self.text
 
         # Master Discord ID Input
-        TextInput:
-            id: master_discord_id_input
-            text: root.master_discord_id
-            hint_text: "Enter Master Discord ID"
+        BoxLayout:
+            orientation: 'horizontal'
             size_hint_x: None
-            width: dp(300)
+            width: dp(450) # Adjusted width
             pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
-            multiline: False
-            font_size: '14sp'
-            on_text: root.master_discord_id = self.text
+            spacing: dp(10)
+            Label:
+                text: "Master Discord ID:"
+                size_hint_x: 0.4
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+            TextInput:
+                id: master_discord_id_input
+                text: root.master_discord_id
+                hint_text: "Enter Master Discord ID"
+                size_hint_x: 0.6
+                size_hint_y: None
+                height: dp(40)
+                multiline: False
+                font_size: '14sp'
+                on_text: root.master_discord_id = self.text
 
         # Lily Discord ID Input
-        TextInput:
-            id: lily_discord_id_input
-            text: root.lily_discord_id
-            hint_text: "Enter Lily Discord ID"
+        BoxLayout:
+            orientation: 'horizontal'
             size_hint_x: None
-            width: dp(300)
+            width: dp(450) # Adjusted width
             pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
-            multiline: False
-            font_size: '14sp'
-            on_text: root.lily_discord_id = self.text
+            spacing: dp(10)
+            Label:
+                text: "Lily Discord ID:"
+                size_hint_x: 0.4
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+            TextInput:
+                id: lily_discord_id_input
+                text: root.lily_discord_id
+                hint_text: "Enter Lily Discord ID"
+                size_hint_x: 0.6
+                size_hint_y: None
+                height: dp(40)
+                multiline: False
+                font_size: '14sp'
+                on_text: root.lily_discord_id = self.text
 
         # Reusable LLM Selector Component
         LLMSelector:
-            size_hint_x: 0.4
+            size_hint_x: None # Changed to None to use explicit width
+            width: dp(450)    # Set explicit width to match other input groups
             pos_hint: {'center_x': 0.5}
             selected_provider: root.selected_provider
             selected_model: root.selected_model
@@ -193,33 +234,35 @@
         opacity: 1 if root.message_section_visible else 0
         disabled: not root.message_section_visible
         spacing: dp(15)
-        padding: [dp(10), dp(10), dp(10), 0] # Padding top/sides
+        padding: [dp(10), dp(10), dp(10), 0]
 
         TextInput:
             id: message_input
             text: root.message_text
             hint_text: "Type your message here..."
-            size_hint_x: None # Allow centering
-            width: dp(300)    # Set a fixed width
-            pos_hint: {'center_x': 0.5} # Center horizontally
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
             multiline: False
             font_size: '14sp'
             on_text: root.message_text = self.text
 
-        BoxLayout: # Centering layout for the button
+        BoxLayout:
+            size_hint_x: None
+            width: self.minimum_width
+            pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
             Button:
                 id: send_message_button
                 text: "Send Message"
                 size_hint: None, None
-                size: dp(200), dp(40) # Match CSS
+                size: dp(200), dp(40)
                 pos_hint: {'center_x': 0.5}
                 on_press: root.send_message()
                 font_size: '16sp'
-                # background_color: (0, 0.47, 1, 1) # Match CSS #007bff (approx)
 
     # Add a spacer to push content upwards if needed
     Widget:
