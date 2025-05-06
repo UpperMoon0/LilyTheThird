@@ -13,7 +13,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.label import Label
 from kivy.metrics import dp
 from kivy.core.window import Window
-import sys # Required for platform check
+from kivy.clock import Clock # Added import
 
 try:
     from PIL import Image as PILImage
@@ -78,7 +78,7 @@ class CircularImage(Widget):
             except OSError as e:
                 print(f"Error creating avatar directory {self.avatar_dir}: {e}")
         
-        self.load_avatar()
+        Clock.schedule_once(lambda dt: self.load_avatar()) # Changed to schedule_once
 
         self.bind(source=self._update_image_source,
                   pos=self._update_image_draw_params,
@@ -92,13 +92,6 @@ class CircularImage(Widget):
             if self.hovered:
                 self.hovered = False
             return
-
-        # Convert mouse position to local coordinates if the widget has a parent
-        # For top-level widgets or widgets directly added to Window, pos is already local.
-        # However, for widgets nested deeper, you might need to convert.
-        # For simplicity, we assume self.collide_point works with window coordinates
-        # if the widget is properly placed.
-        # If issues arise, use self.to_local(*pos) after checking self.parent.
         
         inside = self.collide_point(*pos)
         if self.hovered != inside:
@@ -108,19 +101,28 @@ class CircularImage(Widget):
         """Loads the saved avatar or the default if not found."""
         path_to_load = self._default_avatar_path # Start with default
 
-        print(f"CircularImage DEBUG: Default avatar path: {self._default_avatar_path}")
-        print(f"CircularImage DEBUG: Checking saved avatar path: {self.full_avatar_path}")
-        saved_avatar_exists = os.path.exists(self.full_avatar_path)
-        print(f"CircularImage DEBUG: Saved avatar exists ({self.full_avatar_path})? {saved_avatar_exists}")
+        print(f"CircularImage INFO: --- Avatar Loading ---")
+        print(f"CircularImage INFO: Default avatar path: {self._default_avatar_path}")
+        print(f"CircularImage INFO: Attempting to load saved avatar from: {self.full_avatar_path}")
+
+        saved_avatar_exists = False
+        try:
+            saved_avatar_exists = os.path.exists(self.full_avatar_path)
+            print(f"CircularImage INFO: os.path.exists('{self.full_avatar_path}') returned: {saved_avatar_exists}")
+        except Exception as e:
+            print(f"CircularImage ERROR: Exception during os.path.exists('{self.full_avatar_path}'): {e}")
+
 
         if saved_avatar_exists:
             path_to_load = self.full_avatar_path
+            print(f"CircularImage INFO: Saved avatar found. Using: {path_to_load}")
         else:
-            print(f"CircularImage DEBUG: Saved avatar not found, using default.")
+            print(f"CircularImage INFO: Saved avatar NOT found or error checking. Using default: {path_to_load}")
         
         # Add timestamp for cache busting to the widget's source property
         self.source = f"{path_to_load}?_={time.time()}" 
-        print(f"CircularImage: Set source to '{self.source}'. Chosen path for loading: '{path_to_load}'")
+        print(f"CircularImage INFO: Final source set to: '{self.source}' (based on path: '{path_to_load}')")
+        print(f"CircularImage INFO: --- End Avatar Loading ---")
 
     def _update_image_source(self, instance, value):
         """Load the texture when the source changes."""
