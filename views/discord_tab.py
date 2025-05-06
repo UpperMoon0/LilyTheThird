@@ -8,7 +8,7 @@ from kivy.lang import Builder
 # Import the LLM configuration mixin
 from .llm_config_mixin import LLMConfigMixin
 # Import settings manager functions
-from settings_manager import load_discord_settings, save_discord_settings # UPDATED
+from settings_manager import load_discord_settings, save_discord_settings 
 
 # Load the kv file for this widget
 Builder.load_file('views/discord_tab.kv')

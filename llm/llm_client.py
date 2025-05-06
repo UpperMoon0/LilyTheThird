@@ -79,36 +79,65 @@ class LLMClient:
         return key
 
     def _initialize_client(self):
-        """Initializes the appropriate client using the first available API key."""
-        # Get the first key to initialize the client instance
-        initial_api_key = self._get_next_api_key()
-        if not initial_api_key:
-             raise ValueError(f"No API keys available to initialize client for provider: {self.provider}")
+        """Initializes the appropriate client. If no API keys are available for the provider,
+        self.client remains None and a warning is logged."""
 
-        # Determine default model if needed
+        # Check if keys were successfully loaded and an iterator was created for this provider
+        if self.provider not in self.key_iterators:
+            print(f"Warning: No API keys were successfully loaded for provider '{self.provider}'. Client will not be initialized.")
+            self.client = None
+            # Attempt to set a default model name for informational purposes, even if client is not active
+            if not self.model:
+                if self.provider == 'openai': self.model = "gpt-4o-mini"
+                elif self.provider == 'gemini': self.model = "gemini-1.5-flash"
+            
+            # Log information about the uninitialized provider
+            model_info = f"model: {self.model}" if self.model else "model: not specified"
+            print(f"Info: Provider '{self.provider}' ({model_info}) is configured but client cannot be initialized due to missing/invalid API keys.")
+            return # Exit early, self.client is None
+
+        # If we are here, key_iterators[self.provider] exists, meaning keys are available.
+        initial_api_key = self._get_next_api_key() # This should now reliably return a key.
+        if not initial_api_key: # Should not happen if key_iterators check passed, but as a safeguard
+            print(f"Error: Could not retrieve an API key for provider '{self.provider}' despite key iterator existing. Client will not be initialized.")
+            self.client = None
+            return
+
+        # Determine default model if not already set (self.model might have been set by __init__ or above)
         if not self.model:
             if self.provider == 'openai':
-                self.model = "gpt-4o-mini" # Default OpenAI model
+                self.model = "gpt-4o-mini"
             elif self.provider == 'gemini':
-                self.model = "gemini-1.5-flash" # Default Gemini model
-                # If provider is unknown and no model is given, we can't proceed
-                raise ValueError(f"Model name must be provided for unsupported provider: {self.provider}")
-            print(f"Warning: No model name provided, using default for {self.provider}: {self.model}")
+                self.model = "gemini-1.5-flash"
+            
+            if self.model: # Print warning only if a default was applied here
+                 print(f"Warning: No model name provided during LLMClient instantiation, using default for {self.provider}: {self.model}")
+            elif self.provider not in ['openai', 'gemini']: # If provider is unknown and model is still None
+                 print(f"Error: Model name must be provided for unknown provider: {self.provider}. Client initialization will likely fail.")
+                 # self.client will remain None or fail in the try-except block below.
 
         # Initialize the client with the first key
         try:
             if self.provider == 'openai':
+                if not self.model:
+                    print(f"Error: OpenAI model name is missing. Cannot initialize client for provider '{self.provider}'.")
+                    self.client = None; return
                 self.client = OpenAI(api_key=initial_api_key)
             elif self.provider == 'gemini':
-                # Configure genai globally (as per library design)
+                if not self.model:
+                    print(f"Error: Gemini model name is missing. Cannot initialize client for provider '{self.provider}'.")
+                    self.client = None; return
                 genai.configure(api_key=initial_api_key)
                 self.client = genai.GenerativeModel(self.model)
             else:
-                raise ValueError(f"Unsupported LLM provider: {self.provider}")
+                print(f"Error: Unsupported LLM provider '{self.provider}' encountered during client initialization. Client set to None.")
+                self.client = None
+                return
             print(f"LLM Client initialized for provider: {self.provider}, model: {self.model}")
         except Exception as e:
-            # Catch potential initialization errors (e.g., invalid key format for the library)
-            raise RuntimeError(f"Failed to initialize LLM client for {self.provider} with the first key: {e}")
+            model_name_for_log = self.model if self.model else "unknown"
+            print(f"Error: Failed to initialize LLM client for {self.provider} (model: {model_name_for_log}) with the first key: {e}. Client set to None.")
+            self.client = None
 
 
     def get_model_name(self) -> str:
@@ -129,10 +158,17 @@ class LLMClient:
         """
         # Single attempt - Retry logic removed, handled by BaseLLMOrchestrator
         print(f"--- Attempting {purpose} JSON call ---")
+
+        if self.client is None:
+            model_name_for_log = self.model if self.model else "N/A"
+            error_msg = f"Client for provider '{self.provider}' (model: {model_name_for_log}) is not initialized (e.g., missing API key)."
+            print(f"Error: {error_msg} Cannot make {purpose} call.")
+            return {"error": error_msg}
+
         content = None # Initialize content to None
         api_key = self._get_next_api_key() # Get the next key
-        if not api_key:
-            print(f"Error: No API keys available for {self.provider}.")
+        if not api_key: # This check is important if client was initialized but keys somehow became unavailable later
+            print(f"Error: No API keys available for {self.provider} to make {purpose} call.")
             return {"error": f"No API keys available for {self.provider}."}
 
         try:
@@ -412,10 +448,16 @@ class LLMClient:
         # Add the rest of the conversation history, preserving all roles including 'system' for tool results
         final_messages.extend(messages) # Pass the full history
 
+        if self.client is None:
+            model_name_for_log = self.model if self.model else "N/A"
+            error_msg = f"Client for provider '{self.provider}' (model: {model_name_for_log}) is not initialized (e.g., missing API key)."
+            print(f"Error: {error_msg} Cannot generate final response.")
+            return f"Error: {error_msg}"
+
         # --- Call the appropriate provider (Single Attempt) ---
         print(f"--- Attempting Final {self.provider.capitalize()} Response ---")
         api_key = self._get_next_api_key() # Get the next key
-        if not api_key:
+        if not api_key: # Important if client was initialized but keys became unavailable
             print(f"Error: No API keys available for {self.provider} during final response.")
             return f"Error: No API keys available for {self.provider}."
 
