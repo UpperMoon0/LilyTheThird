@@ -131,9 +131,22 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     # Note: The actual binding happens in __init__ to these specific methods.
     def on_selected_provider_changed_chat(self, instance, value):
         """Callback when provider changes. Updates models, then schedules save and LLM update."""
-        print(f"ChatTab: Provider changed to {value}")
+        print(f"DEBUG: ChatTab: own on_selected_provider_changed_chat. New provider: {value}")
+        print(f"DEBUG: ChatTab: BEFORE update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
+        
         # 1. Update models and set the default selected_model for the new provider
-        self.update_models() # This now sets self.selected_model correctly
+        self.update_models() # This updates self.llm_models and self.selected_model on ChatTab
+        
+        print(f"DEBUG: ChatTab: AFTER update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
+
+        # Check ChatBoxSettings properties directly via ids
+        if hasattr(self, 'ids') and 'chat_controls' in self.ids:
+            chat_settings_widget = self.ids.chat_controls
+            print(f"DEBUG: ChatTab: Accessing chat_controls.llm_models: {chat_settings_widget.llm_models}")
+            print(f"DEBUG: ChatTab: Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
+            print(f"DEBUG: ChatTab: Accessing chat_controls.selected_provider: '{chat_settings_widget.selected_provider}'")
+        else:
+            print("DEBUG: ChatTab: chat_controls (ChatBoxSettings instance) not found in self.ids.")
 
         # 2. Schedule save and update AFTER update_models finishes and clears its flag
         Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.1) # Small delay
@@ -158,10 +171,18 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
     def on_selected_model_changed_chat(self, instance, value):
         """Callback when model changes (user interaction or default set). Saves and triggers LLM update."""
-        print(f"--- ChatTab: on_selected_model_changed_chat triggered with value: {value}, _updating_models: {self._updating_models} ---") # Keep for now
+        print(f"DEBUG: ChatTab: own on_selected_model_changed_chat. New model: {value}, _updating_models: {self._updating_models}")
         if value and hasattr(self, 'llm_models') and value in self.llm_models:
-            print(f"ChatTab: User selected model: {value}. Saving and updating LLM.")
+            print(f"DEBUG: ChatTab: User selected model: {value}. Saving and updating LLM.")
             self._save_llm_settings() # Save LLM settings (handled by mixin)
+            
+            # Check ChatBoxSettings properties directly via ids
+            if hasattr(self, 'ids') and 'chat_controls' in self.ids:
+                chat_settings_widget = self.ids.chat_controls
+                print(f"DEBUG: ChatTab: (model change) Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
+            else:
+                print("DEBUG: ChatTab: (model change) chat_controls (ChatBoxSettings instance) not found in self.ids.")
+
             # Specific ChatTab action: Trigger LLM instance update if ready
             if self.backend_initialized:
                 self._start_llm_instance_update_thread()
@@ -280,8 +301,6 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print(f"ChatTab: LLM update thread running for {self.selected_provider} - {self.selected_model}")
         new_instance = None
         error_message = None
-        old_instance_id = id(self.llm_instance) if self.llm_instance else None # Log old ID inside thread
-        print(f"ChatTab: [Thread] Old LLM instance ID: {old_instance_id}") # Log old ID inside thread
         try:
             # Close existing instance *before* creating the new one in the thread
             # Ensure thread safety if close() has side effects, but usually okay.
@@ -291,13 +310,9 @@ class ChatTab(BoxLayout, LLMConfigMixin):
                 print("ChatTab: Previous LLM instance closed in update thread.")
 
             # Create the new instance (potentially blocking)
-            print(f"ChatTab: [Thread] Instantiating ChatBoxLLM with provider='{self.selected_provider}', model='{self.selected_model}'") # DEBUG PRINT
             new_instance = ChatBoxLLM(provider=self.selected_provider, model_name=self.selected_model)
-            new_instance_id = id(new_instance) if new_instance else None
-            print(f"ChatTab: [Thread] New LLM instance created successfully (ID: {new_instance_id}).")
 
         except Exception as e:
-            print(f"ChatTab: [Thread] Error updating LLM instance: {e}")
             error_message = f"Error updating LLM: {e}"
             new_instance = None # Ensure instance is None on error
 

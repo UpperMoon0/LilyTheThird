@@ -88,7 +88,7 @@ class MongoHandler:
             return
         try:
             logging.info(f"Loading sentence transformer model: {EMBEDDING_MODEL_NAME}...")
-            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu')
             # Perform a dummy encoding to check if model loaded correctly
             _ = self.embedding_model.encode("test")
             logging.info(f"Sentence transformer model '{EMBEDDING_MODEL_NAME}' loaded successfully.")
