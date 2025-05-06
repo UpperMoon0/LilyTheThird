@@ -136,9 +136,8 @@ def _load_settings_from_file(file_path, default_settings_template, settings_type
                 final_settings[key] = loaded_settings_from_file[key]
             # If a key from defaults is NOT in the loaded file, it keeps its default value from current_defaults
 
-        # Crucially, re-initialize/validate the model based on the *loaded* provider,
-        # as the provider itself might have been loaded from the file.
-        _initialize_defaults_for_provider(final_settings) # Ensures model matches loaded provider if provider changed
+        # Crucially, validate the model based on the *loaded* provider.
+        # The _validate_model_for_provider function will reset to default if the loaded model is invalid.
         _validate_model_for_provider(final_settings) # Validates the potentially loaded model
 
         return final_settings
