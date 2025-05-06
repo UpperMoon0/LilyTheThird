@@ -1,21 +1,17 @@
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, ListProperty, BooleanProperty, ObjectProperty
-from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.utils import get_color_from_hex
-from views.components.rgb_strip import RGBStrip # Import the strip
-# Removed duplicate imports
+from kivy.lang import Builder
 
 # Import the LLM configuration mixin
 from .llm_config_mixin import LLMConfigMixin
 # Import settings manager functions (only needed for non-LLM settings now)
 from settings_manager import load_settings, save_settings
 
-# Import the custom ColorCircle component (assuming it's used elsewhere or will be)
-
-# Load the corresponding kv file automatically by Kivy convention (discordtab.kv)
-# Builder.load_file('views/discord_tab.kv') # REMOVED - Rely on automatic loading
+# Load the kv file for this widget
+Builder.load_file('views/discord_tab.kv')
 
 class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     """

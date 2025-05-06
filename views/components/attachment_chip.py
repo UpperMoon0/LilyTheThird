@@ -1,9 +1,9 @@
 import os
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, ObjectProperty
-# Removed: from kivy.lang import Builder
+from kivy.lang import Builder
 
-# Removed: Builder.load_file(...)
+Builder.load_file('views/components/attachment_chip.kv')
 
 class AttachmentChip(BoxLayout):
     """

@@ -4,7 +4,6 @@ from kivy.lang import Builder
 import json
 from datetime import datetime
 
-# Load the KV file for this component
 Builder.load_file('views/components/action_details.kv')
 
 class ActionDetails(BoxLayout):

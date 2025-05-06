@@ -1,6 +1,3 @@
-import kivy
-kivy.require('2.0.0')
-
 from kivy.uix.widget import Widget
 from kivy.graphics import Color, Rectangle
 from kivy.properties import ListProperty, NumericProperty

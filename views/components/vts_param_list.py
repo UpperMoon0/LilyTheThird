@@ -1,7 +1,9 @@
-# views/components/vts_param_list.py
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import ListProperty, StringProperty, NumericProperty, ObjectProperty, DictProperty
 from kivy.metrics import dp
+from kivy.lang import Builder
+
+Builder.load_file('views/components/vts_param_list.kv')
 
 class VTSParamListItem(BoxLayout):
     """Widget representing a single VTS parameter with name, value, min, max."""

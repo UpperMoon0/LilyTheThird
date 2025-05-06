@@ -12,17 +12,13 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label # Keep standard Label for simple placeholders if preferred
 from kivy.core.window import Window # Import Window
 from kivy.clock import Clock # Import Clock
-from kivy.lang import Builder # Import Builder
-
-# Import Views and Components
 from views.vtube_tab import VTubeTab
-# Explicitly load KV files for the dynamically created tabs
-Builder.load_file('views/chattab.kv')
-Builder.load_file('views/discordtab.kv')
-Builder.load_file('views/vtubetab.kv') # Rely on Kivy's automatic loading for this one
+from kivy.lang import Builder
 
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
+
+Builder.load_file('main_layout.kv')
 
 class MainAppLayout(BoxLayout):
     """Root layout containing the TabbedPanel."""

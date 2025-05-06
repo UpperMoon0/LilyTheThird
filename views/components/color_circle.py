@@ -1,11 +1,10 @@
-import os
 from kivy.uix.widget import Widget
 from kivy.properties import ListProperty, NumericProperty
-# Removed: from kivy.lang import Builder
+from kivy.lang import Builder
 from kivy.utils import get_color_from_hex
 from kivy.metrics import dp
 
-# Removed: Builder.load_file(...)
+Builder.load_file('views/components/color_circle.kv')
 
 class ColorCircle(Widget):
     """

@@ -12,6 +12,9 @@ from kivy.uix.popup import Popup # Added for showing messages
 from kivy.uix.label import Label # Added for popup content
 from kivy.uix.button import Button # Added for confirmation popup buttons
 from kivy.metrics import dp # Added to fix NameError
+from kivy.lang import Builder # Added for loading kv files
+
+Builder.load_file('views/vtube_tab.kv')
 
 class VTubeTab(BoxLayout):
     """

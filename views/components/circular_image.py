@@ -1,6 +1,9 @@
 from kivy.uix.widget import Widget
 from kivy.uix.image import Image
 from kivy.properties import StringProperty, ListProperty, ObjectProperty
+from kivy.lang import Builder
+
+Builder.load_file('views/components/circular_image.kv')
 
 class CircularImage(Widget):
     """

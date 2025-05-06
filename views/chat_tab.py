@@ -1,8 +1,9 @@
 import asyncio
 import threading
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty # Updated imports
+from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty 
 from kivy.clock import Clock
+from kivy.lang import Builder
 
 # Import settings manager functions
 from settings_manager import load_settings, save_settings
@@ -10,10 +11,9 @@ from settings_manager import load_settings, save_settings
 from llm.chatbox_llm import ChatBoxLLM
 # Import the LLM Config Mixin
 from views.llm_config_mixin import LLMConfigMixin
-# Import component classes used in the KV file
-from views.components.chatbox_settings import ChatboxSettings
-from views.components.chat_box import ChatBox
-from views.components.actions_list import ActionsList # Import the new component
+
+# Load the KV string for ChatTab
+Builder.load_file('views/chat_tab.kv')
 
 # Define colors for markup
 USER_COLOR_HEX = "FFFFFF" # White

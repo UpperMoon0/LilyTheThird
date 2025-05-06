@@ -7,7 +7,7 @@ from kivy.lang import Builder
 from kivy.event import EventDispatcher # Needed for event registration
 
 # Load the corresponding kv file
-Builder.load_file('views/components/actionslist.kv')
+Builder.load_file('views/components/actions_list.kv')
 
 # Custom Button class to hold action data
 class ActionListItemButton(Button):
