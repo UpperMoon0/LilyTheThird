@@ -9,7 +9,6 @@ import asyncio # Import asyncio
 from kivymd.app import MDApp # Import MDApp from KivyMD
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
 from kivy.uix.boxlayout import BoxLayout
-from kivymd.uix.label import MDLabel # Use MDLabel for consistency if needed elsewhere
 from kivy.uix.label import Label # Keep standard Label for simple placeholders if preferred
 from kivy.core.window import Window # Import Window
 from kivy.clock import Clock # Import Clock
@@ -20,11 +19,7 @@ from views.vtube_tab import VTubeTab
 # Explicitly load KV files for the dynamically created tabs
 Builder.load_file('views/chattab.kv')
 Builder.load_file('views/discordtab.kv')
-Builder.load_file('views/vtubetab.kv')
-# Explicitly load component KV files needed by the tabs
-Builder.load_file('views/components/vtsparamlist.kv')
-Builder.load_file('views/components/animationeditorpanel.kv')
-# Add other component KVs here if necessary
+Builder.load_file('views/vtubetab.kv') # Rely on Kivy's automatic loading for this one
 
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab

@@ -1,18 +1,12 @@
-import os
-import json
 from kivy.uix.boxlayout import BoxLayout # Changed from ModalView
-from kivy.properties import ObjectProperty, DictProperty, BooleanProperty, ListProperty, StringProperty
+from kivy.properties import ObjectProperty, DictProperty, BooleanProperty, ListProperty
 from kivy.lang import Builder
-from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.clipboard import Clipboard
 from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.event import EventDispatcher # Added for dispatching events
 
-# KV file is now loaded centrally in main.py
-# Builder.load_file('views/components/animationeditorpanel.kv')
-
+Builder.load_file('views/components/animation_editor_panel.kv')
 
 class AnimationEditorPanel(BoxLayout, EventDispatcher): # Changed base class, added EventDispatcher
     """

@@ -6,21 +6,12 @@ import json # Added for save/load and clipboard
 import pyvts
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, BooleanProperty, ObjectProperty, ListProperty, DictProperty
-from kivy.lang import Builder
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard # Added for clipboard functions
 from kivy.uix.popup import Popup # Added for showing messages
 from kivy.uix.label import Label # Added for popup content
 from kivy.uix.button import Button # Added for confirmation popup buttons
 from kivy.metrics import dp # Added to fix NameError
-from views.components.rgb_strip import RGBStrip
-from views.components.vts_animation_list import VTSAnimationList
-# VTSParamList is now used within AnimationEditorPanel, no direct import needed here unless accessed directly
-# from views.components.vts_param_list import VTSParamList
-from views.components.animation_editor_panel import AnimationEditorPanel # Import the new panel component
-
-# Load the corresponding kv file automatically by Kivy convention (vtubetab.kv)
-# Builder.load_file('views/vtubetab.kv') # Kivy usually handles this
 
 class VTubeTab(BoxLayout):
     """
@@ -42,9 +33,6 @@ class VTubeTab(BoxLayout):
     # --- Editor State Properties ---
     is_editing = BooleanProperty(False) # True when the inline editor panel is active
     editing_animation_data = DictProperty(None, allownone=True) # Data for the animation being edited/added
-
-    # --- No Modal Instance Needed ---
-    # animation_modal = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

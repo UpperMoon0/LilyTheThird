@@ -4,12 +4,10 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import ListProperty, StringProperty, ObjectProperty, DictProperty
 from kivy.lang import Builder
 from kivy.metrics import dp
-from kivy.uix.button import Button
 from kivy.uix.label import Label
-from kivy.app import App # To access user_data_dir
+from kivy.app import App 
 
-# Load the corresponding kv file
-Builder.load_file('views/components/vtsanimationlist.kv')
+Builder.load_file('views/components/vts_animation_list.kv')
 
 class VTSAnimationListItem(BoxLayout):
     """Widget representing a single VTS animation button with edit/delete."""

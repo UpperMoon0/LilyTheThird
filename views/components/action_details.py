@@ -1,11 +1,11 @@
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, DictProperty, ObjectProperty
+from kivy.properties import StringProperty, ObjectProperty
 from kivy.lang import Builder
 import json
 from datetime import datetime
 
 # Load the KV file for this component
-Builder.load_file('views/components/actiondetails.kv')
+Builder.load_file('views/components/action_details.kv')
 
 class ActionDetails(BoxLayout):
     """
