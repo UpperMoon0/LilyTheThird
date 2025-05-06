@@ -20,32 +20,40 @@ class DiscordLLM(BaseLLMOrchestrator):
     LLM Orchestrator specifically for the Discord interface.
     Inherits common logic from BaseLLMOrchestrator.
     """
-    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None, master_id: Optional[str] = None):
         """
         Initializes the DiscordLLM orchestrator.
 
         Args:
             provider: The LLM provider ('openai' or 'gemini'). Defaults handled by Base.
             model: The specific model name to use. Defaults handled by Base.
+            master_id: The Master Discord ID. Must be provided if intended to be used.
         """
-        # Determine provider and model using Discord-specific env vars or defaults
-        discord_provider = (provider or os.getenv('DISCORD_LLM_PROVIDER', 'openai')).lower()
-        discord_model = model or os.getenv('DISCORD_LLM_MODEL') # Let LLMClient handle default if None
+        # Determine provider and model strictly from passed arguments
+        # Default to 'openai' for provider if None is passed, model can be None (LLMClient handles default)
+        discord_provider = provider.lower() if provider else 'openai'
+        discord_model = model # Let LLMClient handle default if None
 
         # Call the parent constructor
         super().__init__(provider=discord_provider, model_name=discord_model)
 
         # Store master ID for personality check (Discord specific)
-        self.master_id = os.getenv('MASTER_DISCORD_ID')
-        if self.master_id:
+        # Use only the master_id passed to the constructor
+        effective_master_id_str = master_id 
+        
+        if effective_master_id_str:
             try:
-                self.master_id = int(self.master_id)
+                self.master_id = int(effective_master_id_str)
+                print(f"DiscordLLM: Master ID set to {self.master_id} (from constructor).")
             except ValueError:
-                print("Warning: MASTER_DISCORD_ID in .env is not a valid integer. Master check will fail.")
+                print(f"Warning: Master Discord ID '{effective_master_id_str}' (from constructor) is not a valid integer. Master check will fail.")
                 self.master_id = None
         else:
-            print("Warning: MASTER_DISCORD_ID not found in .env. Master check will fail.")
-        print(f"DiscordLLM initialized. Master ID check configured.")
+            # This case implies master_id was not passed or was None/empty
+            print("Warning: Master Discord ID not provided to constructor. Master check will be based on None.")
+            self.master_id = None # Explicitly set to None
+        
+        print(f"DiscordLLM initialized with Provider: {discord_provider}, Model: {discord_model if discord_model else 'Default'}, Master ID: {self.master_id}")
 
 
     # --- Implement Abstract Methods and Hooks from Base Class ---

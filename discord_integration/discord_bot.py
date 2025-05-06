@@ -25,17 +25,18 @@ class DiscordBot:
         self.is_running = False
         self.config = config if config else {}
 
-        self.guild_id = self.config.get('guild_id', os.getenv("DISCORD_GUILD_ID"))
-        self.channel_id = self.config.get('channel_id', os.getenv("DISCORD_CHANNEL_ID"))
-        self.master_id = self.config.get('master_discord_id', os.getenv("MASTER_DISCORD_ID")) # Load master ID from config first
+        # Load Discord specific settings strictly from config
+        self.guild_id = self.config.get('guild_id')
+        self.channel_id = self.config.get('channel_id')
+        self.master_id = self.config.get('master_discord_id') # Load master ID strictly from config
 
         # Extract LLM settings from config, default to None if not found
         llm_provider = self.config.get('discord_llm_provider', None)
         llm_model = self.config.get('discord_llm_model', None)
 
         try:
-            # Pass provider and model from config to DiscordLLM constructor
-            self.discordLLM = DiscordLLM(provider=llm_provider, model=llm_model)
+            # Pass provider, model, and master_id from config to DiscordLLM constructor
+            self.discordLLM = DiscordLLM(provider=llm_provider, model=llm_model, master_id=self.master_id)
         except ValueError as e:
             print(f"FATAL: Could not initialize DiscordLLM: {e}")
             self.discordLLM = None
@@ -52,10 +53,18 @@ class DiscordBot:
             print(f"DiscordBot LLM: Provider={self.discordLLM.llm_client.provider}, Model={self.discordLLM.llm_client.get_model_name()}") # Use get_model_name() method
         elif self.discordLLM:
              print("DiscordBot LLM initialized, but llm_client is missing.") # Handle case where llm_client might not be initialized
+        if self.guild_id: # Corrected from self.master_id to self.guild_id for this print block
+            print(f"Guild ID: {self.guild_id}") # Keep this print or adjust as needed
+        else:
+            print("Warning: Guild ID not found in config.")
+        if self.channel_id:
+            print(f"Channel ID: {self.channel_id}")
+        else:
+            print("Warning: Channel ID not found in config.")
         if self.master_id:
             print(f"Master Discord ID: {self.master_id}")
         else:
-            print("Warning: MASTER_DISCORD_ID not found in config or .env file.")
+            print("Warning: Master Discord ID not found in config.")
 
     async def setup_hook(self):
         """Called during the bot setup to run asynchronous tasks."""
@@ -81,10 +90,10 @@ class DiscordBot:
 
     def start_bot(self):
         """Starts the Discord bot and logs in using the token."""
-        discord_token = self.config.get('discord_token', os.getenv("DISCORD_TOKEN"))
+        discord_token = self.config.get('discord_token') # Load token strictly from config
 
         if not discord_token:
-            print("DISCORD_TOKEN not found in config or .env file.")
+            print("DISCORD_TOKEN not found in config. Cannot start bot.")
             return
 
         intents = discord.Intents.default()
