@@ -6,7 +6,7 @@ from kivy.clock import Clock
 from kivy.lang import Builder
 
 # Import settings manager functions
-from settings_manager import load_settings, save_settings
+from settings_manager import load_chat_settings, save_chat_settings # UPDATED
 # Import the ChatBoxLLM
 from llm.chatbox_llm import ChatBoxLLM
 # Import the LLM Config Mixin
@@ -61,10 +61,16 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         # Explicitly load KV string *before* super init
         # Builder.load_string(CHAT_TAB_KV) # Moved outside class definition
         super().__init__(**kwargs)
+        
+        # Set the load and save functions for the LLMConfigMixin
+        self.load_function = load_chat_settings
+        self.save_function = save_chat_settings
+        
         # Load general settings first
-        self._load_chat_settings()
-        # Load LLM specific settings using the mixin method
-        self._load_llm_settings()
+        self._load_chat_settings() # Loads non-LLM chat settings
+        # Load LLM specific settings using the mixin method (which now uses self.load_function)
+        self._load_llm_settings() 
+        
         # Bindings
         self.bind(selected_provider=self.on_selected_provider_changed_chat)
         self.bind(selected_model=self.on_selected_model_changed_chat)
@@ -72,11 +78,13 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
     def _load_chat_settings(self):
         """Load settings specific to ChatTab (excluding LLM provider/model)."""
-        settings = load_settings()
-        print("ChatTab: Loading non-LLM settings:", settings)
+        # This method now specifically loads non-LLM settings for the chat tab.
+        # LLM provider/model are handled by _load_llm_settings via the mixin.
+        settings = self.load_function() # Uses load_chat_settings
+        print(f"ChatTab: Loading non-LLM settings using {self.load_function.__name__}: {settings}")
         # Use .get() with defaults
-        self.tts_enabled = settings.get('tts_provider_enabled', False) # Match key in settings
-        self.temperature = settings.get('temperature', 0.7) # Load temperature
+        self.tts_enabled = settings.get('tts_provider_enabled', False) # Key from DEFAULT_CHAT_SETTINGS
+        self.temperature = settings.get('temperature', 0.7) # Key from DEFAULT_CHAT_SETTINGS
 
     def _post_init(self, dt):
         """Tasks to run after widgets are loaded."""
@@ -174,14 +182,18 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         self._save_chat_settings() # Save only chat-specific settings
 
     def _save_chat_settings(self):
-        """Helper method to save only the ChatTab specific settings."""
-        settings = load_settings() # Load existing settings first
-        settings['tts_provider_enabled'] = self.tts_enabled # Match key in settings
-        settings['temperature'] = self.temperature # Save temperature
-        save_settings(settings)
-        print("ChatTab: Chat-specific settings saved.")
+        """Helper method to save only the ChatTab specific settings (TTS, temperature)."""
+        if not self.load_function or not self.save_function:
+            print("ChatTab: Error - load_function or save_function not set. Cannot save chat-specific settings.")
+            return
 
-    # _save_llm_settings is inherited from LLMConfigMixin
+        settings = self.load_function() # Load existing chat settings first
+        settings['tts_provider_enabled'] = self.tts_enabled
+        settings['temperature'] = self.temperature
+        self.save_function(settings) # Save updated chat settings
+        print(f"ChatTab: Chat-specific settings (TTS, temp) saved using {self.save_function.__name__}.")
+
+    # _save_llm_settings is inherited from LLMConfigMixin and will use self.save_function
 
     # --- Action Handling ---
     def on_action_selected(self, instance, action_data):

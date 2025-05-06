@@ -1,9 +1,9 @@
-from kivy.properties import ListProperty, StringProperty, BooleanProperty
+from kivy.properties import ListProperty, StringProperty, BooleanProperty, ObjectProperty
 from kivy.clock import Clock
 # Import model lists from config
 from config.models import OPENAI_MODELS, GEMINI_MODELS
 # Import settings manager functions
-from settings_manager import load_settings, save_settings
+# from settings_manager import load_settings, save_settings # No longer directly used by mixin
 
 
 # Apply the combined metaclass to the mixin
@@ -12,12 +12,17 @@ class LLMConfigMixin:
     """
     A mixin class (using a combined metaclass) to handle common LLM provider/model selection logic
     and settings persistence for Kivy widgets.
+    It requires load_function and save_function to be set by the consuming class.
     """
     llm_providers = ListProperty(["OpenAI", "Gemini"])
     llm_models = ListProperty([])
     selected_provider = StringProperty("OpenAI") # Default provider, might be overridden by load
     selected_model = StringProperty("")
     _updating_models = BooleanProperty(False) # Flag to prevent saving during updates
+
+    # Functions to be provided by the consuming class
+    load_function = ObjectProperty(None)
+    save_function = ObjectProperty(None)
 
     def _get_provider_setting_key(self) -> str:
         """Return the key used in settings for the selected provider."""
@@ -28,30 +33,38 @@ class LLMConfigMixin:
         raise NotImplementedError("Subclasses must implement this method")
 
     def _load_llm_settings(self):
-        """Load LLM related settings using the specific keys."""
-        settings = load_settings()
+        """Load LLM related settings using the specific keys and the provided load_function."""
+        if not self.load_function:
+            print(f"{self.__class__.__name__}: Error - load_function not set. Cannot load LLM settings.")
+            return
+
+        settings = self.load_function()
         provider_key = self._get_provider_setting_key()
         # model_key = self._get_model_setting_key() # Model is set during update_models
 
-        print(f"{self.__class__.__name__}: Loading LLM settings (Provider key: {provider_key})")
+        print(f"{self.__class__.__name__}: Loading LLM settings (Provider key: {provider_key}) using {self.load_function.__name__}")
         # Use .get() with defaults to handle potentially missing keys gracefully
         self.selected_provider = settings.get(provider_key, self.selected_provider) # Use current value as default if key missing
         # self.selected_model = settings.get(model_key, '') # Model set in update_models
 
     def _save_llm_settings(self):
-        """Save LLM related settings using the specific keys."""
+        """Save LLM related settings using the specific keys and the provided save_function."""
         if self._updating_models:
             print(f"{self.__class__.__name__}: Skipping save during model update.")
             return
+        
+        if not self.load_function or not self.save_function:
+            print(f"{self.__class__.__name__}: Error - load_function or save_function not set. Cannot save LLM settings.")
+            return
 
-        settings = load_settings() # Load existing settings first
+        settings = self.load_function() # Load existing settings first using the specific loader
         provider_key = self._get_provider_setting_key()
         model_key = self._get_model_setting_key()
 
         settings[provider_key] = self.selected_provider
         settings[model_key] = self.selected_model
-        save_settings(settings)
-        print(f"{self.__class__.__name__}: LLM settings saved (Keys: {provider_key}, {model_key}).")
+        self.save_function(settings) # Save using the specific saver
+        print(f"{self.__class__.__name__}: LLM settings saved (Keys: {provider_key}, {model_key}) using {self.save_function.__name__}.")
 
     def update_models(self, *args, initial_load=False):
         """Update the list of models based on the selected provider."""
@@ -60,12 +73,15 @@ class LLMConfigMixin:
             print(f"{self.__class__.__name__}: Updating models for provider: {self.selected_provider}")
             saved_model = None
             if initial_load:
-                settings = load_settings() # Load again to get the saved model for this provider
-                provider_key = self._get_provider_setting_key()
-                model_key = self._get_model_setting_key()
-                if settings.get(provider_key) == self.selected_provider:
-                    saved_model = settings.get(model_key)
-                    print(f"{self.__class__.__name__}: Found saved model for initial load: {saved_model}")
+                if not self.load_function:
+                    print(f"{self.__class__.__name__}: Warning - load_function not set during initial_load. Cannot load saved model.")
+                else:
+                    settings = self.load_function() # Load again to get the saved model for this provider
+                    provider_key = self._get_provider_setting_key()
+                    model_key = self._get_model_setting_key()
+                    if settings.get(provider_key) == self.selected_provider:
+                        saved_model = settings.get(model_key)
+                        print(f"{self.__class__.__name__}: Found saved model for initial load: {saved_model}")
 
             # Determine models based on provider
             if self.selected_provider == "OpenAI":

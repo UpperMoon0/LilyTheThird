@@ -1,118 +1,214 @@
 import os
 import json
 import sys
-# Import model lists
 from config.models import OPENAI_MODELS, GEMINI_MODELS
-from utils.file_utils import get_nstut_lilythethird_app_data_dir # Import the new utility
+from utils.file_utils import get_nstut_lilythethird_app_data_dir
 
-def get_settings_dir():
+# --- Directory Setup ---
+def _get_specific_settings_dir(subfolder_name):
     """
-    Gets the application-specific 'NsTut/LilyTheThird' settings directory.
-    This directory is also the base for other app data like avatars and animations.
+    Gets the path to a specific settings subfolder (e.g., 'chat', 'discord')
+    within the main 'NsTut/LilyTheThird' app data directory.
+    Ensures the subfolder exists.
     """
-    # The get_nstut_lilythethird_app_data_dir already ensures the base directory exists.
-    return get_nstut_lilythethird_app_data_dir()
+    base_app_data_dir = get_nstut_lilythethird_app_data_dir()
+    specific_dir = os.path.join(base_app_data_dir, subfolder_name)
+    try:
+        os.makedirs(specific_dir, exist_ok=True)
+    except OSError as e:
+        print(f"Error creating settings sub-directory {specific_dir}: {e}")
+        # Depending on how critical this is, might raise an exception or return None
+    return specific_dir
 
-SETTINGS_FILE = os.path.join(get_settings_dir(), 'settings.json')
-# Define default models based on default providers
+def get_chat_settings_dir():
+    """Gets the 'chat' settings directory."""
+    return _get_specific_settings_dir('chat')
+
+def get_discord_settings_dir():
+    """Gets the 'discord' settings directory."""
+    return _get_specific_settings_dir('discord')
+
+CHAT_SETTINGS_FILE = os.path.join(get_chat_settings_dir(), 'settings.json')
+DISCORD_SETTINGS_FILE = os.path.join(get_discord_settings_dir(), 'settings.json')
+
+# --- Default Model Definitions ---
 DEFAULT_OPENAI_MODEL = OPENAI_MODELS[0] if OPENAI_MODELS else None
 DEFAULT_GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else None
 
-DEFAULT_SETTINGS = {
-    # Chat Tab Settings
+# --- Default Settings Definitions ---
+DEFAULT_CHAT_SETTINGS = {
     'tts_provider_enabled': False,
-    'selected_provider': 'OpenAI',
-    'selected_model': DEFAULT_OPENAI_MODEL, # Use default OpenAI model
-    'temperature': 0.7, # Default temperature for Chat Tab
-    # Discord Tab Settings
-    'discord_guild_id': '', # Default Guild ID
-    'discord_channel_id': '', # Default Channel ID
-    'discord_selected_provider': 'OpenAI', # Default Discord provider
-    'discord_selected_model': DEFAULT_OPENAI_MODEL # Default Discord model
+    'selected_provider': 'OpenAI', # Default provider for Chat Tab
+    'selected_model': DEFAULT_OPENAI_MODEL,
+    'temperature': 0.7,
 }
 
-def save_settings(settings_dict):
-    """Saves the provided settings dictionary to the JSON file."""
+DEFAULT_DISCORD_SETTINGS = {
+    'guild_id': '',
+    'channel_id': '',
+    'selected_provider': 'OpenAI', # Default provider for Discord Tab
+    'selected_model': DEFAULT_OPENAI_MODEL,
+    # Temperature for Discord could be added here if needed, e.g., 'temperature': 0.7
+}
+
+# --- Helper Functions (Internal) ---
+def _initialize_defaults_for_provider(defaults_dict, provider_key='selected_provider', model_key='selected_model'):
+    """
+    Initializes the default model in a settings dictionary based on the provider.
+    Modifies the input dictionary directly.
+    """
+    # Ensure models are imported locally if this module is reloaded or used in isolation
+    from config.models import OPENAI_MODELS, GEMINI_MODELS
+
+    provider = defaults_dict.get(provider_key)
+    if provider == 'OpenAI':
+        defaults_dict[model_key] = OPENAI_MODELS[0] if OPENAI_MODELS else None
+    elif provider == 'Gemini':
+        defaults_dict[model_key] = GEMINI_MODELS[0] if GEMINI_MODELS else None
+    # Add other providers here if necessary
+    return defaults_dict
+
+def _validate_model_for_provider(settings_dict, provider_key='selected_provider', model_key='selected_model'):
+    """
+    Validates the model in the settings_dict for the given provider.
+    Resets to default if invalid. Modifies the input dictionary.
+    """
+    from config.models import OPENAI_MODELS, GEMINI_MODELS # Local import for safety
+
+    provider = settings_dict.get(provider_key)
+    model = settings_dict.get(model_key)
+    valid_models = []
+    default_model_for_provider = None
+
+    if provider == 'OpenAI':
+        valid_models = OPENAI_MODELS
+        default_model_for_provider = valid_models[0] if valid_models else None
+    elif provider == 'Gemini':
+        valid_models = GEMINI_MODELS
+        default_model_for_provider = valid_models[0] if valid_models else None
+    else:
+        print(f"Warning: Invalid or missing provider '{provider}' for key '{provider_key}'. Cannot validate model '{model_key}'.")
+        # If provider is unknown, we might not be able to determine a default model.
+        # Optionally, set to a generic default or leave as is.
+        # For now, if provider is bad, we can't pick a default model.
+        return
+
+    if model not in valid_models:
+        print(f"Warning: Loaded model '{model}' (key: {model_key}) is not valid for provider '{provider}' (key: {provider_key}). Resetting to default '{default_model_for_provider}'.")
+        settings_dict[model_key] = default_model_for_provider
+    else:
+        print(f"Model '{model}' (key: {model_key}) is valid for provider '{provider}' (key: {provider_key}).")
+
+
+def _save_settings_to_file(settings_dict, file_path, settings_type_name="settings"):
+    """Generic function to save a settings dictionary to a specified file."""
     try:
-        with open(SETTINGS_FILE, 'w') as f:
+        with open(file_path, 'w') as f:
             json.dump(settings_dict, f, indent=4)
-        print(f"Settings saved to {SETTINGS_FILE}")
+        print(f"{settings_type_name.capitalize()} saved to {file_path}")
     except IOError as e:
-        print(f"Error saving settings to {SETTINGS_FILE}: {e}")
+        print(f"Error saving {settings_type_name} to {file_path}: {e}")
     except Exception as e:
-        print(f"An unexpected error occurred while saving settings: {e}")
+        print(f"An unexpected error occurred while saving {settings_type_name}: {e}")
 
+def _load_settings_from_file(file_path, default_settings_template, settings_type_name="settings"):
+    """Generic function to load settings from a file, falling back to defaults."""
+    
+    # Create a fresh copy of defaults, then initialize provider-specific models
+    current_defaults = default_settings_template.copy()
+    _initialize_defaults_for_provider(current_defaults) # Initializes based on default provider in template
 
-def load_settings():
-    """Loads settings from the JSON file. Returns defaults if file not found or invalid."""
-    # Initialize defaults dynamically based on provider
-    def initialize_defaults(defaults):
-        from config.models import OPENAI_MODELS, GEMINI_MODELS
-        if defaults['selected_provider'] == 'OpenAI':
-            defaults['selected_model'] = OPENAI_MODELS[0] if OPENAI_MODELS else None
-        elif defaults['selected_provider'] == 'Gemini':
-            defaults['selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
-
-        if defaults['discord_selected_provider'] == 'OpenAI':
-            defaults['discord_selected_model'] = OPENAI_MODELS[0] if OPENAI_MODELS else None
-        elif defaults['discord_selected_provider'] == 'Gemini':
-            defaults['discord_selected_model'] = GEMINI_MODELS[0] if GEMINI_MODELS else None
-        return defaults
-
-    if not os.path.exists(SETTINGS_FILE):
-        print(f"Settings file not found at {SETTINGS_FILE}. Using defaults.")
-        # Initialize and return a copy of potentially modified defaults
-        return initialize_defaults(DEFAULT_SETTINGS.copy())
+    if not os.path.exists(file_path):
+        print(f"{settings_type_name.capitalize()} file not found at {file_path}. Using defaults.")
+        return current_defaults
 
     try:
-        with open(SETTINGS_FILE, 'r') as f:
-            settings = json.load(f)
-            print(f"Settings loaded from {SETTINGS_FILE}")
+        with open(file_path, 'r') as f:
+            loaded_settings_from_file = json.load(f)
+        print(f"{settings_type_name.capitalize()} loaded from {file_path}")
 
-            # Validate loaded settings against defaults (add missing keys)
-            final_settings = DEFAULT_SETTINGS.copy()
-            # Only update with keys that exist in defaults to avoid loading old settings
-            for key in DEFAULT_SETTINGS:
-                if key in settings:
-                    final_settings[key] = settings[key]
+        # Start with a fresh copy of defaults for merging
+        final_settings = current_defaults.copy()
 
-            # --- Model Validation Logic ---
-            def validate_model(settings, provider_key, model_key):
-                from config.models import OPENAI_MODELS, GEMINI_MODELS
-                provider = settings.get(provider_key)
-                model = settings.get(model_key)
-                valid_models = []
-                default_model = None
+        # Update with values from file, only for keys present in the default template
+        for key in default_settings_template: # Iterate over template keys
+            if key in loaded_settings_from_file:
+                final_settings[key] = loaded_settings_from_file[key]
+            # If a key from defaults is NOT in the loaded file, it keeps its default value from current_defaults
 
-                if provider == 'OpenAI':
-                    valid_models = OPENAI_MODELS
-                    default_model = valid_models[0] if valid_models else None
-                elif provider == 'Gemini':
-                    valid_models = GEMINI_MODELS
-                    default_model = valid_models[0] if valid_models else None
-                else: # Handle case where provider might be missing or invalid
-                    print(f"Warning: Invalid or missing provider '{provider}' for key '{provider_key}'. Cannot validate model.")
-                    return # Cannot validate without a valid provider
-                
-                if model not in valid_models:
-                    print(f"Warning: Loaded model '{model}' (key: {model_key}) not valid for provider '{provider}' (key: {provider_key}). Resetting to default '{default_model}'.")
-                    settings[model_key] = default_model
+        # Crucially, re-initialize/validate the model based on the *loaded* provider,
+        # as the provider itself might have been loaded from the file.
+        _initialize_defaults_for_provider(final_settings) # Ensures model matches loaded provider if provider changed
+        _validate_model_for_provider(final_settings) # Validates the potentially loaded model
 
-                else:
-                    print(f"Model '{model}' is valid for provider '{provider}'.") # ADDED LOG
-
-            # Validate models for both chat and discord settings
-            validate_model(final_settings, 'selected_provider', 'selected_model')
-            validate_model(final_settings, 'discord_selected_provider', 'discord_selected_model')
-
-            return final_settings
+        return final_settings
+        
     except json.JSONDecodeError as e:
-        print(f"Error decoding settings file {SETTINGS_FILE}: {e}. Using defaults.")
-        # Initialize and return a copy of potentially modified defaults
-        return initialize_defaults(DEFAULT_SETTINGS.copy())
+        print(f"Error decoding {settings_type_name} file {file_path}: {e}. Using defaults.")
+        return current_defaults # Return initialized defaults
     except IOError as e:
-        print(f"Error reading settings file {SETTINGS_FILE}: {e}. Using defaults.")
-        return initialize_defaults(DEFAULT_SETTINGS.copy())
+        print(f"Error reading {settings_type_name} file {file_path}: {e}. Using defaults.")
+        return current_defaults
     except Exception as e:
-        print(f"An unexpected error occurred while loading settings: {e}. Using defaults.")
-        return initialize_defaults(DEFAULT_SETTINGS.copy())
+        print(f"An unexpected error occurred while loading {settings_type_name}: {e}. Using defaults.")
+        return current_defaults
+
+# --- Public API for Chat Settings ---
+def save_chat_settings(settings_dict):
+    """Saves the Chat Tab settings."""
+    _save_settings_to_file(settings_dict, CHAT_SETTINGS_FILE, "chat settings")
+
+def load_chat_settings():
+    """Loads the Chat Tab settings."""
+    return _load_settings_from_file(CHAT_SETTINGS_FILE, DEFAULT_CHAT_SETTINGS, "chat settings")
+
+# --- Public API for Discord Settings ---
+def save_discord_settings(settings_dict):
+    """Saves the Discord Tab settings."""
+    _save_settings_to_file(settings_dict, DISCORD_SETTINGS_FILE, "discord settings")
+
+def load_discord_settings():
+    """Loads the Discord Tab settings."""
+    return _load_settings_from_file(DISCORD_SETTINGS_FILE, DEFAULT_DISCORD_SETTINGS, "discord settings")
+
+if __name__ == '__main__':
+    print("Testing settings manager...")
+
+    # Test Chat Settings
+    print("\n--- Chat Settings Test ---")
+    chat_settings = load_chat_settings()
+    print(f"Initial loaded chat settings: {chat_settings}")
+    chat_settings['temperature'] = 0.99
+    chat_settings['selected_provider'] = 'Gemini' # Change provider
+    # The model should auto-adjust if Gemini models are available
+    save_chat_settings(chat_settings)
+    reloaded_chat_settings = load_chat_settings()
+    print(f"Reloaded chat settings: {reloaded_chat_settings}")
+    # Test with a deliberately bad model for chat
+    if reloaded_chat_settings.get('selected_provider') == 'OpenAI' and OPENAI_MODELS:
+        reloaded_chat_settings['selected_model'] = 'invalid-openai-model-for-test'
+        save_chat_settings(reloaded_chat_settings)
+        final_chat_settings = load_chat_settings()
+        print(f"Chat settings after invalid model test: {final_chat_settings}")
+
+
+    # Test Discord Settings
+    print("\n--- Discord Settings Test ---")
+    discord_settings = load_discord_settings()
+    print(f"Initial loaded discord settings: {discord_settings}")
+    discord_settings['guild_id'] = '1234567890'
+    discord_settings['channel_id'] = '0987654321'
+    discord_settings['selected_provider'] = 'Gemini'
+    save_discord_settings(discord_settings)
+    reloaded_discord_settings = load_discord_settings()
+    print(f"Reloaded discord settings: {reloaded_discord_settings}")
+    # Test with a deliberately bad model for discord
+    if reloaded_discord_settings.get('selected_provider') == 'Gemini' and GEMINI_MODELS:
+         reloaded_discord_settings['selected_model'] = 'invalid-gemini-model-for-test'
+         save_discord_settings(reloaded_discord_settings)
+         final_discord_settings = load_discord_settings()
+         print(f"Discord settings after invalid model test: {final_discord_settings}")
+
+    print("\nTo verify, check the following directories/files:")
+    print(f"Chat settings file: {CHAT_SETTINGS_FILE}")
+    print(f"Discord settings file: {DISCORD_SETTINGS_FILE}")

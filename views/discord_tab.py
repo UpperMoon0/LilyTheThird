@@ -7,8 +7,8 @@ from kivy.lang import Builder
 
 # Import the LLM configuration mixin
 from .llm_config_mixin import LLMConfigMixin
-# Import settings manager functions (only needed for non-LLM settings now)
-from settings_manager import load_settings, save_settings
+# Import settings manager functions
+from settings_manager import load_discord_settings, save_discord_settings # UPDATED
 
 # Load the kv file for this widget
 Builder.load_file('views/discord_tab.kv')
@@ -35,7 +35,7 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     # --- Widget References (Optional, if needed for direct access) ---
     status_circle = ObjectProperty(None) # Reference to the ColorCircle widget
     # _updating_models flag is now handled by LLMConfigMixin.
-    settings_prefix = 'discord_' # Prefix for LLM settings keys
+    # settings_prefix = 'discord_' # REMOVED - Keys will match DEFAULT_DISCORD_SETTINGS
 
     # --- Animation Properties ---
     idle_color_1 = ListProperty(get_color_from_hex("#C90000")) # Red
@@ -46,9 +46,15 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+        # Set the load and save functions for the LLMConfigMixin
+        self.load_function = load_discord_settings
+        self.save_function = save_discord_settings
+
         # Load non-LLM settings first
-        self._load_discord_settings()
-        # LLM settings are loaded in _post_init after the widget is built
+        self._load_discord_settings() # Loads guild_id, channel_id
+        # LLM settings are loaded in _post_init after the widget is built using the mixin's _load_llm_settings
+        
         # Bind LLM property changes AFTER loading initial settings
         self.bind(selected_provider=self.on_selected_provider_changed_discord)
         self.bind(selected_model=self.on_selected_model_changed_discord)
@@ -56,43 +62,48 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         Clock.schedule_once(self._post_init)
 
     def _load_discord_settings(self):
-        """Load Discord-specific settings."""
-        settings = load_settings()
-        print("DiscordTab: Loading Discord-specific settings:", settings)
-        self.guild_id = settings.get(f'{self.settings_prefix}guild_id', '')
-        self.channel_id = settings.get(f'{self.settings_prefix}channel_id', '')
+        """Load Discord-specific settings (guild_id, channel_id)."""
+        if not self.load_function:
+            print("DiscordTab: Error - load_function not set. Cannot load Discord-specific settings.")
+            return
+        settings = self.load_function()
+        print(f"DiscordTab: Loading Discord-specific settings using {self.load_function.__name__}: {settings}")
+        self.guild_id = settings.get('guild_id', '') # Matches DEFAULT_DISCORD_SETTINGS
+        self.channel_id = settings.get('channel_id', '') # Matches DEFAULT_DISCORD_SETTINGS
 
     # _load_initial_settings is replaced by _load_discord_settings and the mixin's methods
 
     # --- LLMConfigMixin Required Methods ---
     def _get_provider_setting_key(self) -> str:
         """Return the key used in settings for the selected provider."""
-        return f'{self.settings_prefix}selected_provider'
+        return 'selected_provider' # Matches DEFAULT_DISCORD_SETTINGS
 
     def _get_model_setting_key(self) -> str:
         """Return the key used in settings for the selected model."""
-        return f'{self.settings_prefix}selected_model'
+        return 'selected_model' # Matches DEFAULT_DISCORD_SETTINGS
 
     def _post_init(self, dt):
         """Called after the widget is fully initialized."""
         # Initialize the LLM part (loads settings and populates models)
-        self._load_llm_settings()
+        # This will use self.load_function (load_discord_settings)
+        self._load_llm_settings() 
         self.update_models(initial_load=True)
         # Start the initial animation
         self.update_status_animation()
 
-    def _save_current_settings(self):
-        """Helper method to save the current state (both Discord and LLM)."""
-        settings = load_settings() # Load existing settings
+    def _save_discord_specific_settings(self):
+        """Helper method to save only the Discord-specific settings (guild_id, channel_id)."""
+        if not self.load_function or not self.save_function:
+            print("DiscordTab: Error - load_function or save_function not set. Cannot save Discord-specific settings.")
+            return
 
-        # Save Discord-specific settings
-        settings[f'{self.settings_prefix}guild_id'] = self.guild_id
-        settings[f'{self.settings_prefix}channel_id'] = self.channel_id
+        settings = self.load_function() # Load existing discord settings
 
-        # Save the combined settings (Discord specific only)
-        save_settings(settings)
-        # LLM settings are saved via their own callbacks now.
-        print("DiscordTab: Discord-specific settings saved.")
+        settings['guild_id'] = self.guild_id
+        settings['channel_id'] = self.channel_id
+
+        self.save_function(settings) # Save updated discord settings
+        print(f"DiscordTab: Discord-specific settings (guild, channel) saved using {self.save_function.__name__}.")
 
     # update_models, set_update_flag are inherited from LLMConfigMixin.
     # We define specific callbacks below instead of relying on the mixin's defaults.
@@ -119,26 +130,25 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
 
     def on_selected_model_changed_discord(self, instance, value):
         """Callback when model changes (user interaction or default set). Saves LLM settings."""
-        # Removed the `if not self._updating_models:` check.
-        # Any change to selected_model should trigger save.
+        # LLMConfigMixin.on_selected_model_changed handles the _updating_models check.
+        # We just need to ensure _save_llm_settings is called if the model is valid.
         if value and hasattr(self, 'llm_models') and value in self.llm_models:
             print(f"DiscordTab: Model changed to: {value}. Saving LLM settings.")
-            self._save_llm_settings() # Save LLM settings (handled by mixin)
+            self._save_llm_settings() # This is from LLMConfigMixin, uses self.save_function
         elif not value:
-             print(f"DiscordTab: Model selection cleared or invalid.")
-        # The 'else' part for the flag check is removed.
+             print(f"DiscordTab: Model selection cleared or invalid by user.")
 
 
     # --- Callbacks for saving Discord-specific settings ---
     def on_guild_id(self, instance, value):
         """Callback when Guild ID changes."""
         print(f"DiscordTab: Guild ID changed to {value}")
-        self._save_current_settings() # Saves both Discord and LLM settings
+        self._save_discord_specific_settings()
 
     def on_channel_id(self, instance, value):
         """Callback when Channel ID changes."""
         print(f"DiscordTab: Channel ID changed to {value}")
-        self._save_current_settings() # Saves both Discord and LLM settings
+        self._save_discord_specific_settings()
 
     # --- Bot Control ---
     def toggle_bot(self):
