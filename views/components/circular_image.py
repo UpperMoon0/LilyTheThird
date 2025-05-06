@@ -2,14 +2,17 @@ import os
 import time
 from kivy.app import App
 from kivy.uix.widget import Widget
-from kivy.uix.image import Image as KivyImage # Renamed to avoid conflict with PIL.Image
-from kivy.properties import StringProperty, ListProperty, ObjectProperty
+from kivy.uix.image import Image as KivyImage
+from kivy.properties import StringProperty, ListProperty, ObjectProperty, BooleanProperty
 from kivy.lang import Builder
 from kivy.uix.filechooser import FileChooserIconView
 from kivy.uix.popup import Popup
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.label import Label
 from kivy.metrics import dp
+from kivy.core.window import Window
 
 try:
     from PIL import Image as PILImage
@@ -53,12 +56,15 @@ class CircularImage(Widget):
     _image_draw_pos = ListProperty([0, 0])
     _image_draw_size = ListProperty([0, 0])
     _default_avatar_path = StringProperty('')
+    hovered = BooleanProperty(False)
 
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._image = KivyImage() # Internal Kivy image to load texture
         self._popup = None
+        self._current_filechooser_path_input = None
+        self._current_filechooser = None
 
         # Determine default avatar path (relative to app's root directory)
         # App.get_running_app().directory gives the root path of the application
@@ -79,6 +85,26 @@ class CircularImage(Widget):
         self.bind(source=self._update_image_source,
                   pos=self._update_image_draw_params,
                   size=self._update_image_draw_params)
+        Window.bind(mouse_pos=self.on_mouse_pos)
+
+    def on_mouse_pos(self, window, pos):
+        """Handles mouse position changes to update hover state."""
+        # Check if the widget is currently part of the window's widget tree
+        if not self.get_root_window():
+            if self.hovered:
+                self.hovered = False
+            return
+
+        # Convert mouse position to local coordinates if the widget has a parent
+        # For top-level widgets or widgets directly added to Window, pos is already local.
+        # However, for widgets nested deeper, you might need to convert.
+        # For simplicity, we assume self.collide_point works with window coordinates
+        # if the widget is properly placed.
+        # If issues arise, use self.to_local(*pos) after checking self.parent.
+        
+        inside = self.collide_point(*pos)
+        if self.hovered != inside:
+            self.hovered = inside
 
     def load_avatar(self):
         """Loads the saved avatar or the default if not found."""
@@ -151,19 +177,37 @@ class CircularImage(Widget):
             error_popup.open()
             return
 
-        content = BoxLayout(orientation='vertical', spacing=dp(5))
+        content = BoxLayout(orientation='vertical', spacing=dp(5), padding=dp(5))
+        
+        # Path Bar
+        path_bar_layout = BoxLayout(size_hint_y=None, height=dp(30), spacing=dp(5))
+        path_label = Label(text="Path:", size_hint_x=None, width=dp(40))
+        self._current_filechooser_path_input = TextInput(
+            multiline=False,
+            size_hint_x=1
+        )
+        path_bar_layout.add_widget(path_label)
+        path_bar_layout.add_widget(self._current_filechooser_path_input)
+        content.add_widget(path_bar_layout)
+
         # Use user's home directory or a sensible default if possible
         home_dir = os.path.expanduser('~')
         if not os.path.isdir(home_dir): # Fallback if home_dir is not accessible/valid
             home_dir = App.get_running_app().user_data_dir
 
-        filechooser = FileChooserIconView(
+        self._current_filechooser = FileChooserIconView(
             path=home_dir,
             filters=['*.png', '*.jpg', '*.jpeg', '*.bmp', '*.gif'],
             dirselect=False,
-            size_hint_y=0.9
+            size_hint_y=1 # Takes remaining space
         )
-        content.add_widget(filechooser)
+        self._current_filechooser_path_input.text = self._current_filechooser.path # Initialize path input
+
+        # Bindings for path bar
+        self._current_filechooser.bind(path=self._on_filechooser_path_changed)
+        self._current_filechooser_path_input.bind(on_text_validate=self._on_path_input_submit)
+
+        content.add_widget(self._current_filechooser)
 
         btn_layout = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(5))
         select_btn = Button(text='Select')
@@ -176,15 +220,41 @@ class CircularImage(Widget):
                             content=content,
                             size_hint=(0.9, 0.9),
                             auto_dismiss=False)
+        
+        self._popup.bind(on_dismiss=self._clear_filechooser_refs) # Clear refs on dismiss
 
-        select_btn.bind(on_press=lambda x: self.save_avatar_from_selection(filechooser.selection))
-        cancel_btn.bind(on_press=self._popup.dismiss)
+        select_btn.bind(on_press=lambda x: self.save_avatar_from_selection(self._current_filechooser.selection))
+        cancel_btn.bind(on_press=self._popup.dismiss) # This will trigger _clear_filechooser_refs
         self._popup.open()
 
+    def _clear_filechooser_refs(self, instance=None):
+        """Clear references to filechooser components when popup is dismissed."""
+        if self._current_filechooser:
+            self._current_filechooser.unbind(path=self._on_filechooser_path_changed)
+        if self._current_filechooser_path_input:
+            self._current_filechooser_path_input.unbind(on_text_validate=self._on_path_input_submit)
+        
+        self._current_filechooser_path_input = None
+        self._current_filechooser = None
+        self._popup = None # Ensure popup ref is also cleared
+
+    def _on_filechooser_path_changed(self, instance, path):
+        if self._current_filechooser_path_input:
+            self._current_filechooser_path_input.text = path
+
+    def _on_path_input_submit(self, instance_text_input):
+        new_path = instance_text_input.text.strip()
+        if self._current_filechooser and os.path.isdir(new_path):
+            self._current_filechooser.path = new_path
+        elif self._current_filechooser_path_input: # Revert if path invalid
+            # Simple feedback: revert to current filechooser path
+            self._current_filechooser_path_input.text = self._current_filechooser.path
+            # More advanced: show a small error label or change background briefly
+
     def save_avatar_from_selection(self, selection):
-        if self._popup:
-            self._popup.dismiss()
-            self._popup = None
+        # Popup dismissal and ref clearing is now handled by _clear_filechooser_refs via on_dismiss
+        if self._popup and self._popup.content: # Check if popup still exists
+             self._popup.dismiss() # This will also call _clear_filechooser_refs
 
         if not selection:
             return

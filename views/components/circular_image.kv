@@ -24,3 +24,9 @@
             pos: self.pos
             size: self.size
         StencilPop
+        # Hover Effect
+        Color:
+            rgba: (0.6, 0.8, 1, 0.7) if root.hovered else (0,0,0,0) # Light blueish, transparent if not hovered
+        Line:
+            ellipse: (self.x + dp(0.75), self.y + dp(0.75), self.width - dp(1.5), self.height - dp(1.5)) # Slightly inset
+            width: dp(1.5) # Width is always positive, visibility controlled by Color's alpha
