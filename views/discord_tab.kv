@@ -85,16 +85,31 @@
         #         size: self.size
         #         radius: [dp(8),]
 
+        # Discord Token Input
+        TextInput:
+            id: discord_token_input
+            text: root.discord_token
+            hint_text: "Enter Discord Token"
+            password: True
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.discord_token = self.text
+
         # Guild ID Input
         TextInput:
             id: guild_id_input
             text: root.guild_id
             hint_text: "Enter Guild ID"
-            size_hint_x: None # Allow centering
-            width: dp(300)    # Set a fixed width
-            pos_hint: {'center_x': 0.5} # Center horizontally
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
             size_hint_y: None
-            height: dp(40) # Slightly taller input
+            height: dp(40)
             multiline: False
             font_size: '14sp'
             on_text: root.guild_id = self.text
@@ -104,34 +119,70 @@
             id: channel_id_input
             text: root.channel_id
             hint_text: "Enter Channel ID"
-            size_hint_x: None # Allow centering
-            width: dp(300)    # Set a fixed width
-            pos_hint: {'center_x': 0.5} # Center horizontally
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
             multiline: False
             font_size: '14sp'
             on_text: root.channel_id = self.text
 
+        # Master Discord ID Input
+        TextInput:
+            id: master_discord_id_input
+            text: root.master_discord_id
+            hint_text: "Enter Master Discord ID"
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.master_discord_id = self.text
+
+        # Lily Discord ID Input
+        TextInput:
+            id: lily_discord_id_input
+            text: root.lily_discord_id
+            hint_text: "Enter Lily Discord ID"
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.lily_discord_id = self.text
+
         # Reusable LLM Selector Component
         LLMSelector:
-            # Center the component itself
-            size_hint_x: 0.4 # Set width to 40% of parent
-            # width: dp(350) # Removed fixed width
-            pos_hint: {'center_x': 0.5} # Center horizontally
-            # Bind component properties to the root (DiscordTab) properties
+            size_hint_x: 0.4
+            pos_hint: {'center_x': 0.5}
             selected_provider: root.selected_provider
             selected_model: root.selected_model
             llm_providers: root.llm_providers
             llm_models: root.llm_models
-            # RESTORED explicit bindings to ensure root properties are updated
             on_selected_provider: root.selected_provider = self.selected_provider
             on_selected_model: root.selected_model = self.selected_model
-            # Customize labels for Discord context
             provider_label_text: "Discord LLM Provider:"
             model_label_text: "Discord LLM Model:"
 
-        # Save Button is removed as the mixin handles saving automatically
+        # Save Settings Button
+        BoxLayout:
+            size_hint_x: None
+            width: self.minimum_width
+            size_hint_y: None
+            height: dp(40)
+            pos_hint: {'center_x': 0.5}
+            Button:
+                text: "Save Settings"
+                size_hint: None, None
+                size: dp(200), dp(40)
+                pos_hint: {'center_x': 0.5}
+                on_press: root.save_all_discord_settings()
+                font_size: '16sp'
 
     # Message Section (Visibility controlled by opacity and disabled state)
     BoxLayout:

@@ -44,8 +44,11 @@ DEFAULT_CHAT_SETTINGS = {
 }
 
 DEFAULT_DISCORD_SETTINGS = {
+    'discord_token': '',
     'guild_id': '',
     'channel_id': '',
+    'master_discord_id': '',
+    'lily_discord_id': '',
     'selected_provider': 'OpenAI', # Default provider for Discord Tab
     'selected_model': DEFAULT_OPENAI_MODEL,
     # Temperature for Discord could be added here if needed, e.g., 'temperature': 0.7
