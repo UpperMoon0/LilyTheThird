@@ -106,6 +106,14 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
 
     def _post_init(self, dt):
         """Called after the widget is fully initialized."""
+        # Explicitly get the status_circle widget from ids
+        if 'status_circle' in self.ids:
+            self.status_circle = self.ids.status_circle
+            print("DiscordTab: status_circle widget successfully linked.")
+        else:
+            print("DiscordTab: CRITICAL - status_circle ID not found in self.ids during _post_init!")
+            # self.status_circle will remain None, and the warning will likely persist.
+
         # Initialize the LLM part (loads settings and populates models)
         # This will use self.load_function (load_discord_settings)
         self._load_llm_settings() 
