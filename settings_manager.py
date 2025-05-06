@@ -3,22 +3,15 @@ import json
 import sys
 # Import model lists
 from config.models import OPENAI_MODELS, GEMINI_MODELS
+from utils.file_utils import get_nstut_lilythethird_app_data_dir # Import the new utility
 
 def get_settings_dir():
-    """Gets the application-specific settings directory within AppData."""
-    if sys.platform == 'win32':
-        app_data = os.getenv('APPDATA')
-    elif sys.platform == 'darwin': # macOS
-        app_data = os.path.expanduser('~/Library/Application Support')
-    else: # Linux and other Unix-like
-        app_data = os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
-
-    if not app_data: # Fallback if environment variable isn't set
-         app_data = os.path.expanduser('~')
-
-    settings_dir = os.path.join(app_data, 'NsTut', 'LilyTheThird')
-    os.makedirs(settings_dir, exist_ok=True)
-    return settings_dir
+    """
+    Gets the application-specific 'NsTut/LilyTheThird' settings directory.
+    This directory is also the base for other app data like avatars and animations.
+    """
+    # The get_nstut_lilythethird_app_data_dir already ensures the base directory exists.
+    return get_nstut_lilythethird_app_data_dir()
 
 SETTINGS_FILE = os.path.join(get_settings_dir(), 'settings.json')
 # Define default models based on default providers

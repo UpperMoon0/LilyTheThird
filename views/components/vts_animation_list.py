@@ -6,6 +6,8 @@ from kivy.lang import Builder
 from kivy.metrics import dp
 from kivy.uix.label import Label
 from kivy.app import App 
+from kivy.clock import Clock # Moved import to top
+from utils.file_utils import get_nstut_lilythethird_app_data_dir # Import the new utility
 
 Builder.load_file('views/components/vts_animation_list.kv')
 
@@ -49,7 +51,6 @@ class VTSAnimationList(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Schedule loading animations slightly after initialization
-        from kivy.clock import Clock # Import Clock locally or at top level
         Clock.schedule_once(self._load_animations_scheduled)
 
     def _load_animations_scheduled(self, dt=None):
@@ -57,29 +58,21 @@ class VTSAnimationList(BoxLayout):
         self.load_animations()
 
     def get_animations_dir(self):
-        """Gets the path to the animations directory in AppData."""
-        # Use Kivy's user_data_dir which points to AppData/Roaming/<appname>
-        app = App.get_running_app()
-        # Construct the specific path within the app's data directory
-        # Note: Kivy uses lowercase appname by default for the folder.
-        # We might need to adjust this based on how App is named or manually construct.
-        # Let's assume a structure like AppData/Roaming/lilythethird/vtube/animations
-        # Or use the structure requested: AppData/Roaming/NsTut/LilyTheThird/vtube/animations
-        app_data_root = os.getenv('APPDATA') # More reliable for Roaming path
-        if not app_data_root:
-             print("Error: Could not determine APPDATA directory.")
-             return None
-        # Use the requested path structure
-        animations_path = os.path.join(app_data_root, 'NsTut', 'LilyTheThird', 'vtube', 'animations')
+        """Gets the path to the VTube animations directory using the utility function."""
+        base_app_data_dir = get_nstut_lilythethird_app_data_dir()
+        if not base_app_data_dir: # Should not happen if utility function is robust
+            print("Error: Could not determine base application data directory for VTS animations.")
+            return None
+        
+        animations_path = os.path.join(base_app_data_dir, 'vtube', 'animations')
 
-        # Ensure the directory exists
-        if not os.path.exists(animations_path):
-            try:
-                os.makedirs(animations_path)
-                print(f"Created animations directory: {animations_path}")
-            except OSError as e:
-                print(f"Error creating animations directory {animations_path}: {e}")
-                return None
+        # Ensure the specific animations directory exists
+        try:
+            os.makedirs(animations_path, exist_ok=True)
+            # print(f"Ensured VTS animations directory exists: {animations_path}") # Optional: for debugging
+        except OSError as e:
+            print(f"Error creating VTS animations directory {animations_path}: {e}")
+            return None
         return animations_path
 
     def load_animations(self):

@@ -13,6 +13,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.label import Label
 from kivy.metrics import dp
 from kivy.core.window import Window
+import sys # Required for platform check
 
 try:
     from PIL import Image as PILImage
@@ -26,22 +27,10 @@ except ImportError:
 
 Builder.load_file('views/components/circular_image.kv')
 
-# Define paths at the module level or within the App class if preferred
-APP_DATA_ROOT = os.getenv('APPDATA')
-if APP_DATA_ROOT is None:
-    # Fallback for systems where APPDATA might not be set (e.g., non-Windows)
-    # Kivy's user_data_dir is a good cross-platform alternative
-    APP_DATA_ROOT = App.get_running_app().user_data_dir
-    # If using user_data_dir, the 'NsTut/LilyTheThird' part might be redundant
-    # if appname is 'LilyTheThird'. Adjust as per actual app structure.
-    # For this example, we'll assume user_data_dir itself is the base for NsTut/LilyTheThird
-    AVATAR_DIR = os.path.join(APP_DATA_ROOT, 'chat') # Simplified if user_data_dir is already NsTut/LilyTheThird
-else:
-    AVATAR_DIR = os.path.join(APP_DATA_ROOT, 'NsTut', 'LilyTheThird', 'chat')
+from utils.file_utils import get_nstut_lilythethird_app_data_dir # Import the new utility
 
+# AVATAR_FILENAME can remain a module-level constant or become a class attribute
 AVATAR_FILENAME = "avatar.png"
-FULL_AVATAR_PATH = os.path.join(AVATAR_DIR, AVATAR_FILENAME)
-
 
 class CircularImage(Widget):
     """
@@ -55,9 +44,8 @@ class CircularImage(Widget):
     # Internal properties to calculate drawing position and size
     _image_draw_pos = ListProperty([0, 0])
     _image_draw_size = ListProperty([0, 0])
-    _default_avatar_path = StringProperty('')
+    # _default_avatar_path will be an instance variable, not a Kivy property
     hovered = BooleanProperty(False)
-
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -66,20 +54,30 @@ class CircularImage(Widget):
         self._current_filechooser_path_input = None
         self._current_filechooser = None
 
-        # Determine default avatar path (relative to app's root directory)
-        # App.get_running_app().directory gives the root path of the application
-        app_root = App.get_running_app().directory
+        # --- Path Definitions using helper ---
+        app_instance = App.get_running_app() # Still useful for app_root for assets
+
+        base_app_data_dir = get_nstut_lilythethird_app_data_dir() # Use imported function
+        self.avatar_dir = os.path.join(base_app_data_dir, 'chat')
+        self.full_avatar_path = os.path.join(self.avatar_dir, AVATAR_FILENAME)
+
+        # Define self._default_avatar_path (logic for app_root remains the same)
+        if app_instance and app_instance.directory:
+            app_root = app_instance.directory
+        else:
+            # Fallback if app_instance or its directory is not available
+            app_root = os.getcwd() 
         self._default_avatar_path = os.path.join(app_root, 'assets', 'avatar.png')
+        # --- End Path Definitions ---
 
         # Ensure avatar directory exists
-        if not os.path.exists(AVATAR_DIR):
+        if not os.path.exists(self.avatar_dir):
             try:
-                os.makedirs(AVATAR_DIR)
-                print(f"Created avatar directory: {AVATAR_DIR}")
+                os.makedirs(self.avatar_dir)
+                print(f"Created avatar directory: {self.avatar_dir}")
             except OSError as e:
-                print(f"Error creating avatar directory {AVATAR_DIR}: {e}")
-                # Potentially handle this error, e.g., by disabling avatar saving
-
+                print(f"Error creating avatar directory {self.avatar_dir}: {e}")
+        
         self.load_avatar()
 
         self.bind(source=self._update_image_source,
@@ -108,14 +106,21 @@ class CircularImage(Widget):
 
     def load_avatar(self):
         """Loads the saved avatar or the default if not found."""
-        path_to_load = self._default_avatar_path
-        if os.path.exists(FULL_AVATAR_PATH):
-            path_to_load = FULL_AVATAR_PATH
+        path_to_load = self._default_avatar_path # Start with default
+
+        print(f"CircularImage DEBUG: Default avatar path: {self._default_avatar_path}")
+        print(f"CircularImage DEBUG: Checking saved avatar path: {self.full_avatar_path}")
+        saved_avatar_exists = os.path.exists(self.full_avatar_path)
+        print(f"CircularImage DEBUG: Saved avatar exists ({self.full_avatar_path})? {saved_avatar_exists}")
+
+        if saved_avatar_exists:
+            path_to_load = self.full_avatar_path
+        else:
+            print(f"CircularImage DEBUG: Saved avatar not found, using default.")
         
         # Add timestamp for cache busting to the widget's source property
         self.source = f"{path_to_load}?_={time.time()}" 
-        # The _update_image_source method will handle loading the clean path.
-        print(f"CircularImage: Set source to {self.source}, actual load will use clean path.")
+        print(f"CircularImage: Set source to '{self.source}'. Chosen path for loading: '{path_to_load}'")
 
     def _update_image_source(self, instance, value):
         """Load the texture when the source changes."""
@@ -297,9 +302,8 @@ class CircularImage(Widget):
             # Resize the smallest dimension to 1000, then crop center
             img = ImageOps.fit(img, (1000, 1000), PILImage.Resampling.LANCZOS)
 
-
-            img.save(FULL_AVATAR_PATH, 'PNG') # Save as PNG to support transparency
-            print(f"CircularImage: Saved new avatar to {FULL_AVATAR_PATH}")
+            img.save(self.full_avatar_path, 'PNG') # Save as PNG to support transparency
+            print(f"CircularImage: Saved new avatar to {self.full_avatar_path}")
             self.load_avatar() # Reload the avatar to display the new one
         except Exception as e:
             print(f"CircularImage: Error processing or saving image: {e}")
