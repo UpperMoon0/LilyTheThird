@@ -24,18 +24,22 @@
         font_size: '18sp'
         bold: True
         size_hint_y: None
-        height: self.texture_size[1] + dp(5) # Add a little padding below title
-        halign: 'center' # Center the title
+        height: self.texture_size[1] + dp(5)
+        halign: 'center'
 
+    # This BoxLayout will now be centered
     BoxLayout:
         orientation: 'horizontal'
+        size_hint_x: None # Allow the layout to take the width of its children
+        width: self.minimum_width # Set width to minimum required by children
+        pos_hint: {'center_x': 0.5} # Center this BoxLayout
         size_hint_y: None
-        height: dp(50) # Increased height to accommodate circle and text better
+        height: dp(50)
         spacing: dp(10)
-        padding: [dp(10), 0, dp(10), 0] # Horizontal padding
+        # Removed padding from here as pos_hint will center it
 
         ColorCircle:
-            diameter: dp(30) # Slightly smaller circle
+            diameter: dp(30)
             color: root.status_circle_color
             size_hint: None, None
             size: dp(30), dp(30)
@@ -45,16 +49,17 @@
             id: status_label
             text: root.status_text
             font_size: '14sp'
-            size_hint_x: 1 # Allow label to take available space
+            size_hint_x: None # Take its own width
+            width: self.texture_size[0] # Set width based on text content
             valign: 'middle'
             halign: 'left'
-            text_size: self.width, None # For wrapping if needed, though unlikely here
+            text_size: None, None # Allow texture_size to determine width
 
     Button:
         id: toggle_button
         text: root.toggle_button_text
         size_hint: None, None
-        size: dp(150), dp(40) # Standard button size
+        size: dp(150), dp(40)
         pos_hint: {'center_x': 0.5}
-        on_press: root.dispatch('on_toggle_bot_pressed') # Dispatch custom event
+        on_press: root.dispatch('on_toggle_bot_pressed')
         font_size: '16sp'
