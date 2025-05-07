@@ -213,11 +213,7 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
 
     def on_manual_send_channel_id_changed(self, instance, value):
         print(f"DiscordTab: Manual Send Channel ID changed to {value}")
-        # No immediate save, will be saved by button click
-        # Update the child component if it's already created
-        discord_bot_status_widget = self.ids.get('discord_bot_status_id')
-        if discord_bot_status_widget:
-            discord_bot_status_widget.manual_send_channel_id = value
+        pass 
 
 
     # --- Bot Control ---
