@@ -315,9 +315,6 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
                     elif status == 'stopped':
                         print("DiscordTab: Bot reported stopped.")
                         self._reset_bot_state()
-                        if self._bot_process: # Ensure process is joined
-                            self._bot_process.join(timeout=1)
-                            self._bot_process = None
                     elif status == 'error':
                         error_msg = message.get('message', 'Unknown error')
                         print(f"DiscordTab: Bot reported an error: {error_msg}")
@@ -331,8 +328,8 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
             print(f"DiscordTab: Error checking IPC queue: {e}")
 
         # Check if process is still alive if we think it should be
-        if self.is_bot_running and self._bot_process and not self._bot_process.is_alive():
-            print("DiscordTab: Bot process no longer alive but UI thinks it's running. Resetting.")
+        if self.is_bot_running and self._bot_thread and not self._bot_thread.is_alive():
+            print("DiscordTab: Bot thread no longer alive but UI thinks it's running. Resetting.") # Changed comment
             self._reset_bot_state()
         
         self.update_status_animation() # Keep animation in sync
@@ -341,11 +338,6 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         """Update the animation of the status circle based on bot state."""
         if self.anim:
             # The animation is now on the property, not a widget directly from here.
-            # Kivy's animation system handles properties well.
-            # We need to cancel it from the property itself if that's how it was started.
-            # However, Animation targets an object and a property name.
-            # If we start anim on `self` for property `discord_status_circle_color`,
-            # then we cancel from `self`.
             Animation.cancel_all(self, 'discord_status_circle_color')
 
         if self.is_bot_running:
@@ -389,5 +381,5 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         """Ensure bot process is stopped when the application/widget is stopped."""
         print("DiscordTab: on_stop called, ensuring bot process is terminated.")
         self._stop_bot_process()
-        if self._bot_process and self._bot_process.is_alive():
+        if self._bot_thread and self._bot_thread.is_alive(): # Changed to _bot_thread
             self._terminate_bot_process() # Force terminate if graceful stop failed
