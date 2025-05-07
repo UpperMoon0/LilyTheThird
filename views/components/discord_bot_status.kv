@@ -29,7 +29,6 @@
 
     # Original Status Display
     BoxLayout:
-        id: status_display_layout # Added id here
         orientation: 'horizontal'
         size_hint_x: None
         width: self.minimum_width
@@ -39,9 +38,8 @@
         spacing: dp(10)
 
         ColorCircle:
-            id: status_circle # Added id for direct access if needed, though parent access is primary
             diameter: dp(30)
-            # circle_color: root.status_circle_color # Managed by Python code now
+            circle_color: root.status_circle_color
             size_hint: None, None
             size: dp(30), dp(30)
             pos_hint: {'center_y': 0.5}
@@ -74,30 +72,30 @@
         height: self.minimum_height if root.message_section_visible else 0
         opacity: 1 if root.message_section_visible else 0
         disabled: not root.message_section_visible
-        spacing: dp(10)
+        spacing: dp(10) 
         padding: [dp(10), dp(10), dp(10), dp(10)] # Added top padding for separation
 
         # "Channel ID to send" field
         BoxLayout:
             orientation: 'horizontal'
             size_hint_x: None
-            width: dp(300)
+            width: dp(300) 
             pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
-            spacing: dp(5)
+            spacing: dp(5) 
             Label:
                 text: "Channel ID to send:"
-                size_hint_x: 0.45
+                size_hint_x: 0.45 
                 halign: 'left'
                 valign: 'middle'
-                text_size: self.width, None
+                text_size: self.width, None 
                 font_size: '14sp'
             TextInput:
                 id: manual_send_channel_id_input
                 text: root.manual_send_channel_id
                 hint_text: "Enter Channel ID"
-                size_hint_x: 0.55
+                size_hint_x: 0.55 
                 size_hint_y: None
                 height: dp(40)
                 multiline: False
