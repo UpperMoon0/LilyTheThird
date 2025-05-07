@@ -49,6 +49,7 @@ DEFAULT_DISCORD_SETTINGS = {
     'channel_id': '',
     'master_discord_id': '',
     'lily_discord_id': '',
+    'manual_send_channel_id': '', # Added for manual message sending
     'selected_provider': 'OpenAI', # Default provider for Discord Tab
     'selected_model': DEFAULT_OPENAI_MODEL,
     # Temperature for Discord could be added here if needed, e.g., 'temperature': 0.7
