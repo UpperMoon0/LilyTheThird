@@ -1,30 +1,32 @@
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, ColorProperty, BooleanProperty, ObjectProperty
+from kivy.properties import StringProperty, ListProperty
+from kivy.lang import Builder
+from kivy.utils import get_color_from_hex # For default color
+
+Builder.load_file('views/components/discord_bot_status.kv')
 
 class DiscordBotStatus(BoxLayout):
-    parent_toggle_bot_callback = ObjectProperty(None)
+    """
+    A component to display Discord bot status, including a status circle,
+    a start/stop button, and a status text label.
+    """
+    status_circle_color = ListProperty(get_color_from_hex("#808080")) # Default to gray
     toggle_button_text = StringProperty("Start Bot")
-    status_text = StringProperty("Not Running")
-    bot_status = BooleanProperty(False) # False for Not Running (red), True for Running (green)
-    status_circle_color = ColorProperty([1, 0, 0, 1]) # Default to red
+    status_text = StringProperty("Bot is Offline")
+
+    # Register the event that will be dispatched when the button is pressed
+    __events__ = ('on_toggle_bot_pressed',)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bind(bot_status=self.update_status_visuals)
-        self.update_status_visuals() # Initial update
+        # Properties are bound in the kv file.
 
-    def update_status_visuals(self, *args):
-        if self.bot_status:
-            self.status_text = "Running"
-            self.toggle_button_text = "Stop Bot"
-            self.ids.status_circle.color = [0, 1, 0, 1] # Green
-        else:
-            self.status_text = "Not Running"
-            self.toggle_button_text = "Start Bot"
-            self.ids.status_circle.color = [1, 0, 0, 1] # Red
-
-    def toggle_bot(self):
-        if self.parent_toggle_bot_callback:
-            self.parent_toggle_bot_callback()
-        else:
-            print("DiscordBotStatus: parent_toggle_bot_callback not set")
+    def on_toggle_bot_pressed(self, *args):
+        """
+        Default handler for the 'on_toggle_bot_pressed' event.
+        This method is required by Kivy when an event is registered.
+        The actual logic will be handled by the parent widget (DiscordTab)
+        that binds to this event.
+        """
+        # print("DiscordBotStatus: on_toggle_bot_pressed event dispatched")
+        pass

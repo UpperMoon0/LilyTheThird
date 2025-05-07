@@ -1,12 +1,19 @@
 #:kivy 2.0.0
 #:import ColorCircle views.components.color_circle.ColorCircle
 
-<DiscordBotStatus@BoxLayout>:
+<DiscordBotStatus>:
     orientation: 'vertical'
     size_hint_y: None
     height: self.minimum_height
     spacing: dp(10)
     padding: dp(10)
+
+    canvas.before:
+        Color:
+            rgba: 0.5, 0.5, 0.5, 1 # Border color (gray)
+        Line:
+            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2)
+            width: 1 # Border width
 
     # Status Circle (Centered)
     BoxLayout:
@@ -19,7 +26,7 @@
             id: status_circle
             circle_size: dp(25)
             pos_hint: {'center_x': 0.5, 'center_y': 0.5}
-            # color will be bound from python
+            circle_color: root.status_circle_color # Bind to root's property
 
     # Start/Stop Button (Centered)
     BoxLayout:
@@ -29,16 +36,16 @@
         height: dp(40)
         pos_hint: {'center_x': 0.5}
         Button:
-            text: root.toggle_button_text
+            text: root.toggle_button_text # Bind to root's property
             size_hint: None, None
             size: dp(200), dp(40)
             pos_hint: {'center_x': 0.5}
-            on_press: root.toggle_bot()
+            on_press: root.dispatch('on_toggle_bot_pressed') # Dispatch event
             font_size: '16sp'
 
     # Status Label (Centered)
     Label:
-        text: root.status_text
+        text: root.status_text # Bind to root's property
         size_hint_y: None
         height: self.texture_size[1]
         pos_hint: {'center_x': 0.5}
