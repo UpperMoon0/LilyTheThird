@@ -114,6 +114,10 @@ class DiscordBot:
             else:
                 print("IPC queue not available to send 'ready' status.")
 
+            # Introduce a small delay to give the UI a chance to pick up the 'ready' message
+            # before the bot's internal IPC listener starts and potentially consumes it.
+            await asyncio.sleep(0.2) 
+
             # Schedule background tasks (inactivity check and IPC listener)
             # Ensure tasks are not duplicated if bot reconnects
             if not hasattr(self.bot, '_inactivity_task') or self.bot._inactivity_task.done():
@@ -232,6 +236,11 @@ class DiscordBot:
                     continue
 
                 print(f"Received IPC message: {message}")
+
+                # Ignore status messages intended for the UI
+                if "status" in message:
+                    print(f"IPC listener: Ignoring status message: {message}")
+                    continue
 
                 # Check for shutdown command
                 if message.get("command") == "shutdown":
