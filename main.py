@@ -1,4 +1,5 @@
 from kivy.config import Config
+Config.set('graphics', 'window_state', 'maximized') # Start window maximized
 Config.remove_option('input', 'wm_pen') # Disable problematic touch provider
 Config.remove_option('input', 'wm_touch') # Disable problematic touch provider
 
@@ -95,12 +96,7 @@ class LilyKivyApp(MDApp): # Inherit from MDApp
         self.theme_cls.primary_palette = "BlueGray" # Example palette
 
         self.title = "Lily AI - Kivy Interface"
-        Clock.schedule_once(self.maximize_window, 0)
         return MainAppLayout()
-
-    def maximize_window(self, dt):
-        """Maximizes the application window."""
-        Window.maximize()
 
     async def app_func(self):
         """Async function to run the Kivy app with asyncio."""
