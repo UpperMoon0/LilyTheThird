@@ -29,6 +29,7 @@
             height: self.minimum_height
             pos_hint: {'top': 1} # Added to align to the top
             manual_send_channel_id: root.manual_send_channel_id_prop # Bind to the new property in DiscordTab
+            on_manual_send_channel_id: root.manual_send_channel_id_prop = self.manual_send_channel_id # Add this for two-way binding
             status_circle_color: root.discord_status_circle_color # Directly bind to the animated property
             # Other properties (toggle_button_text, status_text,
             # message_text, message_section_visible) are updated via _update_discord_bot_status_widget_properties

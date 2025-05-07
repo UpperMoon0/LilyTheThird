@@ -64,43 +64,44 @@
         on_press: root.dispatch('on_toggle_bot_pressed')
         font_size: '16sp'
 
-    # Message Section (Moved here - below status and toggle button)
+    # Message Section - Always visible, components disabled based on root.message_section_visible
     BoxLayout:
         id: message_section
         orientation: 'vertical'
-        size_hint_y: None
-        height: self.minimum_height if root.message_section_visible else 0
-        opacity: 1 if root.message_section_visible else 0
-        disabled: not root.message_section_visible
-        spacing: dp(10) 
-        padding: [dp(10), dp(10), dp(10), dp(10)] # Added top padding for separation
+        size_hint_y: None # Always takes its minimum height
+        height: self.minimum_height
+        # opacity: 1 # Always visible
+        # disabled: not root.message_section_visible # This disables the whole layout, let's disable children
+        spacing: dp(10)
+        padding: [dp(10), dp(10), dp(10), dp(10)]
 
         # "Channel ID to send" field
         BoxLayout:
             orientation: 'horizontal'
             size_hint_x: None
-            width: dp(300) 
+            width: dp(300)
             pos_hint: {'center_x': 0.5}
             size_hint_y: None
             height: dp(40)
-            spacing: dp(5) 
+            spacing: dp(5)
             Label:
                 text: "Channel ID to send:"
-                size_hint_x: 0.45 
+                size_hint_x: 0.45
                 halign: 'left'
                 valign: 'middle'
-                text_size: self.width, None 
+                text_size: self.width, None
                 font_size: '14sp'
             TextInput:
                 id: manual_send_channel_id_input
                 text: root.manual_send_channel_id
                 hint_text: "Enter Channel ID"
-                size_hint_x: 0.55 
+                size_hint_x: 0.55
                 size_hint_y: None
                 height: dp(40)
                 multiline: False
                 font_size: '14sp'
                 on_text: root.manual_send_channel_id = self.text
+                disabled: not root.message_section_visible # MODIFIED
 
         TextInput:
             id: message_input
@@ -114,6 +115,7 @@
             multiline: False
             font_size: '14sp'
             on_text: root.message_text = self.text
+            disabled: not root.message_section_visible # MODIFIED
 
         BoxLayout:
             size_hint_x: None
@@ -130,3 +132,4 @@
                 pos_hint: {'center_x': 0.5}
                 on_press: root.dispatch('on_send_message_pressed')
                 font_size: '16sp'
+                disabled: not root.message_section_visible # MODIFIED
