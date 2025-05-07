@@ -294,12 +294,17 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     def _check_ipc_queue(self, dt):
         """Periodically checks the IPC queue for messages from the bot thread.""" # Changed comment
         if not self._ipc_queue:
-            # If bot thread died unexpectedly, reset state
-            if self._bot_thread and not self._bot_thread.is_alive() and self.is_bot_running:
-                print("DiscordTab: Bot thread seems to have died unexpectedly.") # Changed comment
-                self._reset_bot_state()
+            # This case handles if the bot thread died and we thought it was running,
+            # or if the queue was never initialized (e.g., bot failed to start).
+            if self.is_bot_running and self._bot_thread and not self._bot_thread.is_alive():
+                print("DiscordTab: Bot thread died (no IPC queue, was running). Resetting.")
+                self._reset_bot_state() # Calls update_status_animation
+            elif self.is_bot_running and not self._bot_thread: # Bot was running, but thread object lost
+                print("DiscordTab: Bot thread object lost (no IPC queue, was running). Resetting.")
+                self._reset_bot_state() # Calls update_status_animation
             return
 
+        message_handled_that_affects_running_state = False
         try:
             while not self._ipc_queue.empty():
                 message = self._ipc_queue.get_nowait()
@@ -311,47 +316,60 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
                         self.status_text = f"Running as {message.get('user', 'Bot')}"
                         self.toggle_button_text = "Stop Bot"
                         self.message_section_visible = True
+                        # IMPORTANT: Update animation *after* state is set and *before* any other checks
+                        self.update_status_animation()
+                        message_handled_that_affects_running_state = True
                         print("DiscordTab: Bot is ready.")
                     elif status == 'stopped':
                         print("DiscordTab: Bot reported stopped.")
-                        self._reset_bot_state()
+                        self._reset_bot_state() # Calls update_status_animation
+                        message_handled_that_affects_running_state = True
                     elif status == 'error':
                         error_msg = message.get('message', 'Unknown error')
                         print(f"DiscordTab: Bot reported an error: {error_msg}")
                         self.status_text = f"Error: {error_msg}"
-                        # Optionally, stop the bot or attempt restart depending on error
-                        self._terminate_bot_process() # For now, just stop on error
+                        self._terminate_bot_process() # Calls _reset_bot_state which calls update_status_animation
+                        message_handled_that_affects_running_state = True
                 # Handle other types of messages if needed
         except queue.Empty:
             pass # No message, normal
         except Exception as e:
             print(f"DiscordTab: Error checking IPC queue: {e}")
 
-        # Check if process is still alive if we think it should be
-        if self.is_bot_running and self._bot_thread and not self._bot_thread.is_alive():
-            print("DiscordTab: Bot thread no longer alive but UI thinks it's running. Resetting.") # Changed comment
-            self._reset_bot_state()
+        # If no message was processed that explicitly set the running state (like 'ready' or 'stopped'),
+        # then check if the bot thread died unexpectedly while we thought it was running.
+        if not message_handled_that_affects_running_state and \
+           self.is_bot_running and \
+           self._bot_thread and \
+           not self._bot_thread.is_alive():
+            print("DiscordTab: Bot thread no longer alive (post-queue check), but UI thinks it's running. Resetting.")
+            self._reset_bot_state() # Calls update_status_animation
         
-        self.update_status_animation() # Keep animation in sync
+        # The final self.update_status_animation() call is removed as all paths that change
+        # is_bot_running or call _reset_bot_state now trigger it.
 
     def update_status_animation(self):
         """Update the animation of the status circle based on bot state."""
         if self.anim:
-            # The animation is now on the property, not a widget directly from here.
+            # Cancel any existing animation on this property for this widget
             Animation.cancel_all(self, 'discord_status_circle_color')
+            # It's good practice to also nullify self.anim if you're about to create a new one
+            # or if the state means no animation should run (though here we always start one).
 
         if self.is_bot_running:
             color1 = self.running_color_1
             color2 = self.running_color_2
+            # print(f"DiscordTab: Animating RUNNING between {color1} and {color2}")
         else:
             color1 = self.idle_color_1
             color2 = self.idle_color_2
+            # print(f"DiscordTab: Animating IDLE between {color1} and {color2}")
 
-        # Create a pulsating animation on the property
+        # Create a new pulsating animation on the discord_status_circle_color property of self (DiscordTab)
         self.anim = Animation(discord_status_circle_color=color2, duration=0.75) + \
                     Animation(discord_status_circle_color=color1, duration=0.75)
         self.anim.repeat = True
-        self.anim.start(self) # Start animation on self, targeting the property
+        self.anim.start(self) # Start the animation on 'self' (the DiscordTab instance)
 
 
     def send_message(self):
