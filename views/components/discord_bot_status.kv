@@ -5,7 +5,7 @@
     orientation: 'vertical'
     size_hint_y: None
     height: self.minimum_height
-    spacing: dp(10) # Spacing between title and content
+    spacing: dp(10) # Spacing between elements
     padding: dp(10)
     canvas.before:
         Color:
@@ -27,20 +27,21 @@
         height: self.texture_size[1] + dp(5)
         halign: 'center'
 
-    # This BoxLayout will now be centered
+    # Original Status Display
     BoxLayout:
+        id: status_display_layout # Added id here
         orientation: 'horizontal'
-        size_hint_x: None # Allow the layout to take the width of its children
-        width: self.minimum_width # Set width to minimum required by children
-        pos_hint: {'center_x': 0.5} # Center this BoxLayout
+        size_hint_x: None
+        width: self.minimum_width
+        pos_hint: {'center_x': 0.5}
         size_hint_y: None
         height: dp(50)
         spacing: dp(10)
-        # Removed padding from here as pos_hint will center it
 
         ColorCircle:
+            id: status_circle # Added id for direct access if needed, though parent access is primary
             diameter: dp(30)
-            circle_color: root.status_circle_color # Changed 'color' to 'circle_color'
+            # circle_color: root.status_circle_color # Managed by Python code now
             size_hint: None, None
             size: dp(30), dp(30)
             pos_hint: {'center_y': 0.5}
@@ -49,12 +50,13 @@
             id: status_label
             text: root.status_text
             font_size: '14sp'
-            size_hint_x: None # Take its own width
-            width: self.texture_size[0] # Set width based on text content
+            size_hint_x: None
+            width: self.texture_size[0]
             valign: 'middle'
             halign: 'left'
-            text_size: None, None # Allow texture_size to determine width
+            text_size: None, None
 
+    # Toggle Button
     Button:
         id: toggle_button
         text: root.toggle_button_text
@@ -63,3 +65,70 @@
         pos_hint: {'center_x': 0.5}
         on_press: root.dispatch('on_toggle_bot_pressed')
         font_size: '16sp'
+
+    # Message Section (Moved here - below status and toggle button)
+    BoxLayout:
+        id: message_section
+        orientation: 'vertical'
+        size_hint_y: None
+        height: self.minimum_height if root.message_section_visible else 0
+        opacity: 1 if root.message_section_visible else 0
+        disabled: not root.message_section_visible
+        spacing: dp(10)
+        padding: [dp(10), dp(10), dp(10), dp(10)] # Added top padding for separation
+
+        # "Channel ID to send" field
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
+            size_hint_y: None
+            height: dp(40)
+            spacing: dp(5)
+            Label:
+                text: "Channel ID to send:"
+                size_hint_x: 0.45
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.width, None
+                font_size: '14sp'
+            TextInput:
+                id: manual_send_channel_id_input
+                text: root.manual_send_channel_id
+                hint_text: "Enter Channel ID"
+                size_hint_x: 0.55
+                size_hint_y: None
+                height: dp(40)
+                multiline: False
+                font_size: '14sp'
+                on_text: root.manual_send_channel_id = self.text
+
+        TextInput:
+            id: message_input
+            text: root.message_text
+            hint_text: "Type your message here..."
+            size_hint_x: None
+            width: dp(300)
+            pos_hint: {'center_x': 0.5}
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.message_text = self.text
+
+        BoxLayout:
+            size_hint_x: None
+            width: self.minimum_width
+            pos_hint: {'center_x': 0.5}
+            size_hint_y: None
+            height: dp(40)
+            spacing: dp(10)
+            Button:
+                id: send_message_button
+                text: "Send Message"
+                size_hint: None, None
+                size: dp(200), dp(40)
+                pos_hint: {'center_x': 0.5}
+                on_press: root.dispatch('on_send_message_pressed')
+                font_size: '16sp'

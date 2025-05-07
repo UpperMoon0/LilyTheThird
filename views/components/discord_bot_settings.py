@@ -37,10 +37,3 @@ class DiscordBotSettings(BoxLayout):
         super().__init__(**kwargs)
         # Orientation and other layout properties are typically set in the .kv file
         # self.orientation = 'vertical' # Example, if not set in KV
-
-    def trigger_save_settings(self):
-        """Calls the provided callback to save all settings."""
-        if self.save_settings_callback:
-            self.save_settings_callback()
-        else:
-            print("DiscordBotSettings: Error - save_settings_callback not set.")

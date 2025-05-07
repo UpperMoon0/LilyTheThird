@@ -89,7 +89,7 @@
         height: dp(40)
         spacing: dp(10)
         Label:
-            text: "Channel ID:"
+            text: "Listening channel ID:"
             size_hint_x: 0.4
             halign: 'right'
             valign: 'middle'
@@ -153,22 +153,6 @@
             multiline: False
             font_size: '14sp'
             on_text: root.lily_discord_id = self.text
-
-    # Save Settings Button
-    BoxLayout:
-        size_hint_x: None
-        width: self.minimum_width
-        size_hint_y: None
-        height: dp(40)
-        pos_hint: {'center_x': 0.5}
-        padding: [0, dp(10), 0, dp(5)]
-        Button:
-            text: "Save Settings"
-            size_hint: None, None
-            size: dp(200), dp(40)
-            pos_hint: {'center_x': 0.5}
-            on_press: root.trigger_save_settings()
-            font_size: '16sp'
 
     # Reusable LLM Selector Component
     LLMSelector:

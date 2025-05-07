@@ -1,10 +1,10 @@
 import threading
 import queue
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty, ListProperty, BooleanProperty
+from kivy.properties import StringProperty, BooleanProperty # ListProperty and Animation removed
 from kivy.clock import Clock
-from kivy.animation import Animation
-from kivy.utils import get_color_from_hex
+# from kivy.animation import Animation # No longer needed here
+from kivy.utils import get_color_from_hex # Still used for color constants
 from kivy.lang import Builder
 
 # Import the LLM configuration mixin
@@ -25,34 +25,37 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     """
     # --- State Properties ---
     is_bot_running = BooleanProperty(False)
-    _bot_thread = None # Renamed from _bot_process
+    _bot_thread = None
     _ipc_queue = None
-    status_text = StringProperty("Not Running")
-    toggle_button_text = StringProperty("Start Bot")
-    discord_status_circle_color = ListProperty(get_color_from_hex("#808080")) # Default gray for the new component
-    message_section_visible = BooleanProperty(False) # Controls visibility of message input/button
+    status_text = StringProperty("Not Running") # Used by DiscordBotStatus.status_text
+    toggle_button_text = StringProperty("Start Bot") # Used by DiscordBotStatus.toggle_button_text
+    # discord_status_circle_color is REMOVED. DiscordBotStatus handles its own circle.
+    # message_section_visible is REMOVED. DiscordBotStatus handles its own visibility.
+
+    # --- Color Constants for Bot Status ---
+    COLOR_OFFLINE = "#808080"  # Gray
+    COLOR_CONNECTING = "#FFA500" # Orange
+    COLOR_ONLINE = "#00FF00"   # Green
+    COLOR_ERROR = "#FF0000"    # Red
+    COLOR_STOPPING = "#FFFF00" # Yellow
 
     # --- Config Properties (Specific to Discord) ---
     discord_token = StringProperty("")
     guild_id = StringProperty("")
-    channel_id = StringProperty("")
+    channel_id = StringProperty("") # This is now the "Listening channel ID"
     master_discord_id = StringProperty("")
     lily_discord_id = StringProperty("")
+    manual_send_channel_id_prop = StringProperty("") # New property for the manual send channel ID in DiscordTab
     # LLM properties (llm_providers, llm_models, selected_provider, selected_model)
     # are now inherited from LLMConfigMixin.
 
-    # --- Message Properties ---
-    message_text = StringProperty("")
+    # --- Message Properties (message_text is now in DiscordBotStatus) ---
+    # message_text = StringProperty("") # Moved to DiscordBotStatus
 
     # _updating_models flag is now handled by LLMConfigMixin.
-    # settings_prefix = 'discord_' # REMOVED - Keys will match DEFAULT_DISCORD_SETTINGS
 
     # --- Animation Properties ---
-    idle_color_1 = ListProperty(get_color_from_hex("#C90000")) # Red
-    idle_color_2 = ListProperty(get_color_from_hex("#C4A000")) # Yellow
-    running_color_1 = ListProperty(get_color_from_hex("#00FF4C")) # Green
-    running_color_2 = ListProperty(get_color_from_hex("#00C4BA")) # Turquoise
-    anim = None # Holds the current animation
+    # idle_color_1, idle_color_2, running_color_1, running_color_2, anim are REMOVED.
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -72,13 +75,29 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         # Bind Discord-specific property changes
         self.bind(discord_token=self.on_discord_token_changed)
         self.bind(guild_id=self.on_guild_id_changed) # Renamed for consistency
-        self.bind(channel_id=self.on_channel_id_changed) # Renamed for consistency
+        self.bind(channel_id=self.on_channel_id_changed) # This is for the "Listening channel ID"
         self.bind(master_discord_id=self.on_master_discord_id_changed)
         self.bind(lily_discord_id=self.on_lily_discord_id_changed)
+        self.bind(manual_send_channel_id_prop=self.on_manual_send_channel_id_changed)
 
         # Orientation is set in the kv file
         Clock.schedule_once(self._post_init)
-        Clock.schedule_interval(self._check_ipc_queue, 0.1) # Check IPC queue periodically
+        Clock.schedule_interval(self._check_ipc_queue, 0.1)
+
+    def _bind_discord_bot_status_events(self):
+        """Binds events from the DiscordBotStatus component."""
+        discord_bot_status_widget = self.ids.get('discord_bot_status_id')
+        if discord_bot_status_widget:
+            discord_bot_status_widget.bind(on_toggle_bot_pressed=self.toggle_bot)
+            discord_bot_status_widget.bind(on_send_message_pressed=self.on_send_message_button_pressed)
+            # Bind manual_send_channel_id from child to parent's property for saving
+            discord_bot_status_widget.bind(manual_send_channel_id=self._update_manual_send_channel_id_prop)
+        else:
+            print("DiscordTab: Error - Could not find DiscordBotStatus widget to bind events.")
+
+    def _update_manual_send_channel_id_prop(self, instance, value):
+        """Updates the parent's property when the child's input changes."""
+        self.manual_send_channel_id_prop = value
 
     def _load_discord_settings(self):
         """Load Discord-specific settings."""
@@ -89,9 +108,10 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         print(f"DiscordTab: Loading Discord-specific settings using {self.load_function.__name__}: {settings}")
         self.discord_token = settings.get('discord_token', '')
         self.guild_id = settings.get('guild_id', '')
-        self.channel_id = settings.get('channel_id', '')
+        self.channel_id = settings.get('channel_id', '') # Listening channel ID
         self.master_discord_id = settings.get('master_discord_id', '')
         self.lily_discord_id = settings.get('lily_discord_id', '')
+        self.manual_send_channel_id_prop = settings.get('manual_send_channel_id', '') # Load new setting
 
     # _load_initial_settings is replaced by _load_discord_settings and the mixin's methods
 
@@ -107,11 +127,21 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     def _post_init(self, dt):
         """Called after the widget is fully initialized."""
         # Initialize the LLM part (loads settings and populates models)
-        # This will use self.load_function (load_discord_settings)
-        self._load_llm_settings() 
+        self._load_llm_settings()
         self.update_models(initial_load=True)
-        # Start the initial animation
-        self.update_status_animation()
+        self._bind_discord_bot_status_events()
+        # Set initial state for DiscordBotStatus component
+        self._update_child_status_component(
+            is_online=self.is_bot_running,
+            status_text="Not Running", # Initial text
+            color_hex=self.COLOR_OFFLINE,
+            is_connecting=False
+        )
+        # Ensure manual_send_channel_id is synced to child
+        discord_bot_status_widget = self.ids.get('discord_bot_status_id')
+        if discord_bot_status_widget:
+            discord_bot_status_widget.manual_send_channel_id = self.manual_send_channel_id_prop
+
 
     def save_all_discord_settings(self):
         """Saves all Discord tab settings (specific and LLM)."""
@@ -124,9 +154,10 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         # Update Discord-specific settings
         settings['discord_token'] = self.discord_token
         settings['guild_id'] = self.guild_id
-        settings['channel_id'] = self.channel_id
+        settings['channel_id'] = self.channel_id # Listening channel ID
         settings['master_discord_id'] = self.master_discord_id
         settings['lily_discord_id'] = self.lily_discord_id
+        settings['manual_send_channel_id'] = self.manual_send_channel_id_prop # Save new setting
         
         # Update LLM settings (already handled by _save_llm_settings, but good to be explicit if combining)
         settings[self._get_provider_setting_key()] = self.selected_provider
@@ -190,9 +221,16 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         print(f"DiscordTab: Lily Discord ID changed to {value}")
         # No immediate save, will be saved by button click
 
+    def on_manual_send_channel_id_changed(self, instance, value):
+        print(f"DiscordTab: Manual Send Channel ID changed to {value}")
+        # No immediate save, will be saved by button click
+        # self.manual_send_channel_id_prop is updated by _update_manual_send_channel_id_prop
+
+
     # --- Bot Control ---
-    def toggle_bot(self):
+    def toggle_bot(self, instance=None):
         """Start or stop the Discord bot process."""
+        # instance argument is not used but needs to be accepted when called by event
         if self.is_bot_running: # If bot is running, stop it
             self._stop_bot_process()
         else: # If bot is not running, start it
@@ -231,77 +269,100 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
             self._bot_thread.daemon = True # Ensure thread exits when main app exits
             self._bot_thread.start()
             
-            self.status_text = "Starting..."
-            self.toggle_button_text = "Stop Bot"
-            # self.is_bot_running will be set to True by _check_ipc_queue on 'ready'
-            # self.message_section_visible = True # Enable when bot is confirmed ready
-            print("DiscordTab: Bot thread started.") # Changed comment
+            self.status_text = "Starting..." # This will be passed to child
+            self.toggle_button_text = "Stop Bot" # This will be passed to child
+            self._update_child_status_component(
+                is_online=False, # Not yet online
+                status_text="Starting...",
+                color_hex=self.COLOR_CONNECTING,
+                is_connecting=True
+            )
+            print("DiscordTab: Bot thread started.")
         except Exception as e:
-            print(f"DiscordTab: Failed to start bot thread: {e}") # Changed comment
-            self.status_text = "Error Starting"
+            print(f"DiscordTab: Failed to start bot thread: {e}")
+            self._update_child_status_component(
+                is_online=False,
+                status_text="Error Starting",
+                color_hex=self.COLOR_ERROR,
+                is_connecting=False
+            )
             self.is_bot_running = False # Ensure state is correct
-            self._reset_bot_state()
-
-        self.update_status_animation()
-
+            self._reset_bot_state_ui_only() # Resets UI elements
 
     def _stop_bot_process(self):
-        """Stops the Discord bot thread gracefully.""" # Changed comment
+        """Stops the Discord bot thread gracefully."""
         if self._bot_thread and self._bot_thread.is_alive() and self._ipc_queue:
-            print("DiscordTab: Sending shutdown command to bot thread...") # Changed comment
+            print("DiscordTab: Sending shutdown command to bot thread...")
             try:
                 self._ipc_queue.put({'command': 'shutdown'})
-                self.status_text = "Stopping..."
-                # The actual stopping and state reset will be handled by _check_ipc_queue
-                # when it receives the 'stopped' status or if the thread ends.
+                self._update_child_status_component(
+                    is_online=self.is_bot_running, # Could still be true until 'stopped' received
+                    status_text="Stopping...",
+                    color_hex=self.COLOR_STOPPING, # Use a distinct "stopping" color
+                    is_connecting=True # Pulsate while stopping
+                )
             except Exception as e:
                 print(f"DiscordTab: Error sending shutdown to IPC queue: {e}")
-                # Force stop if IPC fails
-                self._terminate_bot_process() # Changed to _terminate_bot_thread if you rename it
+                self._terminate_bot_thread() # Force stop if IPC fails
         else:
-            print("DiscordTab: Bot thread not running or IPC queue not available.") # Changed comment
-            self._reset_bot_state() # Ensure UI is reset if something is inconsistent
+            print("DiscordTab: Bot thread not running or IPC queue not available.")
+            self._reset_bot_state_full()
 
-        self.update_status_animation()
-
-    def _terminate_bot_process(self): # Consider renaming to _terminate_bot_thread for clarity
-        """Attempts to signal the bot thread to stop and resets state.""" # Changed comment
+    def _terminate_bot_thread(self):
+        """Attempts to signal the bot thread to stop and resets state."""
         if self._bot_thread and self._bot_thread.is_alive():
-            print("DiscordTab: Signaling bot thread to stop.") # Changed comment
-            # Threads cannot be forcefully terminated like processes.
-            # We rely on the bot_instance.stop_bot() and the daemon=True nature.
-            # If the bot doesn't stop gracefully, it might hang until app exit.
-            # If your bot has a specific stop mechanism that can be triggered via IPC, use that.
+            print("DiscordTab: Signaling bot thread to stop (terminate).")
             if self._ipc_queue:
                 try:
-                    self._ipc_queue.put({'command': 'shutdown'}) # Try again if not done in _stop_bot_process
+                    self._ipc_queue.put({'command': 'shutdown'})
                 except Exception as e:
                     print(f"DiscordTab: Error sending shutdown to IPC during terminate: {e}")
             print("DiscordTab: Note - Threads cannot be forcefully terminated. Relying on graceful shutdown.")
-        self._reset_bot_state()
+        self._reset_bot_state_full()
 
-    def _reset_bot_state(self):
-        """Resets UI and internal state related to the bot."""
+    def _reset_bot_state_full(self):
+        """Resets UI and internal state related to the bot (thread, queue)."""
         self.is_bot_running = False
-        self.status_text = "Not Running"
-        self.toggle_button_text = "Start Bot"
-        self.message_section_visible = False
         self._bot_thread = None
         self._ipc_queue = None
-        self.update_status_animation()
-        print("DiscordTab: Bot state reset.")
+        self._reset_bot_state_ui_only()
+        print("DiscordTab: Bot state fully reset.")
+
+    def _reset_bot_state_ui_only(self):
+        """Resets only the UI elements to 'Not Running' state."""
+        self.status_text = "Not Running" # For child component
+        self.toggle_button_text = "Start Bot" # For child component
+        self._update_child_status_component(
+            is_online=False,
+            status_text="Not Running",
+            color_hex=self.COLOR_OFFLINE,
+            is_connecting=False
+        )
+        print("DiscordTab: Bot UI state reset to offline.")
+
+    def _update_child_status_component(self, is_online: bool, status_text: str, color_hex: str, is_connecting: bool = False):
+        """Safely updates the DiscordBotStatus child component."""
+        discord_bot_status_widget = self.ids.get('discord_bot_status_id')
+        if discord_bot_status_widget:
+            # Update parent's properties that are bound to child's display
+            self.status_text = status_text
+            self.toggle_button_text = "Stop Bot" if is_online else "Start Bot"
+            # Call the child's update method
+            discord_bot_status_widget.update_status(is_online, status_text, color_hex, is_connecting)
+            discord_bot_status_widget.manual_send_channel_id = self.manual_send_channel_id_prop
+        else:
+            print("DiscordTab: Error - DiscordBotStatus widget not found during update.")
+
 
     def _check_ipc_queue(self, dt):
-        """Periodically checks the IPC queue for messages from the bot thread.""" # Changed comment
+        """Periodically checks the IPC queue for messages from the bot thread."""
         if not self._ipc_queue:
-            # This case handles if the bot thread died and we thought it was running,
-            # or if the queue was never initialized (e.g., bot failed to start).
             if self.is_bot_running and self._bot_thread and not self._bot_thread.is_alive():
                 print("DiscordTab: Bot thread died (no IPC queue, was running). Resetting.")
-                self._reset_bot_state() # Calls update_status_animation
-            elif self.is_bot_running and not self._bot_thread: # Bot was running, but thread object lost
+                self._reset_bot_state_full()
+            elif self.is_bot_running and not self._bot_thread:
                 print("DiscordTab: Bot thread object lost (no IPC queue, was running). Resetting.")
-                self._reset_bot_state() # Calls update_status_animation
+                self._reset_bot_state_full()
             return
 
         message_handled_that_affects_running_state = False
@@ -313,91 +374,83 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
                     status = message.get('status')
                     if status == 'ready':
                         self.is_bot_running = True
-                        self.status_text = f"Running as {message.get('user', 'Bot')}"
-                        self.toggle_button_text = "Stop Bot"
-                        self.message_section_visible = True
-                        # IMPORTANT: Update animation *after* state is set and *before* any other checks
-                        self.update_status_animation()
+                        bot_user_name = message.get('user', 'Bot')
+                        self._update_child_status_component(
+                            is_online=True,
+                            status_text=f"Running as {bot_user_name}",
+                            color_hex=self.COLOR_ONLINE,
+                            is_connecting=False
+                        )
                         message_handled_that_affects_running_state = True
-                        print("DiscordTab: Bot is ready.")
+                        print(f"DiscordTab: Bot is ready as {bot_user_name}.")
                     elif status == 'stopped':
                         print("DiscordTab: Bot reported stopped.")
-                        self._reset_bot_state() # Calls update_status_animation
+                        self._reset_bot_state_full()
                         message_handled_that_affects_running_state = True
                     elif status == 'error':
                         error_msg = message.get('message', 'Unknown error')
                         print(f"DiscordTab: Bot reported an error: {error_msg}")
-                        self.status_text = f"Error: {error_msg}"
-                        self._terminate_bot_process() # Calls _reset_bot_state which calls update_status_animation
-                        message_handled_that_affects_running_state = True
+                        self._update_child_status_component(
+                            is_online=False, # Or current self.is_bot_running if error doesn't mean full stop
+                            status_text=f"Error: {error_msg}",
+                            color_hex=self.COLOR_ERROR,
+                            is_connecting=False
+                        )
+                        # Decide if error means full stop or just a notification
+                        # For now, let's assume it might not be a full stop unless thread dies.
+                        # If it's a critical error, the bot thread might terminate, caught below.
+                        # self._terminate_bot_thread() # If error always means stop
+                        message_handled_that_affects_running_state = True # Error is a state
                 # Handle other types of messages if needed
         except queue.Empty:
-            pass # No message, normal
+            pass
         except Exception as e:
             print(f"DiscordTab: Error checking IPC queue: {e}")
 
-        # If no message was processed that explicitly set the running state (like 'ready' or 'stopped'),
-        # then check if the bot thread died unexpectedly while we thought it was running.
         if not message_handled_that_affects_running_state and \
            self.is_bot_running and \
            self._bot_thread and \
            not self._bot_thread.is_alive():
-            print("DiscordTab: Bot thread no longer alive (post-queue check), but UI thinks it's running. Resetting.")
-            self._reset_bot_state() # Calls update_status_animation
-        
-        # The final self.update_status_animation() call is removed as all paths that change
-        # is_bot_running or call _reset_bot_state now trigger it.
+            print("DiscordTab: Bot thread no longer alive (post-queue check), but UI thought it was running. Resetting.")
+            self._reset_bot_state_full() # This will update UI to offline
 
-    def update_status_animation(self):
-        """Update the animation of the status circle based on bot state."""
-        if self.anim:
-            # Cancel any existing animation on this property for this widget
-            Animation.cancel_all(self, 'discord_status_circle_color')
-            # It's good practice to also nullify self.anim if you're about to create a new one
-            # or if the state means no animation should run (though here we always start one).
+    # update_status_animation is REMOVED.
 
-        if self.is_bot_running:
-            color1 = self.running_color_1
-            color2 = self.running_color_2
-            # print(f"DiscordTab: Animating RUNNING between {color1} and {color2}")
-        else:
-            color1 = self.idle_color_1
-            color2 = self.idle_color_2
-            # print(f"DiscordTab: Animating IDLE between {color1} and {color2}")
-
-        # Create a new pulsating animation on the discord_status_circle_color property of self (DiscordTab)
-        self.anim = Animation(discord_status_circle_color=color2, duration=0.75) + \
-                    Animation(discord_status_circle_color=color1, duration=0.75)
-        self.anim.repeat = True
-        self.anim.start(self) # Start the animation on 'self' (the DiscordTab instance)
-
-
-    def send_message(self):
-        """Send a message to the running bot (via IPC/Queue)."""
-        if not self.is_bot_running or not self.message_text or not self._ipc_queue:
-            print("DiscordTab: Cannot send message. Bot not running, message empty, or IPC queue unavailable.")
+    def on_send_message_button_pressed(self, instance):
+        """Handles the on_send_message_pressed event from DiscordBotStatus."""
+        discord_bot_status_widget = self.ids.get('discord_bot_status_id')
+        if not discord_bot_status_widget:
+            print("DiscordTab: Error - DiscordBotStatus widget not found for sending message.")
             return
-        
-        if not self.channel_id:
-            print("DiscordTab: Cannot send message. Channel ID not set in UI.")
+
+        message_to_send = discord_bot_status_widget.message_text
+        manual_channel_id_to_use = discord_bot_status_widget.manual_send_channel_id
+
+        if not self.is_bot_running or not message_to_send or not self._ipc_queue:
+            print(f"DiscordTab: Cannot send message. Bot running: {self.is_bot_running}, Message: '{message_to_send}', IPC Queue: {bool(self._ipc_queue)}")
+            return
+
+        if not manual_channel_id_to_use: # Check the new manual channel ID field
+            print("DiscordTab: Cannot send message. 'Channel ID to send' is not set in UI.")
             # Optionally, show a user notification
             return
 
         msg_data = {
-            'command': 'send_message', # Or just rely on content presence
-            'channel_id': self.channel_id, # Use channel_id from UI settings
-            'content': self.message_text
+            'command': 'send_message',
+            'channel_id': manual_channel_id_to_use, # Use the new channel ID from the input field
+            'content': message_to_send
         }
         try:
             self._ipc_queue.put(msg_data)
             print(f"DiscordTab: Sent message to IPC queue: {msg_data}")
-            self.message_text = "" # Clear input field
+            discord_bot_status_widget.message_text = "" # Clear input field in the child component
         except Exception as e:
             print(f"DiscordTab: Error sending message to IPC queue: {e}")
 
+
     def on_stop(self):
         """Ensure bot process is stopped when the application/widget is stopped."""
-        print("DiscordTab: on_stop called, ensuring bot process is terminated.")
+        print("DiscordTab: on_stop called, ensuring bot thread is terminated.")
         self._stop_bot_process()
-        if self._bot_thread and self._bot_thread.is_alive(): # Changed to _bot_thread
-            self._terminate_bot_process() # Force terminate if graceful stop failed
+        if self._bot_thread and self._bot_thread.is_alive():
+            self._terminate_bot_thread()

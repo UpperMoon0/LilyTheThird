@@ -1,97 +1,55 @@
 #:kivy 2.0.0
-#:import ColorCircle views.components.color_circle.ColorCircle
-#:import RGBStrip views.components.rgb_strip
-#:import DiscordBotStatus views.components.discord_bot_status.DiscordBotStatus
+#:import LLMSelector views.components.llm_selector.LLMSelector
 #:import DiscordBotSettings views.components.discord_bot_settings.DiscordBotSettings
+#:import DiscordBotStatus views.components.discord_bot_status.DiscordBotStatus
 
 <DiscordTab>:
-    orientation: 'vertical'
-    padding: dp(20)
-    spacing: dp(20)
+    # orientation is vertical by default for BoxLayout if not specified,
+    # but explicit is good for clarity if needed.
+    # spacing: dp(10) # Added spacing between child widgets
+    # padding: dp(10) # Added padding around the tab content
 
-    # Add the RGB Strip at the very top
-    RGBStrip:
-        size_hint_y: None # Ensure it takes its defined height
-        height: dp(3)     # Explicit height for the strip
-
-    # Two-column layout for Status and Settings
-    BoxLayout:
-        orientation: 'horizontal'
-        spacing: dp(20)
-        size_hint_y: None # Let it take the height of its children
-        height: self.minimum_height
-
-        # Column 1: Discord Bot Status
-        DiscordBotStatus:
-            size_hint_x: 0.4 # Adjust as needed for column width
-            size_hint_y: None
-            height: self.minimum_height
-            pos_hint: {'top': 1} # Added to align to the top
-            status_circle_color: root.discord_status_circle_color
-            toggle_button_text: root.toggle_button_text
-            status_text: root.status_text
-            on_toggle_bot_pressed: root.toggle_bot()
-
-        # Column 2: Discord Bot Settings
-        DiscordBotSettings:
-            size_hint_x: 0.6 # Adjust as needed for column width
-            discord_token: root.discord_token
-            guild_id: root.guild_id
-            channel_id: root.channel_id
-            master_discord_id: root.master_discord_id
-            lily_discord_id: root.lily_discord_id
-            selected_provider: root.selected_provider
-            selected_model: root.selected_model
-            llm_providers: root.llm_providers
-            llm_models: root.llm_models
-            save_settings_callback: root.save_all_discord_settings
-            on_discord_token: root.discord_token = self.discord_token
-            on_guild_id: root.guild_id = self.guild_id
-            on_channel_id: root.channel_id = self.channel_id
-            on_master_discord_id: root.master_discord_id = self.master_discord_id
-            on_lily_discord_id: root.lily_discord_id = self.lily_discord_id
-            on_selected_provider: root.selected_provider = self.selected_provider
-            on_selected_model: root.selected_model = self.selected_model
-
-    # Message Section (Visibility controlled by opacity and disabled state)
-    BoxLayout:
-        id: message_section
-        orientation: 'vertical'
-        size_hint_y: None
-        height: self.minimum_height if root.message_section_visible else 0
-        opacity: 1 if root.message_section_visible else 0
-        disabled: not root.message_section_visible
-        spacing: dp(15)
-        padding: [dp(10), dp(10), dp(10), 0] # Top padding adjusted if needed
-
-        TextInput:
-            id: message_input
-            text: root.message_text
-            hint_text: "Type your message here..."
-            size_hint_x: None
-            width: dp(300)
-            pos_hint: {'center_x': 0.5}
-            size_hint_y: None
-            height: dp(40)
-            multiline: False
-            font_size: '14sp'
-            on_text: root.message_text = self.text
+    # Use ScrollView for potentially long content
+    ScrollView:
+        size_hint: 1, 1
+        do_scroll_x: False # Disable horizontal scrolling for the main view
+        bar_width: dp(10) # Make scrollbar more visible
 
         BoxLayout:
-            size_hint_x: None
-            width: self.minimum_width
-            pos_hint: {'center_x': 0.5}
-            size_hint_y: None
-            height: dp(40)
-            Button:
-                id: send_message_button
-                text: "Send Message"
-                size_hint: None, None
-                size: dp(200), dp(40)
-                pos_hint: {'center_x': 0.5}
-                on_press: root.send_message()
-                font_size: '16sp'
+            orientation: 'vertical'
+            size_hint_y: None # Allow the BoxLayout to be larger than the ScrollView
+            height: self.minimum_height # Adjust height to content
+            spacing: dp(15) # Spacing between major sections
+            padding: dp(15) # Padding for the content within the ScrollView
 
-    # Add a spacer to push content upwards if needed
-    Widget:
-        size_hint_y: 1
+            # --- Discord Bot Status and Control ---
+            DiscordBotStatus:
+                id: discord_bot_status_id
+                # status_circle_color: root.discord_status_circle_color # REMOVED - DiscordBotStatus manages its own circle color and animation
+                status_text: root.status_text # Still bound for display
+                toggle_button_text: root.toggle_button_text # Still bound for display
+                # message_section_visible is managed by DiscordBotStatus based on root.is_bot_running (via update_status)
+                manual_send_channel_id: root.manual_send_channel_id_prop # Bind to parent's property for saving/loading
+                # Events on_toggle_bot_pressed and on_send_message_pressed are bound in Python
+
+            # --- Discord Bot Settings ---
+            DiscordBotSettings:
+                id: discord_bot_settings_id
+                discord_token: root.discord_token
+                guild_id: root.guild_id
+                channel_id: root.channel_id # Listening channel ID
+                master_discord_id: root.master_discord_id
+                lily_discord_id: root.lily_discord_id
+                # Bind on_settings_changed if you want to auto-save or react
+                on_save_settings_pressed: root.save_all_discord_settings()
+
+            # --- LLM Configuration Section ---
+            LLMSelector:
+                id: llm_selector_id
+                llm_providers: root.llm_providers
+                llm_models: root.llm_models
+                selected_provider: root.selected_provider
+                selected_model: root.selected_model
+                # Bind on_provider_changed and on_model_changed if needed for specific logic beyond property binding
+                # For example, if DiscordTab needs to react immediately beyond just saving.
+                # The root properties are already bound in Python to trigger saves.
