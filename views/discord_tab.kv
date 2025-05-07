@@ -24,6 +24,9 @@
         # Column 1: Discord Bot Status
         DiscordBotStatus:
             size_hint_x: 0.4 # Adjust as needed for column width
+            size_hint_y: None
+            height: self.minimum_height
+            pos_hint: {'top': 1} # Added to align to the top
             status_circle_color: root.discord_status_circle_color
             toggle_button_text: root.toggle_button_text
             status_text: root.status_text
