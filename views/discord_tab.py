@@ -1,4 +1,5 @@
-import multiprocessing
+import threading
+import queue
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import StringProperty, ListProperty, BooleanProperty
 from kivy.clock import Clock
@@ -24,7 +25,7 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     """
     # --- State Properties ---
     is_bot_running = BooleanProperty(False)
-    _bot_process = None
+    _bot_thread = None # Renamed from _bot_process
     _ipc_queue = None
     status_text = StringProperty("Not Running")
     toggle_button_text = StringProperty("Start Bot")
@@ -198,9 +199,9 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
             self._start_bot_process()
 
     def _start_bot_process(self):
-        """Starts the Discord bot in a separate process."""
-        if self._bot_process and self._bot_process.is_alive():
-            print("DiscordTab: Bot process is already running.")
+        """Starts the Discord bot in a separate thread.""" # Changed comment
+        if self._bot_thread and self._bot_thread.is_alive():
+            print("DiscordTab: Bot thread is already running.") # Changed comment
             return
 
         if not self.discord_token:
@@ -209,7 +210,7 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
             # Optionally, show a popup or notification to the user
             return
 
-        self._ipc_queue = multiprocessing.Queue()
+        self._ipc_queue = queue.Queue()
         
         discord_config = {
             'discord_token': self.discord_token, # Already available as property
@@ -223,20 +224,20 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         print(f"DiscordTab: Starting bot with config: {discord_config}")
 
         try:
-            self._bot_process = multiprocessing.Process(
+            self._bot_thread = threading.Thread(
                 target=run_discord_bot,
                 args=(self._ipc_queue, discord_config)
             )
-            self._bot_process.daemon = True # Ensure process exits when main app exits
-            self._bot_process.start()
+            self._bot_thread.daemon = True # Ensure thread exits when main app exits
+            self._bot_thread.start()
             
             self.status_text = "Starting..."
             self.toggle_button_text = "Stop Bot"
             # self.is_bot_running will be set to True by _check_ipc_queue on 'ready'
             # self.message_section_visible = True # Enable when bot is confirmed ready
-            print("DiscordTab: Bot process started.")
+            print("DiscordTab: Bot thread started.") # Changed comment
         except Exception as e:
-            print(f"DiscordTab: Failed to start bot process: {e}")
+            print(f"DiscordTab: Failed to start bot thread: {e}") # Changed comment
             self.status_text = "Error Starting"
             self.is_bot_running = False # Ensure state is correct
             self._reset_bot_state()
@@ -245,30 +246,38 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
 
 
     def _stop_bot_process(self):
-        """Stops the Discord bot process gracefully."""
-        if self._bot_process and self._bot_process.is_alive() and self._ipc_queue:
-            print("DiscordTab: Sending shutdown command to bot process...")
+        """Stops the Discord bot thread gracefully.""" # Changed comment
+        if self._bot_thread and self._bot_thread.is_alive() and self._ipc_queue:
+            print("DiscordTab: Sending shutdown command to bot thread...") # Changed comment
             try:
                 self._ipc_queue.put({'command': 'shutdown'})
                 self.status_text = "Stopping..."
                 # The actual stopping and state reset will be handled by _check_ipc_queue
-                # when it receives the 'stopped' status or if the process ends.
+                # when it receives the 'stopped' status or if the thread ends.
             except Exception as e:
                 print(f"DiscordTab: Error sending shutdown to IPC queue: {e}")
                 # Force stop if IPC fails
-                self._terminate_bot_process()
+                self._terminate_bot_process() # Changed to _terminate_bot_thread if you rename it
         else:
-            print("DiscordTab: Bot process not running or IPC queue not available.")
+            print("DiscordTab: Bot thread not running or IPC queue not available.") # Changed comment
             self._reset_bot_state() # Ensure UI is reset if something is inconsistent
 
         self.update_status_animation()
 
-    def _terminate_bot_process(self):
-        """Forcefully terminates the bot process and resets state."""
-        if self._bot_process and self._bot_process.is_alive():
-            print("DiscordTab: Terminating bot process forcefully.")
-            self._bot_process.terminate()
-            self._bot_process.join(timeout=1) # Wait a bit for termination
+    def _terminate_bot_process(self): # Consider renaming to _terminate_bot_thread for clarity
+        """Attempts to signal the bot thread to stop and resets state.""" # Changed comment
+        if self._bot_thread and self._bot_thread.is_alive():
+            print("DiscordTab: Signaling bot thread to stop.") # Changed comment
+            # Threads cannot be forcefully terminated like processes.
+            # We rely on the bot_instance.stop_bot() and the daemon=True nature.
+            # If the bot doesn't stop gracefully, it might hang until app exit.
+            # If your bot has a specific stop mechanism that can be triggered via IPC, use that.
+            if self._ipc_queue:
+                try:
+                    self._ipc_queue.put({'command': 'shutdown'}) # Try again if not done in _stop_bot_process
+                except Exception as e:
+                    print(f"DiscordTab: Error sending shutdown to IPC during terminate: {e}")
+            print("DiscordTab: Note - Threads cannot be forcefully terminated. Relying on graceful shutdown.")
         self._reset_bot_state()
 
     def _reset_bot_state(self):
@@ -277,17 +286,17 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         self.status_text = "Not Running"
         self.toggle_button_text = "Start Bot"
         self.message_section_visible = False
-        self._bot_process = None
+        self._bot_thread = None
         self._ipc_queue = None
         self.update_status_animation()
         print("DiscordTab: Bot state reset.")
 
     def _check_ipc_queue(self, dt):
-        """Periodically checks the IPC queue for messages from the bot process."""
+        """Periodically checks the IPC queue for messages from the bot thread.""" # Changed comment
         if not self._ipc_queue:
-            # If bot process died unexpectedly, reset state
-            if self._bot_process and not self._bot_process.is_alive() and self.is_bot_running:
-                print("DiscordTab: Bot process seems to have died unexpectedly.")
+            # If bot thread died unexpectedly, reset state
+            if self._bot_thread and not self._bot_thread.is_alive() and self.is_bot_running:
+                print("DiscordTab: Bot thread seems to have died unexpectedly.") # Changed comment
                 self._reset_bot_state()
             return
 
@@ -316,7 +325,7 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
                         # Optionally, stop the bot or attempt restart depending on error
                         self._terminate_bot_process() # For now, just stop on error
                 # Handle other types of messages if needed
-        except multiprocessing.queues.Empty:
+        except queue.Empty:
             pass # No message, normal
         except Exception as e:
             print(f"DiscordTab: Error checking IPC queue: {e}")
