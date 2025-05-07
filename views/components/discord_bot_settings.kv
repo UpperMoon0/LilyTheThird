@@ -1,0 +1,178 @@
+#:kivy 2.0.0
+#:import LLMSelector views.components.llm_selector.LLMSelector
+
+<DiscordBotSettings>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: self.minimum_height
+    spacing: dp(15)
+    padding: dp(10) # Padding for the content inside the border
+    canvas.before:
+        Color:
+            rgba: 0.3, 0.3, 0.3, 1 # Border color (dark gray)
+        Line:
+            width: dp(1)
+            rectangle: self.x, self.y, self.width, self.height
+        Color:
+            rgba: 0.15, 0.15, 0.15, 1 # Background color (slightly lighter than main background)
+        Rectangle:
+            pos: self.x + dp(1), self.y + dp(1)
+            size: self.width - dp(2), self.height - dp(2)
+
+    # Discord Token Input
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_x: None
+        width: dp(450)
+        pos_hint: {'center_x': 0.5}
+        size_hint_y: None
+        height: dp(40)
+        spacing: dp(10)
+        Label:
+            text: "Discord Token:"
+            size_hint_x: 0.4
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+        TextInput:
+            text: root.discord_token
+            hint_text: "Enter Discord Token"
+            password: True
+            size_hint_x: 0.6
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.discord_token = self.text
+
+    # Guild ID Input
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_x: None
+        width: dp(450)
+        pos_hint: {'center_x': 0.5}
+        size_hint_y: None
+        height: dp(40)
+        spacing: dp(10)
+        Label:
+            text: "Guild ID:"
+            size_hint_x: 0.4
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+        TextInput:
+            text: root.guild_id
+            hint_text: "Enter Guild ID"
+            size_hint_x: 0.6
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.guild_id = self.text
+
+    # Channel ID Input
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_x: None
+        width: dp(450)
+        pos_hint: {'center_x': 0.5}
+        size_hint_y: None
+        height: dp(40)
+        spacing: dp(10)
+        Label:
+            text: "Channel ID:"
+            size_hint_x: 0.4
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+        TextInput:
+            text: root.channel_id
+            hint_text: "Enter Channel ID"
+            size_hint_x: 0.6
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.channel_id = self.text
+
+    # Master Discord ID Input
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_x: None
+        width: dp(450)
+        pos_hint: {'center_x': 0.5}
+        size_hint_y: None
+        height: dp(40)
+        spacing: dp(10)
+        Label:
+            text: "Master Discord ID:"
+            size_hint_x: 0.4
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+        TextInput:
+            text: root.master_discord_id
+            hint_text: "Enter Master Discord ID"
+            size_hint_x: 0.6
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.master_discord_id = self.text
+
+    # Lily Discord ID Input
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_x: None
+        width: dp(450)
+        pos_hint: {'center_x': 0.5}
+        size_hint_y: None
+        height: dp(40)
+        spacing: dp(10)
+        Label:
+            text: "Lily Discord ID:"
+            size_hint_x: 0.4
+            halign: 'right'
+            valign: 'middle'
+            text_size: self.size
+        TextInput:
+            text: root.lily_discord_id
+            hint_text: "Enter Lily Discord ID"
+            size_hint_x: 0.6
+            size_hint_y: None
+            height: dp(40)
+            multiline: False
+            font_size: '14sp'
+            on_text: root.lily_discord_id = self.text
+
+    # Save Settings Button (Moved here)
+    BoxLayout:
+        size_hint_x: None
+        width: self.minimum_width # To center the button
+        size_hint_y: None
+        height: dp(40)
+        pos_hint: {'center_x': 0.5}
+        padding: [0, dp(10), 0, dp(5)] # Add some padding around the button
+        Button:
+            text: "Save Settings"
+            size_hint: None, None
+            size: dp(200), dp(40)
+            pos_hint: {'center_x': 0.5}
+            on_press: root.trigger_save_settings()
+            font_size: '16sp'
+
+    # Reusable LLM Selector Component
+    LLMSelector:
+        size_hint_x: None
+        width: dp(450)
+        pos_hint: {'center_x': 0.5}
+        # Bindings to the properties of DiscordBotSettings (which are passed from DiscordTab)
+        selected_provider: root.selected_provider
+        selected_model: root.selected_model
+        llm_providers: root.llm_providers
+        llm_models: root.llm_models
+        # Callbacks to update the root (DiscordBotSettings) properties when LLMSelector changes
+        on_selected_provider: root.selected_provider = self.selected_provider
+        on_selected_model: root.selected_model = self.selected_model
+        provider_label_text: "Discord LLM Provider:" # Can be customized if needed
+        model_label_text: "Discord LLM Model:"       # Can be customized if needed

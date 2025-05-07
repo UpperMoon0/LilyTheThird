@@ -1,8 +1,9 @@
 #:kivy 2.0.0
 #:import ColorCircle views.components.color_circle.ColorCircle
-#:import LLMSelector views.components.llm_selector.LLMSelector
+# LLMSelector is now imported within DiscordBotSettings.kv if needed there, or handled by it.
 #:import RGBStrip views.components.rgb_strip
 #:import DiscordBotStatus views.components.discord_bot_status.DiscordBotStatus
+#:import DiscordBotSettings views.components.discord_bot_settings.DiscordBotSettings
 
 <DiscordTab>:
     orientation: 'vertical'
@@ -14,180 +15,38 @@
         # Height is set in the component's Python code (3dp)
         # Width will automatically match the parent (DiscordTab)
 
-    # New Discord Bot Status Component
+    # Discord Bot Status Component
     DiscordBotStatus:
         status_circle_color: root.discord_status_circle_color
         toggle_button_text: root.toggle_button_text
         status_text: root.status_text
         on_toggle_bot_pressed: root.toggle_bot()
 
-    # Input/Config Section
-    BoxLayout:
-        orientation: 'vertical'
-        size_hint_y: None
-        height: self.minimum_height
-        spacing: dp(15)
-        padding: dp(10)
+    # New Discord Bot Settings Component
+    DiscordBotSettings:
+        # Bind properties from DiscordTab to DiscordBotSettings
+        discord_token: root.discord_token
+        guild_id: root.guild_id
+        channel_id: root.channel_id
+        master_discord_id: root.master_discord_id
+        lily_discord_id: root.lily_discord_id
+        selected_provider: root.selected_provider
+        selected_model: root.selected_model
+        llm_providers: root.llm_providers
+        llm_models: root.llm_models
+        save_settings_callback: root.save_all_discord_settings
+        # Update root properties when DiscordBotSettings changes them
+        # (This is done via on_text in TextInput and on_selected_provider/model in LLMSelector within DiscordBotSettings.kv,
+        # which then update the root (DiscordBotSettings) properties. These root.property = self.property lines
+        # ensure that when DiscordBotSettings's properties change, DiscordTab's properties also change.)
+        on_discord_token: root.discord_token = self.discord_token
+        on_guild_id: root.guild_id = self.guild_id
+        on_channel_id: root.channel_id = self.channel_id
+        on_master_discord_id: root.master_discord_id = self.master_discord_id
+        on_lily_discord_id: root.lily_discord_id = self.lily_discord_id
+        on_selected_provider: root.selected_provider = self.selected_provider
+        on_selected_model: root.selected_model = self.selected_model
 
-        # Discord Token Input
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_x: None
-            width: dp(450) # Adjusted width to accommodate label
-            pos_hint: {'center_x': 0.5}
-            size_hint_y: None
-            height: dp(40)
-            spacing: dp(10)
-            Label:
-                text: "Discord Token:"
-                size_hint_x: 0.4
-                halign: 'right'
-                valign: 'middle'
-                text_size: self.size
-            TextInput:
-                id: discord_token_input
-                text: root.discord_token
-                hint_text: "Enter Discord Token"
-                password: True
-                size_hint_x: 0.6
-                size_hint_y: None
-                height: dp(40)
-                multiline: False
-                font_size: '14sp'
-                on_text: root.discord_token = self.text
-
-        # Guild ID Input
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_x: None
-            width: dp(450) # Adjusted width
-            pos_hint: {'center_x': 0.5}
-            size_hint_y: None
-            height: dp(40)
-            spacing: dp(10)
-            Label:
-                text: "Guild ID:"
-                size_hint_x: 0.4
-                halign: 'right'
-                valign: 'middle'
-                text_size: self.size
-            TextInput:
-                id: guild_id_input
-                text: root.guild_id
-                hint_text: "Enter Guild ID"
-                size_hint_x: 0.6
-                size_hint_y: None
-                height: dp(40)
-                multiline: False
-                font_size: '14sp'
-                on_text: root.guild_id = self.text
-
-        # Channel ID Input
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_x: None
-            width: dp(450) # Adjusted width
-            pos_hint: {'center_x': 0.5}
-            size_hint_y: None
-            height: dp(40)
-            spacing: dp(10)
-            Label:
-                text: "Channel ID:"
-                size_hint_x: 0.4
-                halign: 'right'
-                valign: 'middle'
-                text_size: self.size
-            TextInput:
-                id: channel_id_input
-                text: root.channel_id
-                hint_text: "Enter Channel ID"
-                size_hint_x: 0.6
-                size_hint_y: None
-                height: dp(40)
-                multiline: False
-                font_size: '14sp'
-                on_text: root.channel_id = self.text
-
-        # Master Discord ID Input
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_x: None
-            width: dp(450) # Adjusted width
-            pos_hint: {'center_x': 0.5}
-            size_hint_y: None
-            height: dp(40)
-            spacing: dp(10)
-            Label:
-                text: "Master Discord ID:"
-                size_hint_x: 0.4
-                halign: 'right'
-                valign: 'middle'
-                text_size: self.size
-            TextInput:
-                id: master_discord_id_input
-                text: root.master_discord_id
-                hint_text: "Enter Master Discord ID"
-                size_hint_x: 0.6
-                size_hint_y: None
-                height: dp(40)
-                multiline: False
-                font_size: '14sp'
-                on_text: root.master_discord_id = self.text
-
-        # Lily Discord ID Input
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_x: None
-            width: dp(450) # Adjusted width
-            pos_hint: {'center_x': 0.5}
-            size_hint_y: None
-            height: dp(40)
-            spacing: dp(10)
-            Label:
-                text: "Lily Discord ID:"
-                size_hint_x: 0.4
-                halign: 'right'
-                valign: 'middle'
-                text_size: self.size
-            TextInput:
-                id: lily_discord_id_input
-                text: root.lily_discord_id
-                hint_text: "Enter Lily Discord ID"
-                size_hint_x: 0.6
-                size_hint_y: None
-                height: dp(40)
-                multiline: False
-                font_size: '14sp'
-                on_text: root.lily_discord_id = self.text
-
-        # Reusable LLM Selector Component
-        LLMSelector:
-            size_hint_x: None # Changed to None to use explicit width
-            width: dp(450)    # Set explicit width to match other input groups
-            pos_hint: {'center_x': 0.5}
-            selected_provider: root.selected_provider
-            selected_model: root.selected_model
-            llm_providers: root.llm_providers
-            llm_models: root.llm_models
-            on_selected_provider: root.selected_provider = self.selected_provider
-            on_selected_model: root.selected_model = self.selected_model
-            provider_label_text: "Discord LLM Provider:"
-            model_label_text: "Discord LLM Model:"
-
-        # Save Settings Button
-        BoxLayout:
-            size_hint_x: None
-            width: self.minimum_width
-            size_hint_y: None
-            height: dp(40)
-            pos_hint: {'center_x': 0.5}
-            Button:
-                text: "Save Settings"
-                size_hint: None, None
-                size: dp(200), dp(40)
-                pos_hint: {'center_x': 0.5}
-                on_press: root.save_all_discord_settings()
-                font_size: '16sp'
 
     # Message Section (Visibility controlled by opacity and disabled state)
     BoxLayout:
