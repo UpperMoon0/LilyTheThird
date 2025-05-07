@@ -1,6 +1,5 @@
 #:kivy 2.0.0
 #:import ColorCircle views.components.color_circle.ColorCircle
-# LLMSelector is now imported within DiscordBotSettings.kv if needed there, or handled by it.
 #:import RGBStrip views.components.rgb_strip
 #:import DiscordBotStatus views.components.discord_bot_status.DiscordBotStatus
 #:import DiscordBotSettings views.components.discord_bot_settings.DiscordBotSettings
@@ -12,41 +11,44 @@
 
     # Add the RGB Strip at the very top
     RGBStrip:
-        # Height is set in the component's Python code (3dp)
-        # Width will automatically match the parent (DiscordTab)
+        size_hint_y: None # Ensure it takes its defined height
+        height: dp(3)     # Explicit height for the strip
 
-    # Discord Bot Status Component
-    DiscordBotStatus:
-        status_circle_color: root.discord_status_circle_color
-        toggle_button_text: root.toggle_button_text
-        status_text: root.status_text
-        on_toggle_bot_pressed: root.toggle_bot()
+    # Two-column layout for Status and Settings
+    BoxLayout:
+        orientation: 'horizontal'
+        spacing: dp(20)
+        size_hint_y: None # Let it take the height of its children
+        height: self.minimum_height
 
-    # New Discord Bot Settings Component
-    DiscordBotSettings:
-        # Bind properties from DiscordTab to DiscordBotSettings
-        discord_token: root.discord_token
-        guild_id: root.guild_id
-        channel_id: root.channel_id
-        master_discord_id: root.master_discord_id
-        lily_discord_id: root.lily_discord_id
-        selected_provider: root.selected_provider
-        selected_model: root.selected_model
-        llm_providers: root.llm_providers
-        llm_models: root.llm_models
-        save_settings_callback: root.save_all_discord_settings
-        # Update root properties when DiscordBotSettings changes them
-        # (This is done via on_text in TextInput and on_selected_provider/model in LLMSelector within DiscordBotSettings.kv,
-        # which then update the root (DiscordBotSettings) properties. These root.property = self.property lines
-        # ensure that when DiscordBotSettings's properties change, DiscordTab's properties also change.)
-        on_discord_token: root.discord_token = self.discord_token
-        on_guild_id: root.guild_id = self.guild_id
-        on_channel_id: root.channel_id = self.channel_id
-        on_master_discord_id: root.master_discord_id = self.master_discord_id
-        on_lily_discord_id: root.lily_discord_id = self.lily_discord_id
-        on_selected_provider: root.selected_provider = self.selected_provider
-        on_selected_model: root.selected_model = self.selected_model
+        # Column 1: Discord Bot Status
+        DiscordBotStatus:
+            size_hint_x: 0.4 # Adjust as needed for column width
+            status_circle_color: root.discord_status_circle_color
+            toggle_button_text: root.toggle_button_text
+            status_text: root.status_text
+            on_toggle_bot_pressed: root.toggle_bot()
 
+        # Column 2: Discord Bot Settings
+        DiscordBotSettings:
+            size_hint_x: 0.6 # Adjust as needed for column width
+            discord_token: root.discord_token
+            guild_id: root.guild_id
+            channel_id: root.channel_id
+            master_discord_id: root.master_discord_id
+            lily_discord_id: root.lily_discord_id
+            selected_provider: root.selected_provider
+            selected_model: root.selected_model
+            llm_providers: root.llm_providers
+            llm_models: root.llm_models
+            save_settings_callback: root.save_all_discord_settings
+            on_discord_token: root.discord_token = self.discord_token
+            on_guild_id: root.guild_id = self.guild_id
+            on_channel_id: root.channel_id = self.channel_id
+            on_master_discord_id: root.master_discord_id = self.master_discord_id
+            on_lily_discord_id: root.lily_discord_id = self.lily_discord_id
+            on_selected_provider: root.selected_provider = self.selected_provider
+            on_selected_model: root.selected_model = self.selected_model
 
     # Message Section (Visibility controlled by opacity and disabled state)
     BoxLayout:
@@ -57,7 +59,7 @@
         opacity: 1 if root.message_section_visible else 0
         disabled: not root.message_section_visible
         spacing: dp(15)
-        padding: [dp(10), dp(10), dp(10), 0]
+        padding: [dp(10), dp(10), dp(10), 0] # Top padding adjusted if needed
 
         TextInput:
             id: message_input

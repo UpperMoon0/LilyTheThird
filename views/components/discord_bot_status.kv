@@ -5,49 +5,56 @@
     orientation: 'vertical'
     size_hint_y: None
     height: self.minimum_height
-    spacing: dp(10)
+    spacing: dp(10) # Spacing between title and content
     padding: dp(10)
-
     canvas.before:
         Color:
-            rgba: 0.5, 0.5, 0.5, 1 # Border color (gray)
+            rgba: 0.3, 0.3, 0.3, 1 # Border color
         Line:
-            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2)
-            width: 1 # Border width
+            width: dp(1)
+            rectangle: self.x, self.y, self.width, self.height
+        Color:
+            rgba: 0.15, 0.15, 0.15, 1 # Background color
+        Rectangle:
+            pos: self.x + dp(1), self.y + dp(1)
+            size: self.width - dp(2), self.height - dp(2)
 
-    # Status Circle (Centered)
-    BoxLayout:
-        size_hint_x: None
-        width: self.minimum_width
-        size_hint_y: None
-        height: dp(30)
-        pos_hint: {'center_x': 0.5}
-        ColorCircle:
-            id: status_circle
-            circle_size: dp(25)
-            pos_hint: {'center_x': 0.5, 'center_y': 0.5}
-            circle_color: root.status_circle_color # Bind to root's property
-
-    # Start/Stop Button (Centered)
-    BoxLayout:
-        size_hint_x: None
-        width: self.minimum_width
-        size_hint_y: None
-        height: dp(40)
-        pos_hint: {'center_x': 0.5}
-        Button:
-            text: root.toggle_button_text # Bind to root's property
-            size_hint: None, None
-            size: dp(200), dp(40)
-            pos_hint: {'center_x': 0.5}
-            on_press: root.dispatch('on_toggle_bot_pressed') # Dispatch event
-            font_size: '16sp'
-
-    # Status Label (Centered)
     Label:
-        text: root.status_text # Bind to root's property
+        text: "Bot Status & Control"
+        font_size: '18sp'
+        bold: True
         size_hint_y: None
-        height: self.texture_size[1]
+        height: self.texture_size[1] + dp(5) # Add a little padding below title
+        halign: 'center' # Center the title
+
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: dp(50) # Increased height to accommodate circle and text better
+        spacing: dp(10)
+        padding: [dp(10), 0, dp(10), 0] # Horizontal padding
+
+        ColorCircle:
+            diameter: dp(30) # Slightly smaller circle
+            color: root.status_circle_color
+            size_hint: None, None
+            size: dp(30), dp(30)
+            pos_hint: {'center_y': 0.5}
+
+        Label:
+            id: status_label
+            text: root.status_text
+            font_size: '14sp'
+            size_hint_x: 1 # Allow label to take available space
+            valign: 'middle'
+            halign: 'left'
+            text_size: self.width, None # For wrapping if needed, though unlikely here
+
+    Button:
+        id: toggle_button
+        text: root.toggle_button_text
+        size_hint: None, None
+        size: dp(150), dp(40) # Standard button size
         pos_hint: {'center_x': 0.5}
-        font_size: '14sp'
-        color: (0.33, 0.33, 0.33, 1)
+        on_press: root.dispatch('on_toggle_bot_pressed') # Dispatch custom event
+        font_size: '16sp'
