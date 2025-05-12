@@ -14,8 +14,10 @@ from typing import List, Dict, Optional, Any
 from .history_manager import HistoryManager
 
 # Constants
-API_KEYS_FILE = Path("llm_api_keys.json")
-API_KEYS_TEMPLATE_FILE = Path("llm_api_keys.json.template")
+# Go up one level from the current file's directory (llm/) to reach the project root
+PROJECT_ROOT = Path(__file__).parent.parent
+API_KEYS_FILE = PROJECT_ROOT / "llm_api_keys.json"
+API_KEYS_TEMPLATE_FILE = PROJECT_ROOT / "llm_api_keys.json.template"
 
 class LLMClient:
     """

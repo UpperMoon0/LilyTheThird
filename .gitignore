@@ -6,4 +6,3 @@
 /downloads
 *.pyc
 pyvts_token.txt
-llm/llm_api_keys.json
