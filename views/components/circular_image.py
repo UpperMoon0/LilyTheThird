@@ -244,9 +244,17 @@ class CircularImage(Widget):
         
         self._popup.bind(on_dismiss=self._clear_filechooser_refs) # Clear refs on dismiss
 
-        select_btn.bind(on_press=lambda x: self.save_avatar_from_selection(self._current_filechooser.selection))
+        select_btn.bind(on_press=self._process_avatar_selection)
         cancel_btn.bind(on_press=self._popup.dismiss) # This will trigger _clear_filechooser_refs
         self._popup.open()
+
+    def _process_avatar_selection(self, instance):
+        selection = None
+        if self._current_filechooser:
+            selection = self._current_filechooser.selection
+        
+        # Now call save_avatar_from_selection, which will handle dismissing the popup
+        self.save_avatar_from_selection(selection)
 
     def _clear_filechooser_refs(self, instance=None):
         """Clear references to filechooser components when popup is dismissed."""
