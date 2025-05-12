@@ -34,7 +34,7 @@ async def generate_speech_from_provider(
         "text": translated_text,
         "speaker": speaker,
         "sample_rate": sample_rate,
-        "response_mode": "stream",
+        # "response_mode": "stream", # Removed as per TTS-Provider update
         "model": model,
         "lang": "ja-JP" # Added language parameter since text is translated
     }
