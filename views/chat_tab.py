@@ -30,6 +30,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     # prompt_text = StringProperty("") # MOVED to ChatBox
     # response_text = StringProperty("") # MOVED to ChatBox
     tts_enabled = BooleanProperty(False) # Renamed from tts_provider_enabled for consistency
+    selected_tts_model = StringProperty("edge") # Added TTS model property
     # is_recording = BooleanProperty(False) # MOVED to ChatBox (state managed here, UI in ChatBox)
     # record_button_icon = StringProperty("assets/mic_idle.png") # MOVED to ChatBox
     temperature = NumericProperty(0.7) # Default temperature
@@ -85,6 +86,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print(f"ChatTab: Loading non-LLM settings using {self.load_function.__name__}: {settings}")
         # Use .get() with defaults
         self.tts_enabled = settings.get('tts_provider_enabled', False) # Key from DEFAULT_CHAT_SETTINGS
+        self.selected_tts_model = settings.get('selected_tts_model', 'edge') # Load selected TTS model
         self.temperature = settings.get('temperature', 0.7) # Key from DEFAULT_CHAT_SETTINGS
 
     def _post_init(self, dt):
@@ -203,6 +205,11 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print(f"ChatTab: Temperature changed to: {value:.2f}")
         self._save_chat_settings() # Save only chat-specific settings
 
+    def on_selected_tts_model(self, instance, value):
+        """Callback when TTS model changes."""
+        print(f"ChatTab: Selected TTS Model changed to: {value}")
+        self._save_chat_settings() # Save chat-specific settings
+
     def _save_chat_settings(self):
         """Helper method to save only the ChatTab specific settings (TTS, temperature)."""
         if not self.load_function or not self.save_function:
@@ -211,9 +218,10 @@ class ChatTab(BoxLayout, LLMConfigMixin):
 
         settings = self.load_function() # Load existing chat settings first
         settings['tts_provider_enabled'] = self.tts_enabled
+        settings['selected_tts_model'] = self.selected_tts_model # Save selected TTS model
         settings['temperature'] = self.temperature
         self.save_function(settings) # Save updated chat settings
-        print(f"ChatTab: Chat-specific settings (TTS, temp) saved using {self.save_function.__name__}.")
+        print(f"ChatTab: Chat-specific settings (TTS, temp, tts_model) saved using {self.save_function.__name__}.")
 
     # _save_llm_settings is inherited from LLMConfigMixin and will use self.save_function
 
@@ -438,7 +446,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     def _run_tts_async(self, text_to_speak: str):
         """Helper to run the async TTS function in a new event loop in a separate thread."""
         try:
-            asyncio.run(generate_speech_from_provider(text_to_speak))
+            asyncio.run(generate_speech_from_provider(text_to_speak, model=self.selected_tts_model))
         except Exception as e:
             print(f"ChatTab: Error running TTS in thread: {e}")
 

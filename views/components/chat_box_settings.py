@@ -10,9 +10,11 @@ Builder.load_file('views/components/chat_box_settings.kv')
 class ChatBoxSettings(BoxLayout, EventDispatcher):
     """
     Component containing TTS checkbox, Clear History button, and LLM Selector.
-    Dispatches events: 'on_clear_history', 'on_selected_provider', 'on_selected_model'.
+    Dispatches events: 'on_clear_history', 'on_selected_provider', 'on_selected_model', 'on_tts_model_changed_event'.
     """
     tts_enabled = BooleanProperty(False)
+    tts_models = ListProperty(["edge", "zonos"]) # Available TTS models
+    selected_tts_model = StringProperty("edge") # Default selected TTS model
 
     # --- LLM Properties (Passed down from parent) ---
     llm_providers = ListProperty([])
@@ -27,6 +29,7 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
         # Register NEW event names to bubble up from LLMSelector
         self.register_event_type('on_llm_provider_changed_event')
         self.register_event_type('on_llm_model_changed_event')
+        self.register_event_type('on_tts_model_changed_event') # Register new event for TTS model
 
     def on_clear_history(self, *args):
         """
@@ -51,7 +54,21 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
         # This event is bound by the parent (ChatTab) in chat_tab.kv
         pass
 
+    def on_tts_model_changed_event(self, model_name):
+        """
+        Handler for the 'on_tts_model_changed_event' dispatched from KV.
+        """
+        print(f"DEBUG: ChatBoxSettings: Event 'on_tts_model_changed_event' dispatched with value: {model_name}")
+        # This event will be bound by the parent (ChatTab)
+        pass
+
     # --- Property Observers for Debugging (Kivy's on_<property_name>) ---
+    def on_selected_tts_model(self, instance, value): # Kivy property observer
+        """Called by Kivy when self.selected_tts_model KivyProperty changes."""
+        print(f"DEBUG: ChatBoxSettings: own selected_tts_model (property observer) changed to: {value}")
+        # You can add logic here if the ChatBoxSettings itself needs to react directly
+        # to changes in selected_tts_model, beyond just dispatching an event.
+
     def on_llm_models(self, instance, value):
         """Called by Kivy when self.llm_models changes."""
         print(f"DEBUG: ChatBoxSettings: own llm_models changed to: {value}")

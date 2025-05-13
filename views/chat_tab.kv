@@ -59,30 +59,30 @@
             # ChatBoxSettings now contains LLMSelector
             ChatBoxSettings:
                 id: chat_controls
-                # size_hint_y: 0.5 # REMOVED - Let it take its needed height
                 # Pass LLM properties down to ChatBoxSettings
                 tts_enabled: root.tts_enabled
+                selected_tts_model: root.selected_tts_model # Bind ChatTab's property to ChatBoxSettings
                 llm_providers: root.llm_providers
                 llm_models: root.llm_models
                 selected_provider: root.selected_provider
                 selected_model: root.selected_model
+                temperature: root.temperature # Bind temperature
                 # Handle events bubbling up
                 on_clear_history: root.clear_history()
                 on_tts_enabled: root.tts_enabled = self.tts_enabled
+                on_selected_tts_model: root.selected_tts_model = self.selected_tts_model # Update ChatTab from ChatBoxSettings event
+                on_tts_model_changed_event: root.selected_tts_model = args[1] # Handle the new event
                 # Bind to NEW event names from ChatBoxSettings
-                # When ChatBoxSettings dispatches these events, update ChatTab's (root) properties.
-                # self.selected_provider here refers to ChatBoxSettings.selected_provider,
-                # which should have been updated by its internal LLMSelector.
                 on_llm_provider_changed_event: root.selected_provider = self.selected_provider
                 on_llm_model_changed_event: root.selected_model = self.selected_model
+                on_temperature: root.temperature = self.temperature
+
 
         # Column 3: Actions List
         ActionsList:
             id: actions_list # Add id to reference from python code
             size_hint_x: 0.3 # Adjust size hint for the right column
             # Height will match the row_a height implicitly
-            # Event handling is now done in the Python class (ChatTab.on_action_selected)
-            # Re-adding KV binding as well to see if it resolves the handler issue
             on_action_selected: root.selected_action_data = args[1]
 
 

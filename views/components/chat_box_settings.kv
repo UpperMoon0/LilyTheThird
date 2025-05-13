@@ -1,6 +1,7 @@
 #:kivy 2.0.0
+#:import Factory kivy.factory.Factory
 
-<ChatBoxSettings>: 
+<ChatBoxSettings>:
     orientation: 'vertical'
     size_hint_y: None
     height: self.minimum_height # Adjust height based on content
@@ -25,22 +26,67 @@
         valign: 'top'
         text_size: self.width - dp(20), None # Allow wrapping within padding
 
-    # TTS Checkbox Row
+    # TTS Settings Group
     BoxLayout:
+        orientation: 'vertical'
         size_hint_y: None
-        height: dp(30)
-        CheckBox:
-            id: tts_checkbox
-            active: root.tts_enabled # Bind to the component's property
-            size_hint_x: None
-            width: dp(40)
-            on_active: root.tts_enabled = self.active # Update the component's property
+        height: self.minimum_height
+        spacing: dp(5)
+        padding: dp(5)
+        canvas.before:
+            Color:
+                rgba: 0.3, 0.3, 0.3, 1 # Border color for the group
+            Line:
+                rectangle: self.x, self.y, self.width, self.height
+                width: 1
         Label:
-            text: "Enable TTS" # Simplified label for the component
-            size_hint_x: 1
-            text_size: self.width, None
+            text: "TTS Settings"
+            size_hint_y: None
+            height: self.texture_size[1]
+            font_size: '15sp'
+            bold: True
             halign: 'left'
-            valign: 'middle'
+            valign: 'top'
+            text_size: self.width - dp(10), None
+            padding: [dp(5), dp(2)]
+
+        # TTS Checkbox Row
+        BoxLayout:
+            size_hint_y: None
+            height: dp(30)
+            CheckBox:
+                id: tts_checkbox
+                active: root.tts_enabled # Bind to the component's property
+                size_hint_x: None
+                width: dp(40)
+                on_active: root.tts_enabled = self.active # Update the component's property
+            Label:
+                text: "Enable TTS"
+                size_hint_x: 1
+                text_size: self.width, None
+                halign: 'left'
+                valign: 'middle'
+
+        # TTS Model Spinner Row
+        BoxLayout:
+            size_hint_y: None
+            height: dp(40) # Increased height for spinner
+            disabled: not tts_checkbox.active # Disable if TTS is not enabled
+            Label:
+                text: "TTS Model:"
+                size_hint_x: 0.4 # Give some space for the label
+                text_size: self.width, None
+                halign: 'left'
+                valign: 'middle'
+            Spinner:
+                id: tts_model_spinner
+                text: root.selected_tts_model
+                values: root.tts_models
+                size_hint_x: 0.6
+                on_text:
+                    root.selected_tts_model = self.text
+                    root.dispatch('on_tts_model_changed_event', self.text)
+                disabled: not tts_checkbox.active # Also disable spinner directly
 
     # Clear History Button Row
     BoxLayout:
@@ -51,24 +97,21 @@
             id: clear_history_button
             text: "Clear History"
             size_hint: 1, 1 # Make button fill the row
-            # Dispatch an event when pressed
             on_press: root.dispatch('on_clear_history')
             font_size: '16sp'
 
-    # LLM Selector Component (Now included here)
-    LLMSelector: # Use the Class name directly (import should be handled by lilykivy.kv)
-        id: llm_selector_in_settings # Give it a unique id if needed
-        size_hint_y: None # Let it take its own height
-        height: self.minimum_height # Adjust height based on content
-        # Bind properties to the root (ChatBoxSettings)
+    # LLM Selector Component
+    LLMSelector:
+        id: llm_selector_in_settings
+        size_hint_y: None
+        height: self.minimum_height
         llm_providers: root.llm_providers
         llm_models: root.llm_models
-        selected_provider: root.selected_provider # For ChatBoxSettings -> LLMSelector (downward)
-        selected_model: root.selected_model       # For ChatBoxSettings -> LLMSelector (downward)
-        # When LLMSelector's own selected_provider KivyProperty changes (due to its spinner):
+        selected_provider: root.selected_provider
+        selected_model: root.selected_model
         on_selected_provider:
-            root.selected_provider = self.selected_provider # Update ChatBoxSettings.selected_provider with LLMSelector's new value
-            root.dispatch('on_llm_provider_changed_event', root.selected_provider) # Then dispatch ChatBoxSettings' event using its (now updated) value
+            root.selected_provider = self.selected_provider
+            root.dispatch('on_llm_provider_changed_event', root.selected_provider)
         on_selected_model:
-            root.selected_model = self.selected_model # Update ChatBoxSettings.selected_model with LLMSelector's new value
-            root.dispatch('on_llm_model_changed_event', root.selected_model) # Then dispatch ChatBoxSettings' event
+            root.selected_model = self.selected_model
+            root.dispatch('on_llm_model_changed_event', root.selected_model)

@@ -38,6 +38,7 @@ DEFAULT_GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else None
 # --- Default Settings Definitions ---
 DEFAULT_CHAT_SETTINGS = {
     'tts_provider_enabled': False,
+    'selected_tts_model': 'edge', # Default TTS model
     'selected_provider': 'OpenAI', # Default provider for Chat Tab
     'selected_model': DEFAULT_OPENAI_MODEL,
     'temperature': 0.7,
