@@ -11,6 +11,7 @@ from settings_manager import load_chat_settings, save_chat_settings # UPDATED
 from llm.chatbox_llm import ChatBoxLLM
 # Import the LLM Config Mixin
 from views.llm_config_mixin import LLMConfigMixin
+from tts import generate_speech_from_provider # Import the TTS function
 
 # Load the KV string for ChatTab
 Builder.load_file('views/chat_tab.kv')
@@ -428,10 +429,18 @@ class ChatTab(BoxLayout, LLMConfigMixin):
                 self.actions_list.add_action(tool_details)
         elif not self.actions_list:
             print("ChatTab Warning: actions_list widget not found, cannot add tool calls.")
+        
+        if self.tts_enabled and response: # Ensure there is a response to speak
+            print(f"ChatTab: TTS Enabled. Requesting speech for: {response[:50]}...")
+            # Run the async TTS generation in a separate thread
+            threading.Thread(target=self._run_tts_async, args=(response,), daemon=True).start()
 
-        if self.tts_enabled:
-            print(f"ChatTab: TTS Enabled: Speaking response (Simulated)")
-            # Add actual TTS logic here
+    def _run_tts_async(self, text_to_speak: str):
+        """Helper to run the async TTS function in a new event loop in a separate thread."""
+        try:
+            asyncio.run(generate_speech_from_provider(text_to_speak))
+        except Exception as e:
+            print(f"ChatTab: Error running TTS in thread: {e}")
 
     def add_message(self, sender_type, text, scroll: bool = True, replace_last: bool = False):
         """Adds a message to the ChatBox display."""
