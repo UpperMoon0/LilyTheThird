@@ -65,10 +65,13 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         # Load non-LLM settings first
         self._load_discord_settings() # Loads guild_id, channel_id, discord_token, etc.
         # LLM settings are loaded in _post_init after the widget is built using the mixin's _load_llm_settings
+        # self.initialize_llm_config() # Call new mixin method - MOVED to _post_init for DiscordTab
 
         # Bind LLM property changes AFTER loading initial settings
-        self.bind(selected_provider=self.on_selected_provider_changed_discord)
-        self.bind(selected_model=self.on_selected_model_changed_discord)
+        # self.bind(selected_provider=self.on_selected_provider_changed_discord) # MOVED to mixin
+        # self.bind(selected_model=self.on_selected_model_changed_discord) # MOVED to mixin
+        self.bind(selected_provider=self._handle_selected_provider_change) # Bind to mixin's handler
+        self.bind(selected_model=self._handle_selected_model_change)     # Bind to mixin's handler
 
         # Bind Discord-specific property changes
         self.bind(discord_token=self.on_discord_token_changed)
@@ -123,8 +126,9 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
         """Called after the widget is fully initialized."""
         # Initialize the LLM part (loads settings and populates models)
         # This will use self.load_function (load_discord_settings)
-        self._load_llm_settings()
-        self.update_models(initial_load=True)
+        # self._load_llm_settings() # MOVED to mixin
+        self.initialize_llm_config() # New call to mixin method
+        # self.update_models(initial_load=True) # Already called by initialize_llm_config
         # Bind events from the child component
         self._bind_discord_bot_status_events()
         # Start the initial animation
@@ -161,34 +165,51 @@ class DiscordTab(BoxLayout, LLMConfigMixin): # Inherit from the mixin
     # We define specific callbacks below.
 
     # --- Callbacks for LLM settings ---
-    def on_selected_provider_changed_discord(self, instance, value):
-        """Callback when provider changes. Updates models, then schedules save."""
-        print(f"DiscordTab: Provider changed to {value}")
-        # 1. Update models and set the default selected_model for the new provider
-        self.update_models() # This now sets self.selected_model correctly
+    # def on_selected_provider_changed_discord(self, instance, value): # MOVED to LLMConfigMixin as _handle_selected_provider_change
+    #     """Callback when provider changes. Updates models, then schedules save."""
+    #     print(f"DiscordTab: Provider changed to {value}")
+    #     # 1. Update models and set the default selected_model for the new provider
+    #     self.update_models() # This now sets self.selected_model correctly
 
-        # 2. Schedule save AFTER update_models finishes and clears its flag
-        Clock.schedule_once(self._save_llm_settings_after_provider_change, 0.1) # Small delay
+    #     # 2. Schedule save AFTER update_models finishes and clears its flag
+    #     Clock.schedule_once(self._save_llm_settings_after_provider_change, 0.1) # Small delay
 
-    def _save_llm_settings_after_provider_change(self, dt):
-        """Helper function scheduled after provider change to save LLM settings."""
-        print(f"DiscordTab: Saving LLM settings after provider change.")
-        # Ensure the flag isn't somehow still set
-        if self._updating_models:
-            print("DiscordTab: Warning - _updating_models still true during scheduled save. Retrying later.")
-            Clock.schedule_once(self._save_llm_settings_after_provider_change, 0.2)
-            return
-        self._save_llm_settings() # Save the new provider and the default model
+    # def _save_llm_settings_after_provider_change(self, dt): # Partially MOVED to mixin's _save_settings_and_notify_provider_change
+    #     """Helper function scheduled after provider change to save LLM settings."""
+    #     print(f"DiscordTab: Saving LLM settings after provider change.")
+    #     # Ensure the flag isn't somehow still set
+    #     if self._updating_models:
+    #         print("DiscordTab: Warning - _updating_models still true during scheduled save. Retrying later.")
+    #         Clock.schedule_once(self._save_llm_settings_after_provider_change, 0.2)
+    #         return
+    #     self._save_llm_settings() # Save the new provider and the default model
 
-    def on_selected_model_changed_discord(self, instance, value):
-        """Callback when model changes (user interaction or default set). Saves LLM settings."""
-        if not self._updating_models and value and hasattr(self, 'llm_models') and value in self.llm_models:
-            print(f"DiscordTab: Model changed to: {value}. Saving LLM settings.")
-            self._save_llm_settings()
-        elif not value and not self._updating_models:
-             print(f"DiscordTab: Model selection cleared or invalid by user. Saving.")
-             self._save_llm_settings() # Save even if cleared by user
+    # def on_selected_model_changed_discord(self, instance, value): # MOVED to LLMConfigMixin as _handle_selected_model_change
+    #     """Callback when model changes (user interaction or default set). Saves LLM settings."""
+    #     if not self._updating_models and value and hasattr(self, 'llm_models') and value in self.llm_models:
+    #         print(f"DiscordTab: Model changed to: {value}. Saving LLM settings.")
+    #         self._save_llm_settings()
+    #     elif not value and not self._updating_models:
+    #          print(f"DiscordTab: Model selection cleared or invalid by user. Saving.")
+    #          self._save_llm_settings() # Save even if cleared by user
 
+    # --- LLMConfigMixin Hooks Implementation ---
+    def on_llm_provider_updated(self):
+        """Called by LLMConfigMixin after provider is updated and saved."""
+        super().on_llm_provider_updated()
+        print("DiscordTab: LLM Provider has been updated. Settings saved.")
+        # DiscordTab might not need to immediately restart the bot on LLM change,
+        # but rather use the new settings the next time the bot is started or a command is processed.
+        # If immediate action is needed, it would go here.
+        # For now, just saving is sufficient, bot will pick up on next relevant action.
+        self.save_all_discord_settings() # Ensure all settings are flushed
+
+    def on_llm_model_updated(self):
+        """Called by LLMConfigMixin after model is updated and saved."""
+        super().on_llm_model_updated()
+        print("DiscordTab: LLM Model has been updated. Settings saved.")
+        # Similar to provider, just save. Bot will use new settings as needed.
+        self.save_all_discord_settings() # Ensure all settings are flushed
 
     # --- Callbacks for saving Discord-specific settings (now trigger save_all_discord_settings) ---
     def on_discord_token_changed(self, instance, value):

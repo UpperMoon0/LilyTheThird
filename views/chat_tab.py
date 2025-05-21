@@ -72,11 +72,12 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         # Load general settings first
         self._load_chat_settings() # Loads non-LLM chat settings
         # Load LLM specific settings using the mixin method (which now uses self.load_function)
-        self._load_llm_settings() 
+        self.initialize_llm_config() # New call to mixin method
         
         # Bindings
-        self.bind(selected_provider=self.on_selected_provider_changed_chat)
-        self.bind(selected_model=self.on_selected_model_changed_chat)
+        self.bind(selected_provider=self._handle_selected_provider_change) # Bind to mixin's handler
+        self.bind(selected_model=self._handle_selected_model_change)     # Bind to mixin's handler
+
         Clock.schedule_once(self._post_init)
 
     def _load_chat_settings(self):
@@ -134,68 +135,81 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     # and call the appropriate mixin methods for saving LLM config or chat-specific settings.
 
     # Note: The actual binding happens in __init__ to these specific methods.
-    def on_selected_provider_changed_chat(self, instance, value):
-        """Callback when provider changes. Updates models, then schedules save and LLM update."""
-        print(f"DEBUG: ChatTab: own on_selected_provider_changed_chat. New provider: {value}")
-        print(f"DEBUG: ChatTab: BEFORE update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
+    # def on_selected_provider_changed_chat(self, instance, value): # MOVED to LLMConfigMixin as _handle_selected_provider_change
+    #     """Callback when provider changes. Updates models, then schedules save and LLM update."""
+    #     print(f"DEBUG: ChatTab: own on_selected_provider_changed_chat. New provider: {value}")
+    #     print(f"DEBUG: ChatTab: BEFORE update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
         
-        # 1. Update models and set the default selected_model for the new provider
-        self.update_models() # This updates self.llm_models and self.selected_model on ChatTab
+    #     # 1. Update models and set the default selected_model for the new provider
+    #     self.update_models() # This updates self.llm_models and self.selected_model on ChatTab
         
-        print(f"DEBUG: ChatTab: AFTER update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
+    #     print(f"DEBUG: ChatTab: AFTER update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
 
-        # Check ChatBoxSettings properties directly via ids
-        if hasattr(self, 'ids') and 'chat_controls' in self.ids:
-            chat_settings_widget = self.ids.chat_controls
-            print(f"DEBUG: ChatTab: Accessing chat_controls.llm_models: {chat_settings_widget.llm_models}")
-            print(f"DEBUG: ChatTab: Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
-            print(f"DEBUG: ChatTab: Accessing chat_controls.selected_provider: '{chat_settings_widget.selected_provider}'")
-        else:
-            print("DEBUG: ChatTab: chat_controls (ChatBoxSettings instance) not found in self.ids.")
+    #     # Check ChatBoxSettings properties directly via ids
+    #     if hasattr(self, 'ids') and 'chat_controls' in self.ids:
+    #         chat_settings_widget = self.ids.chat_controls
+    #         print(f"DEBUG: ChatTab: Accessing chat_controls.llm_models: {chat_settings_widget.llm_models}")
+    #         print(f"DEBUG: ChatTab: Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
+    #         print(f"DEBUG: ChatTab: Accessing chat_controls.selected_provider: '{chat_settings_widget.selected_provider}'")
+    #     else:
+    #         print("DEBUG: ChatTab: chat_controls (ChatBoxSettings instance) not found in self.ids.")
 
-        # 2. Schedule save and update AFTER update_models finishes and clears its flag
-        Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.1) # Small delay
+    #     # 2. Schedule save and update AFTER update_models finishes and clears its flag
+    #     Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.1) # Small delay
 
-    def _save_and_update_llm_after_provider_change(self, dt):
-        """Helper function scheduled after provider change to save and update."""
-        print(f"ChatTab: Saving and potentially updating LLM after provider change.")
-        # Ensure the flag isn't somehow still set (belt and suspenders)
-        if self._updating_models:
-            print("ChatTab: Warning - _updating_models still true during scheduled save/update. Retrying later.")
-            Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.2)
-            return
+    # def _save_and_update_llm_after_provider_change(self, dt): # Partially MOVED to mixin's _save_settings_and_notify_provider_change
+    #     """Helper function scheduled after provider change to save and update."""
+    #     # Save LLM settings (handled by mixin)
+    #     self._save_llm_settings()
 
-        self._save_llm_settings() # Save the new provider and the default model set by update_models
+    #     # Specific ChatTab action: Trigger LLM instance update if ready
+    #     if self.backend_initialized:
+    #         self._start_llm_instance_update_thread()
+    #     else:
+    #         print("ChatTab: Provider changed, backend not ready. Settings saved.")
 
-        # Trigger LLM instance update if ready
+    # def on_selected_model_changed_chat(self, instance, value): # MOVED to LLMConfigMixin as _handle_selected_model_change
+    #     """Callback when model changes (user interaction or default set). Saves and triggers LLM update."""
+    #     print(f"DEBUG: ChatTab: own on_selected_model_changed_chat. New model: {value}, _updating_models: {self._updating_models}")
+    #     if value and hasattr(self, 'llm_models') and value in self.llm_models:
+    #         print(f"DEBUG: ChatTab: User selected model: {value}. Saving and updating LLM.")
+    #         self._save_llm_settings() # Save LLM settings (handled by mixin)
+            
+    #         # Check ChatBoxSettings properties directly via ids
+    #         if hasattr(self, 'ids') and 'chat_controls' in self.ids:
+    #             chat_settings_widget = self.ids.chat_controls
+    #             print(f"DEBUG: ChatTab: (model change) Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
+    #         else:
+    #             print("DEBUG: ChatTab: (model change) chat_controls (ChatBoxSettings instance) not found in self.ids.")
+
+    #         # Specific ChatTab action: Trigger LLM instance update if ready
+    #         if self.backend_initialized:
+    #             self._start_llm_instance_update_thread()
+    #         else:
+    #             print("ChatTab: Model changed by user, backend not ready. Settings saved.")
+    #     elif not value:
+    #          print(f"ChatTab: Model selection cleared or invalid by user.")
+
+    # --- LLMConfigMixin Hooks Implementation ---
+    def on_llm_provider_updated(self):
+        """Called by LLMConfigMixin after provider is updated and saved."""
+        super().on_llm_provider_updated() # Call super if it does anything in the future
+        print("ChatTab: LLM Provider has been updated. Triggering LLM instance update.")
         if self.backend_initialized:
-            print(f"ChatTab: Triggering LLM update after provider change.")
             self._start_llm_instance_update_thread()
         else:
-            print("ChatTab: Provider changed, backend not ready. Settings saved.")
+            print("ChatTab: Provider updated, but backend not ready. Settings saved.")
 
-    def on_selected_model_changed_chat(self, instance, value):
-        """Callback when model changes (user interaction or default set). Saves and triggers LLM update."""
-        print(f"DEBUG: ChatTab: own on_selected_model_changed_chat. New model: {value}, _updating_models: {self._updating_models}")
-        if value and hasattr(self, 'llm_models') and value in self.llm_models:
-            print(f"DEBUG: ChatTab: User selected model: {value}. Saving and updating LLM.")
-            self._save_llm_settings() # Save LLM settings (handled by mixin)
-            
-            # Check ChatBoxSettings properties directly via ids
-            if hasattr(self, 'ids') and 'chat_controls' in self.ids:
-                chat_settings_widget = self.ids.chat_controls
-                print(f"DEBUG: ChatTab: (model change) Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
-            else:
-                print("DEBUG: ChatTab: (model change) chat_controls (ChatBoxSettings instance) not found in self.ids.")
+    def on_llm_model_updated(self):
+        """Called by LLMConfigMixin after model is updated and saved."""
+        super().on_llm_model_updated()
+        print("ChatTab: LLM Model has been updated. Triggering LLM instance update.")
+        if self.backend_initialized:
+            self._start_llm_instance_update_thread()
+        else:
+            print("ChatTab: Model updated, but backend not ready. Settings saved.")
 
-            # Specific ChatTab action: Trigger LLM instance update if ready
-            if self.backend_initialized:
-                self._start_llm_instance_update_thread()
-            else:
-                print("ChatTab: Model changed by user, backend not ready. Settings saved.")
-        elif not value:
-             print(f"ChatTab: Model selection cleared or invalid by user.")
-
+    # --- Existing ChatTab specific methods ---
     def on_tts_enabled(self, instance, value):
         """Callback when TTS checkbox changes."""
         print(f"ChatTab: TTS Enabled changed to: {value}")

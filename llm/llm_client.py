@@ -8,9 +8,11 @@ import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 from openai import OpenAI, RateLimitError as OpenAIRateLimitError
 from typing import List, Dict, Optional, Any
+import shutil
 
 import google.generativeai as genai
-import json 
+import random
+import json # Ensure json is imported for _load_api_keys_from_json
 
 # Assuming history manager is in the same directory or adjust import path
 from .history_manager import HistoryManager
@@ -37,10 +39,12 @@ def get_openai_models(api_key: str) -> List[str]:
 def get_gemini_models(api_key: str) -> List[str]:
     """Fetches available models from Gemini."""
     try:
-        genai.configure(api_key=api_key)
+        # Ensure genai is configured before listing models if this function can be called standalone
+        # However, API key is passed, so direct usage is fine.
+        # genai.configure(api_key=api_key) # This might be redundant if configure is called elsewhere before this
         models = genai.list_models()
         # Filter for models that support 'generateContent'
-        return sorted([m.name for m in models if 'generateContent' in m.supported_generation_methods])
+        return sorted([m.name for m in models if 'generateContent' in m.supported_generation_methods and "gemini" in m.name]) # Added "gemini" in m.name filter
     except Exception as e:
         print(f"Error fetching Gemini models: {e}")
         return []
@@ -71,103 +75,130 @@ class LLMClient:
     def _load_api_keys_from_json(self):
         """Loads API keys from llm_api_keys.json."""
         if not API_KEYS_FILE.exists():
-            raise FileNotFoundError(
-                f"API keys file not found: {API_KEYS_FILE}. "
-                f"Please create it by copying and filling in {API_KEYS_TEMPLATE_FILE}."
-            )
+            print(f"Warning: API keys file not found at {API_KEYS_FILE}. Creating from template.")
+            try:
+                shutil.copy(API_KEYS_TEMPLATE_FILE, API_KEYS_FILE)
+                print(f"Successfully created {API_KEYS_FILE}. Please edit it with your API keys.")
+                self.api_keys = {} # No keys loaded yet
+            except Exception as e:
+                print(f"Error: Could not create API keys file from template: {e}")
+                self.api_keys = {}
+            return
+
         try:
             with open(API_KEYS_FILE, 'r') as f:
-                loaded_keys = json.load(f)
-
-            # Validate and store keys, ensuring they are lists of strings
-            for provider, keys in loaded_keys.items():
-                provider_lower = provider.lower()
-                if isinstance(keys, list) and all(isinstance(k, str) for k in keys):
-                    if keys: # Only store if there are keys
-                        self.api_keys[provider_lower] = keys
-                        self.key_iterators[provider_lower] = cycle(keys) # Create iterator
-                        print(f"Loaded {len(keys)} API key(s) for provider: {provider_lower}")
-                    else:
-                        print(f"Warning: No API keys found for provider '{provider_lower}' in {API_KEYS_FILE}.")
+                self.api_keys = json.load(f)
+            # Initialize iterators for providers that have keys
+            for provider, keys in self.api_keys.items():
+                if keys and isinstance(keys, list) and all(isinstance(key, str) for key in keys):
+                    self.key_iterators[provider.lower()] = cycle(keys) # Ensure provider key is lowercase
                 else:
-                    print(f"Warning: Invalid format for keys of provider '{provider_lower}' in {API_KEYS_FILE}. Expected a list of strings.")
+                    print(f"Warning: Invalid or empty API key list for provider '{provider}' in {API_KEYS_FILE}.")
+                    if provider.lower() in self.key_iterators: # Remove if previously valid
+                        del self.key_iterators[provider.lower()]
+
 
         except json.JSONDecodeError:
-            raise ValueError(f"Error decoding JSON from {API_KEYS_FILE}.")
+            print(f"Error: Could not decode JSON from {API_KEYS_FILE}. Please ensure it's valid JSON.")
+            self.api_keys = {}
         except Exception as e:
-            raise RuntimeError(f"Failed to load API keys from {API_KEYS_FILE}: {e}")
+            print(f"Error loading API keys: {e}")
+            self.api_keys = {}
 
     def _get_next_api_key(self) -> Optional[str]:
         """Gets the next API key for the current provider using round-robin."""
-        if self.provider not in self.key_iterators:
-            print(f"Error: No API keys loaded or available for provider: {self.provider}")
-            return None # Or raise an error? Returning None might be handled better by caller.
+        provider_lower = self.provider.lower() # Use lowercase provider consistently
+        if provider_lower not in self.key_iterators:
+            print(f"Warning: No API key iterator found for provider '{self.provider}'. Keys might be missing or invalid.")
+            return None
 
-        key = next(self.key_iterators[self.provider])
-        # print(f"Using {self.provider} API key ending with: ...{key[-4:]}") # Debug: Don't log full key
-        return key
+        try:
+            key = next(self.key_iterators[provider_lower])
+            # print(f"Using {self.provider} API key ending with: ...{key[-4:]}") # Debug: Don't log full key
+            return key
+        except StopIteration: # Should not happen with cycle, but as a safeguard
+            print(f"Warning: API key iterator exhausted unexpectedly for provider '{self.provider}'.")
+            return None
+
 
     def _initialize_client(self):
         """Initializes the appropriate client. If no API keys are available for the provider,
         self.client remains None and a warning is logged."""
+        provider_lower = self.provider.lower() # Use lowercase provider consistently
 
         # Check if keys were successfully loaded and an iterator was created for this provider
-        if self.provider not in self.key_iterators:
-            print(f"Warning: No API keys were successfully loaded for provider '{self.provider}'. Client will not be initialized.")
-            self.client = None
-            # Attempt to set a default model name for informational purposes, even if client is not active
-            if not self.model:
-                if self.provider == 'openai': self.model = "gpt-4o-mini"
-                elif self.provider == 'gemini': self.model = "gemini-1.5-flash"
-            
-            # Log information about the uninitialized provider
-            model_info = f"model: {self.model}" if self.model else "model: not specified"
-            print(f"Info: Provider '{self.provider}' ({model_info}) is configured but client cannot be initialized due to missing/invalid API keys.")
-            return # Exit early, self.client is None
+        if provider_lower not in self.key_iterators:
+            print(f"Warning: No API keys available or loaded for provider '{self.provider}'. Client cannot be initialized.")
+            self.client = None # Explicitly set to None
+            return
 
-        # If we are here, key_iterators[self.provider] exists, meaning keys are available.
-        initial_api_key = self._get_next_api_key() # This should now reliably return a key.
-        if not initial_api_key: # Should not happen if key_iterators check passed, but as a safeguard
-            print(f"Error: Could not retrieve an API key for provider '{self.provider}' despite key iterator existing. Client will not be initialized.")
-            self.client = None
+        initial_api_key = self._get_next_api_key()
+        if not initial_api_key:
+            print(f"Warning: Failed to get an initial API key for provider '{self.provider}'. Client cannot be initialized.")
+            self.client = None # Explicitly set to None
             return
 
         # Determine default model if not already set (self.model might have been set by __init__ or above)
         if not self.model:
-            if self.provider == 'openai':
-                self.model = "gpt-4o-mini"
-            elif self.provider == 'gemini':
-                self.model = "gemini-1.5-flash"
-            
-            if self.model: # Print warning only if a default was applied here
-                 print(f"Warning: No model name provided during LLMClient instantiation, using default for {self.provider}: {self.model}")
-            elif self.provider not in ['openai', 'gemini']: # If provider is unknown and model is still None
-                 print(f"Error: Model name must be provided for unknown provider: {self.provider}. Client initialization will likely fail.")
-                 # self.client will remain None or fail in the try-except block below.
+            if provider_lower == "openai":
+                # Fetch models and pick the first one as default, or a fallback
+                # This requires an API call, ensure it's handled if key is invalid
+                try:
+                    models = get_openai_models(initial_api_key)
+                    if models:
+                        self.model = models[0] # Or a preferred default like "gpt-3.5-turbo"
+                        print(f"Default OpenAI model set to: {self.model}")
+                    else:
+                        print(f"Warning: Could not fetch OpenAI models. Using fallback 'gpt-3.5-turbo'.")
+                        self.model = "gpt-3.5-turbo" # Fallback
+                except Exception as e:
+                    print(f"Error fetching OpenAI models for default: {e}. Using fallback 'gpt-3.5-turbo'.")
+                    self.model = "gpt-3.5-turbo"
+            elif provider_lower == "gemini":
+                try:
+                    # Configure genai temporarily for model listing if needed, or rely on a default
+                    # genai.configure(api_key=initial_api_key) # Might be needed if get_gemini_models doesn't configure
+                    models = get_gemini_models(initial_api_key) # Pass key to get_gemini_models
+                    if models:
+                        # Prefer "gemini-1.5-flash-latest" or "gemini-pro" if available
+                        preferred_models = ["gemini-1.5-flash-latest", "gemini-pro", "gemini-1.0-pro"]
+                        for pref_model in preferred_models:
+                            if any(m.endswith(pref_model) for m in models): # Gemini models often have 'models/' prefix
+                                self.model = [m for m in models if m.endswith(pref_model)][0]
+                                break
+                        if not self.model and models: # If preferred not found, take first available
+                           self.model = models[0]
+                        print(f"Default Gemini model set to: {self.model}")
+                    else:
+                        print(f"Warning: Could not fetch Gemini models. Using fallback 'gemini-pro'.")
+                        self.model = "gemini-pro" # Fallback
+                except Exception as e:
+                    print(f"Error fetching Gemini models for default: {e}. Using fallback 'gemini-pro'.")
+                    self.model = "gemini-pro"
+            else:
+                print(f"Warning: Unknown provider '{self.provider}' for setting default model.")
+
 
         # Initialize the client with the first key
         try:
-            if self.provider == 'openai':
-                if not self.model:
-                    print(f"Error: OpenAI model name is missing. Cannot initialize client for provider '{self.provider}'.")
-                    self.client = None; return
+            if provider_lower == "openai":
                 self.client = OpenAI(api_key=initial_api_key)
-            elif self.provider == 'gemini':
-                if not self.model:
-                    print(f"Error: Gemini model name is missing. Cannot initialize client for provider '{self.provider}'.")
-                    self.client = None; return
+                print(f"OpenAI client initialized with model {self.model} and key ending ...{initial_api_key[-4:]}")
+            elif provider_lower == "gemini":
+                # For Gemini, client is typically the model instance.
+                # Configuration is global or per-model.
                 genai.configure(api_key=initial_api_key)
-                self.client = genai.GenerativeModel(self.model)
+                self.client = genai.GenerativeModel(self.model) # Store model instance as client
+                print(f"Gemini client (GenerativeModel) initialized with model {self.model} and key ending ...{initial_api_key[-4:]}")
             else:
-                print(f"Error: Unsupported LLM provider '{self.provider}' encountered during client initialization. Client set to None.")
+                print(f"Error: Unknown provider '{self.provider}'. Client not initialized.")
                 self.client = None
-                return
-            print(f"LLM Client initialized for provider: {self.provider}, model: {self.model}")
         except Exception as e:
-            model_name_for_log = self.model if self.model else "unknown"
-            print(f"Error: Failed to initialize LLM client for {self.provider} (model: {model_name_for_log}) with the first key: {e}. Client set to None.")
-            self.client = None
-
+            print(f"Error initializing LLM client for {self.provider} with key ...{initial_api_key[-4:]}: {e}")
+            self.client = None # Ensure client is None if initialization fails
+            # Attempt to cycle to the next key if this one failed at initialization
+            # This is complex as _initialize_client is called once.
+            # Better to let subsequent calls fail and retry with next key.
 
     def get_model_name(self) -> str:
         """Returns the name of the model being used."""
@@ -568,7 +599,7 @@ class LLMClient:
         # Note: No try/except here, handled by the calling loop
         # print(f"--- Calling OpenAI API for Final Response (Key: ...{api_key[-4:]}) ---")
         current_client = OpenAI(api_key=api_key) # Initialize with the specific key for this attempt
-        response = current_client.chat.completions.create(
+        response = await current_client.chat.completions.create( # Use await for async
                 messages=messages,
                 model=self.model,
                 max_tokens=450,
@@ -581,56 +612,109 @@ class LLMClient:
 
     async def _generate_gemini_response(self, messages: List[Dict], api_key: str) -> str:
         """Handles the actual Gemini API call for message generation, using the provided key."""
-        # Note: No try/except here, handled by the calling loop
         # print(f"--- Calling Gemini API for Final Response (Key: ...{api_key[-4:]}) ---")
-        # Re-configure genai globally for this attempt
         genai.configure(api_key=api_key)
 
-        # Re-fetch the model instance using the explicit model_name parameter
-        current_client = genai.GenerativeModel(
-            model_name=self.model
-        ) # Explicitly use model_name
+        system_instruction_text = None
+        history_contents = []
 
-        # Adapt messages
-        system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
-        history_openai_format = [msg for msg in messages if msg['role'] != 'system']
-
-        if not history_openai_format:
-            print("Warning: No user/model messages found for Gemini final response.")
-            final_user_content = "Please respond."
-            gemini_history_to_pass = []
+        if messages and messages[0]["role"] == "system":
+            system_instruction_text = messages[0]["content"]
+            processed_messages = messages[1:]
         else:
-            final_user_content = history_openai_format.pop()['content'] if history_openai_format and 'content' in history_openai_format[-1] else "Please respond based on history."
-            temp_history_manager = HistoryManager()
-            gemini_history_to_pass = temp_history_manager.adapt_history_for_gemini(history_openai_format)
+            processed_messages = messages
 
-        prompt_parts = [
-            f"System Instructions:\n{' '.join(system_prompts)}\n\n"
-            f"User Request/Context:\n{final_user_content}\n\n"
-            f"IMPORTANT: Generate your final response based *only* on the information provided in the System Instructions and the preceding conversation history (including any Tool results shown). Synthesize the information accurately."
-        ]
+        for msg in processed_messages:
+            role = "user" if msg["role"] == "user" else "model"
+            content_text = msg.get("content", "")
+            if not isinstance(content_text, str):
+                content_text = str(content_text)
+            history_contents.append({"role": role, "parts": [{"text": content_text}]})
 
-        generation_config = genai.types.GenerationConfig(
-            max_output_tokens=1000,
-            temperature=random.uniform(0.2, 0.7)
-        )
+        try:
+            model_instance = genai.GenerativeModel(
+                model_name=self.model, # Use model_name parameter
+                system_instruction=system_instruction_text
+            )
+            
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=450,
+                temperature=random.uniform(0.2, 0.8)
+            )
 
-        # Use the reconfigured client instance
-        chat_session = current_client.start_chat(history=gemini_history_to_pass)
-        response = chat_session.send_message(
-            prompt_parts,
-            generation_config=generation_config
-        )
+            # print(f"DEBUG: Gemini history_contents: {history_contents}")
+            # print(f"DEBUG: Gemini system_instruction: {system_instruction_text}")
+            # print(f"DEBUG: Gemini model: {self.model}, config: {generation_config}")
 
-        if response.text:
-            message = response.text.strip()
-            print(f"Final Gemini Response received (using key ...{api_key[-4:]}).")
-            return message
-        else:
-            # Handle potential blocking or empty response
-            feedback = response.prompt_feedback if hasattr(response, 'prompt_feedback') else "Unknown reason"
-            block_reason = feedback.block_reason if hasattr(feedback, 'block_reason') else "N/A"
-            safety_ratings = feedback.safety_ratings if hasattr(feedback, 'safety_ratings') else "N/A"
-            print(f"Gemini final response issue (using key ...{api_key[-4:]}): Block Reason: {block_reason}, Safety Ratings: {safety_ratings}")
-            # Raise an exception to be caught by the retry loop
-            raise google_exceptions.PermissionDenied(f"Gemini response blocked or empty. Reason: {block_reason}")
+            response = await model_instance.generate_content_async(
+                contents=history_contents,
+                generation_config=generation_config
+            )
+            
+            # print(f"DEBUG: Raw Gemini response object: {response}")
+
+            if not response.candidates:
+                block_reason_info = ""
+                if hasattr(response, 'prompt_feedback') and hasattr(response.prompt_feedback, 'block_reason'):
+                    block_reason_info = f" Prompt block reason: {response.prompt_feedback.block_reason}."
+                return f"Error: No candidates returned from Gemini.{block_reason_info} (key ...{api_key[-4:]})"
+
+            candidate = response.candidates[0]
+            # print(f"DEBUG: Gemini candidate: {candidate}")
+
+            # FinishReason enums (integer values):
+            # UNSPECIFIED = 0, STOP = 1, MAX_TOKENS = 2, SAFETY = 3, RECITATION = 4, OTHER = 5
+            finish_reason = candidate.finish_reason
+
+            if finish_reason == 1:  # STOP
+                if candidate.content and candidate.content.parts:
+                    message_text = "".join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
+                    print(f"Final Gemini Response received (key ...{api_key[-4:]}, finish_reason: STOP).")
+                    return message_text.strip()
+                else:
+                    print(f"Warning: Gemini response finished with STOP but no content parts found (key ...{api_key[-4:]}).")
+                    return "Error: Gemini response indicates successful completion (STOP) but no content was found."
+            elif finish_reason == 2:  # MAX_TOKENS
+                partial_text = ""
+                if candidate.content and candidate.content.parts:
+                    partial_text = "".join(part.text for part in candidate.content.parts if hasattr(part, 'text')).strip()
+                
+                error_message = f"Error: Response truncated by Gemini due to maximum token limit (MAX_TOKENS). (key ...{api_key[-4:]})"
+                if partial_text:
+                    print(f"Warning: {error_message} Partial text available.")
+                    return f"{error_message} Partial response: \"{partial_text}\""
+                else:
+                    print(f"Warning: {error_message} No partial text available.")
+                    return error_message
+            elif finish_reason == 3:  # SAFETY
+                safety_ratings_str = str(getattr(candidate, 'safety_ratings', 'N/A'))
+                error_message = f"Error: Gemini response blocked due to safety concerns (SAFETY). Ratings: {safety_ratings_str}. (key ...{api_key[-4:]})"
+                print(f"Warning: {error_message}")
+                return error_message
+            elif finish_reason == 4:  # RECITATION
+                error_message = f"Error: Gemini response blocked due to recitation policy (RECITATION). (key ...{api_key[-4:]})"
+                print(f"Warning: {error_message}")
+                return error_message
+            else:  # UNSPECIFIED (0), OTHER (5), or any unknown
+                if candidate.content and candidate.content.parts:
+                    try:
+                        message_text = "".join(part.text for part in candidate.content.parts if hasattr(part, 'text'))
+                        print(f"Final Gemini Response received (key ...{api_key[-4:]}, finish_reason: {finish_reason}). Text extracted.")
+                        return message_text.strip()
+                    except Exception as e_text_extract:
+                        error_message = f"Error: Could not extract text from Gemini. Finish reason: {finish_reason}. Details: {e_text_extract}. (key ...{api_key[-4:]})"
+                        print(f"Warning: {error_message}")
+                        return error_message
+                else:
+                    error_message = f"Error: Gemini response generation failed or was incomplete. Finish reason: {finish_reason}, no content parts. (key ...{api_key[-4:]})"
+                    print(f"Warning: {error_message}")
+                    return error_message
+
+        except google_exceptions.GoogleAPIError as e_google:
+            # Re-raise Google API errors to be handled by the outer loop's specific exception handlers
+            print(f"ERROR: GoogleAPIError in _generate_gemini_response (key ...{api_key[-4:]}): {type(e_google).__name__} - {e_google}")
+            raise
+        except Exception as e_general:
+            err_msg = f"Error during Gemini API call or response processing (key ...{api_key[-4:]}): {type(e_general).__name__} - {e_general}"
+            print(f"ERROR: {err_msg}")
+            return err_msg

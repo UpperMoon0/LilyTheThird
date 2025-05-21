@@ -1,7 +1,6 @@
 import os
 import json
 import sys
-from config.models import OPENAI_MODELS, GEMINI_MODELS
 from utils.file_utils import get_nstut_lilythethird_app_data_dir
 
 # --- Directory Setup ---
@@ -32,8 +31,8 @@ CHAT_SETTINGS_FILE = os.path.join(get_chat_settings_dir(), 'settings.json')
 DISCORD_SETTINGS_FILE = os.path.join(get_discord_settings_dir(), 'settings.json')
 
 # --- Default Model Definitions ---
-DEFAULT_OPENAI_MODEL = OPENAI_MODELS[0] if OPENAI_MODELS else None
-DEFAULT_GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else None
+DEFAULT_OPENAI_MODEL = None # Set to None as we will fetch from API
+DEFAULT_GEMINI_MODEL = None # Set to None as we will fetch from API
 
 # --- Default Settings Definitions ---
 DEFAULT_CHAT_SETTINGS = {
@@ -63,14 +62,11 @@ def _initialize_defaults_for_provider(defaults_dict, provider_key='selected_prov
     Initializes the default model in a settings dictionary based on the provider.
     Modifies the input dictionary directly.
     """
-    # Ensure models are imported locally if this module is reloaded or used in isolation
-    from config.models import OPENAI_MODELS, GEMINI_MODELS
-
     provider = defaults_dict.get(provider_key)
     if provider == 'OpenAI':
-        defaults_dict[model_key] = OPENAI_MODELS[0] if OPENAI_MODELS else None
+        defaults_dict[model_key] = None # Set to None
     elif provider == 'Gemini':
-        defaults_dict[model_key] = GEMINI_MODELS[0] if GEMINI_MODELS else None
+        defaults_dict[model_key] = None # Set to None
     # Add other providers here if necessary
     return defaults_dict
 
@@ -79,32 +75,11 @@ def _validate_model_for_provider(settings_dict, provider_key='selected_provider'
     Validates the model in the settings_dict for the given provider.
     Resets to default if invalid. Modifies the input dictionary.
     """
-    from config.models import OPENAI_MODELS, GEMINI_MODELS # Local import for safety
-
     provider = settings_dict.get(provider_key)
     model = settings_dict.get(model_key)
-    valid_models = []
     default_model_for_provider = None
 
-    if provider == 'OpenAI':
-        valid_models = OPENAI_MODELS
-        default_model_for_provider = valid_models[0] if valid_models else None
-    elif provider == 'Gemini':
-        valid_models = GEMINI_MODELS
-        default_model_for_provider = valid_models[0] if valid_models else None
-    else:
-        print(f"Warning: Invalid or missing provider '{provider}' for key '{provider_key}'. Cannot validate model '{model_key}'.")
-        # If provider is unknown, we might not be able to determine a default model.
-        # Optionally, set to a generic default or leave as is.
-        # For now, if provider is bad, we can't pick a default model.
-        return
-
-    if model not in valid_models:
-        print(f"Warning: Loaded model '{model}' (key: {model_key}) is not valid for provider '{provider}' (key: {provider_key}). Resetting to default '{default_model_for_provider}'.")
-        settings_dict[model_key] = default_model_for_provider
-    else:
-        print(f"Model '{model}' (key: {model_key}) is valid for provider '{provider}' (key: {provider_key}).")
-
+    print(f"Skipping model validation against predefined lists for provider '{provider}' and model '{model}'.")
 
 def _save_settings_to_file(settings_dict, file_path, settings_type_name="settings"):
     """Generic function to save a settings dictionary to a specified file."""
@@ -190,7 +165,7 @@ if __name__ == '__main__':
     reloaded_chat_settings = load_chat_settings()
     print(f"Reloaded chat settings: {reloaded_chat_settings}")
     # Test with a deliberately bad model for chat
-    if reloaded_chat_settings.get('selected_provider') == 'OpenAI' and OPENAI_MODELS:
+    if reloaded_chat_settings.get('selected_provider') == 'OpenAI': # MODIFIED - removed OPENAI_MODELS check
         reloaded_chat_settings['selected_model'] = 'invalid-openai-model-for-test'
         save_chat_settings(reloaded_chat_settings)
         final_chat_settings = load_chat_settings()
@@ -208,7 +183,7 @@ if __name__ == '__main__':
     reloaded_discord_settings = load_discord_settings()
     print(f"Reloaded discord settings: {reloaded_discord_settings}")
     # Test with a deliberately bad model for discord
-    if reloaded_discord_settings.get('selected_provider') == 'Gemini' and GEMINI_MODELS:
+    if reloaded_discord_settings.get('selected_provider') == 'Gemini': # MODIFIED - removed GEMINI_MODELS check
          reloaded_discord_settings['selected_model'] = 'invalid-gemini-model-for-test'
          save_discord_settings(reloaded_discord_settings)
          final_discord_settings = load_discord_settings()
