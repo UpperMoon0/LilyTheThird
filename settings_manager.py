@@ -31,8 +31,8 @@ CHAT_SETTINGS_FILE = os.path.join(get_chat_settings_dir(), 'settings.json')
 DISCORD_SETTINGS_FILE = os.path.join(get_discord_settings_dir(), 'settings.json')
 
 # --- Default Model Definitions ---
-DEFAULT_OPENAI_MODEL = None # Set to None as we will fetch from API
-DEFAULT_GEMINI_MODEL = None # Set to None as we will fetch from API
+DEFAULT_OPENAI_MODEL = None 
+DEFAULT_GEMINI_MODEL = None 
 
 # --- Default Settings Definitions ---
 DEFAULT_CHAT_SETTINGS = {

@@ -13,6 +13,8 @@ import shutil
 import google.generativeai as genai
 import random
 import json # Ensure json is imported for _load_api_keys_from_json
+import shutil # Ensure shutil is imported for copying template file
+import logging # Ensure logging is imported
 
 # Assuming history manager is in the same directory or adjust import path
 from .history_manager import HistoryManager
@@ -41,7 +43,7 @@ def get_gemini_models(api_key: str) -> List[str]:
     try:
         # Ensure genai is configured before listing models if this function can be called standalone
         # However, API key is passed, so direct usage is fine.
-        # genai.configure(api_key=api_key) # This might be redundant if configure is called elsewhere before this
+        genai.configure(api_key=api_key) 
         models = genai.list_models()
         # Filter for models that support 'generateContent'
         return sorted([m.name for m in models if 'generateContent' in m.supported_generation_methods and "gemini" in m.name]) # Added "gemini" in m.name filter
