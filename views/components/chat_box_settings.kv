@@ -105,7 +105,7 @@
                 halign: 'center'
                 valign: 'middle'
                 on_text_validate: # Update property when Enter is pressed or focus is lost (if not multiline)
-                    root.selected_tts_speaker = int(self.text) if self.text.isdigit() and self.text else 1
+                    root.selected_tts_speaker = int(self.text) if self.text else 1
                 # Consider adding on_focus to update if text changed and focus lost without Enter
 
     # Clear History Button Row
