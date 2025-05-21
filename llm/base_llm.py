@@ -135,9 +135,7 @@ class BaseLLMOrchestrator(ABC):
         base_system_messages = self._get_base_system_messages(**kwargs)
 
         # 2. Retrieve relevant memories automatically based on the raw user message
-        #    Store the potential context string.
         retrieved_facts_context_string = await self._retrieve_and_add_memory_context(user_message)
-        # Note: We no longer add it directly to base_system_messages here.
 
         # 3. Prepare and add user message to history
         prepared_user_message = self._prepare_user_message_for_history(user_message, **kwargs)
@@ -149,8 +147,6 @@ class BaseLLMOrchestrator(ABC):
         max_tool_calls = self._get_max_tool_calls()
         tool_calls_made = 0
 
-        # Initial Fetch Memory Step removed as it's redundant with automatic context retrieval.
-
         # 4. Main Tool Interaction Loop (Excluding Memory Tools)
         print(f"--- Step 4: Main Tool Loop ---")
         # Determine tools allowed in the main loop (exclude memory tools)
@@ -159,8 +155,7 @@ class BaseLLMOrchestrator(ABC):
             main_loop_allowed_tools = [
                 tool for tool in allowed_tools_overall if tool not in ['fetch_memory', 'save_memory']
             ]
-        # If allowed_tools_overall was None (meaning all tools allowed), we need to get all tool names
-        # and then filter.
+        # If allowed_tools_overall was None (meaning all tools allowed), we need to get all tool names and then filter.
         elif allowed_tools_overall is None:
              all_tool_names = self.tool_executor.get_all_tool_names() # Need a method in ToolExecutor for this
              main_loop_allowed_tools = [

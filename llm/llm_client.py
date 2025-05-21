@@ -2,7 +2,9 @@ import random
 import json
 from itertools import cycle
 from pathlib import Path
-import logging 
+import logging
+import os # Added for APPDATA
+import datetime # Added for timestamps
 from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
@@ -71,8 +73,61 @@ class LLMClient:
         self.api_keys: Dict[str, List[str]] = {}
         self.key_iterators: Dict[str, cycle] = {} # Store iterators for round-robin
 
+        self._setup_request_logger() # Added logger setup
         self._load_api_keys_from_json()
         self._initialize_client()
+
+    def _setup_request_logger(self):
+        """Sets up the logger for LLM requests."""
+        try:
+            appdata_dir_path = os.getenv('APPDATA')
+            if not appdata_dir_path:
+                # Fallback if APPDATA is not set (e.g., non-Windows or specific configurations)
+                home_dir = Path.home()
+                if os.name == 'nt': # Windows specific fallback
+                    appdata_dir_path = home_dir / 'AppData' / 'Roaming'
+                elif os.name == 'posix': # Linux/macOS style
+                    xdg_config_home = os.getenv('XDG_CONFIG_HOME')
+                    appdata_dir_path = Path(xdg_config_home) if xdg_config_home else home_dir / '.config'
+                else: # Generic fallback
+                    appdata_dir_path = home_dir / '.app_support'
+            
+            log_dir = Path(appdata_dir_path) / "NsTut" / "LilyTheThird" / "llm"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            self.log_file_path = log_dir / "llm_requests.log"
+
+            self.request_logger = logging.getLogger('LLMRequestLogger')
+            self.request_logger.setLevel(logging.INFO)
+            
+            # Prevent adding multiple handlers if LLMClient is instantiated multiple times
+            if not self.request_logger.handlers:
+                fh = logging.FileHandler(self.log_file_path, encoding='utf-8')
+                formatter = logging.Formatter('%(asctime)s - %(message)s')
+                fh.setFormatter(formatter)
+                self.request_logger.addHandler(fh)
+            
+            print(f"LLMClient request logger initialized. Logging to: {self.log_file_path}")
+
+        except Exception as e:
+            print(f"Error setting up LLM request logger: {e}")
+            self.request_logger = None # Ensure it's None if setup fails
+            self.log_file_path = None
+
+    def _log_request_data(self, log_type: str, data: Dict):
+        """Helper method to log structured request data."""
+        if self.request_logger:
+            try:
+                log_entry = {
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "log_type": log_type,
+                    "provider": self.provider,
+                    "model": self.model,
+                    **data
+                }
+                self.request_logger.info(json.dumps(log_entry, ensure_ascii=False, indent=2)) # Added indent=2
+            except Exception as e:
+                # Avoid crashing the main application due to logging errors
+                print(f"Error writing to LLM request log: {e}")
 
     def _load_api_keys_from_json(self):
         """Loads API keys from llm_api_keys.json."""
@@ -218,6 +273,8 @@ class LLMClient:
         Returns:
             A dictionary parsed from the JSON response, or an error dictionary if the single attempt fails.
         """
+        self._log_request_data("llm_json_request", {"purpose": purpose, "request_messages": messages})
+
         print(f"--- Attempting {purpose} JSON call (Provider: {self.provider}) ---")
 
         # Check if client could not be initialized due to no keys at all for this provider
@@ -236,7 +293,10 @@ class LLMClient:
                 # This should ideally not happen if num_available_keys > 0 and iterators are correctly managed
                 print(f"Error: Failed to retrieve an API key for {self.provider} on attempt {attempt + 1}/{num_available_keys}.")
                 # If it does, it's safer to stop and report an issue with key retrieval.
-                return {"error": f"Internal error: Failed to retrieve API key for {self.provider}."}
+                # Log this specific failure before returning
+                error_payload = {"error": f"Internal error: Failed to retrieve API key for {self.provider}."}
+                self._log_request_data("llm_json_attempt_failure", {"purpose": purpose, "details": error_payload, "attempt": attempt + 1})
+                return error_payload
 
             print(f"Attempt {attempt + 1}/{num_available_keys} for {purpose} using key ending ...{api_key[-4:]}")
             content = None # Reset content for each attempt
@@ -263,6 +323,8 @@ class LLMClient:
                         )
                     content = response.choices[0].message.content.strip()
                     # print(f"Raw OpenAI JSON response for {purpose}: {content}") # Less verbose logging
+                    if content:
+                        self._log_request_data("llm_json_response_raw", {"purpose": purpose, "key_info": api_key[-4:], "raw_response": content, "attempt": attempt + 1})
 
                 elif self.provider == 'gemini':
                     # Re-configure genai globally for this attempt
@@ -301,10 +363,14 @@ class LLMClient:
                     )
                     content = response.text.strip()
                     # print(f"Raw Gemini JSON response for {purpose}: {content}") # Less verbose logging
+                    if content:
+                        self._log_request_data("llm_json_response_raw", {"purpose": purpose, "key_info": api_key[-4:], "raw_response": content, "attempt": attempt + 1})
                 else: # This else corresponds to the if/elif for provider
                     print(f"Unsupported provider '{self.provider}' for JSON generation.")
                     # This error should not be retried with other keys, as it's a config issue.
-                    return {"error": f"Unsupported provider '{self.provider}'"}
+                    error_payload = {"error": f"Unsupported provider '{self.provider}'"}
+                    self._log_request_data("llm_json_attempt_failure", {"purpose": purpose, "details": error_payload, "attempt": attempt + 1})
+                    return error_payload
 
                 # --- JSON Parsing (common for both providers, executed if API call was successful for the provider) ---
                 if not content: # This check is now inside the try, after a successful API call
@@ -319,10 +385,12 @@ class LLMClient:
                 try:
                     parsed_json = json.loads(content)
                     print(f"Successfully parsed JSON for {purpose} on attempt {attempt + 1}")
+                    self._log_request_data("llm_json_response_parsed", {"purpose": purpose, "key_info": api_key[-4:], "parsed_response": parsed_json, "attempt": attempt + 1})
                     return parsed_json # Success! Return the parsed JSON
                 except json.JSONDecodeError as e_json_parse: # Specific variable for this exception
                     print(f"Error decoding JSON response for {purpose} on attempt {attempt + 1} with key ...{api_key[-4:]}: {e_json_parse}\nRaw content: '{content}'")
                     last_exception_details = {"error": f"Failed to decode JSON. Content: '{content}'", "key_info": api_key[-4:]}
+                    self._log_request_data("llm_json_attempt_failure_json_decode", {"purpose": purpose, "key_info": api_key[-4:], "error": str(e_json_parse), "raw_content_on_error": content, "attempt": attempt + 1})
                     # If JSON decoding fails, it might be a malformed response from the LLM.
                     # We'll let it retry with the next key if available.
                     if attempt < num_available_keys - 1:
@@ -336,6 +404,7 @@ class LLMClient:
                 error_type = "Rate limit" if isinstance(e_api, (OpenAIRateLimitError, google_exceptions.ResourceExhausted)) else "Permission/API Key"
                 print(f"{error_type} error on attempt {attempt + 1}/{num_available_keys} for {purpose} with key ending ...{api_key[-4:]}: {e_api}")
                 last_exception_details = {"error": f"{error_type} error: {e_api}", "key_info": api_key[-4:]}
+                self._log_request_data("llm_json_attempt_failure_api", {"purpose": purpose, "key_info": api_key[-4:], "error_type": error_type, "error_details": str(e_api), "attempt": attempt + 1})
                 if attempt < num_available_keys - 1:
                     print("Retrying with next key...")
                     continue # Go to the next iteration of the loop (next key for API call)
@@ -345,6 +414,7 @@ class LLMClient:
             except json.JSONDecodeError as e_json_outer: # Handles JSONDecodeError from empty content before parsing
                 print(f"JSON decoding error (likely empty content from API) on attempt {attempt + 1} for {purpose} with key ...{api_key[-4:]}: {e_json_outer}\nRaw content was: '{content}'")
                 last_exception_details = {"error": f"Failed to decode JSON (empty content from API?). Content: '{content}'", "key_info": api_key[-4:]}
+                self._log_request_data("llm_json_attempt_failure_json_decode_outer", {"purpose": purpose, "key_info": api_key[-4:], "error": str(e_json_outer), "raw_content_on_error": content, "attempt": attempt + 1})
                 if attempt < num_available_keys - 1:
                     print("Retrying with next key due to empty/unanalyzable API response.")
                     continue
@@ -352,12 +422,15 @@ class LLMClient:
                     return last_exception_details
             except Exception as e_general:
                 logging.exception(f"Unexpected error calling LLM API ({purpose}) on attempt {attempt + 1} with key ...{api_key[-4:]}: {e_general}")
-                # For truly unexpected errors, stop and return immediately.
-                return {"error": f"Unexpected API error: {e_general}", "key_info": api_key[-4:]}
+                error_payload = {"error": f"Unexpected API error: {e_general}", "key_info": api_key[-4:]}
+                self._log_request_data("llm_json_attempt_failure_unexpected", {"purpose": purpose, "key_info": api_key[-4:], "error_details": str(e_general), "attempt": attempt + 1})
+                return error_payload
 
         # If loop finishes, it means all keys failed with retriable errors (API or JSON parsing related)
         print(f"All {num_available_keys} API key(s) exhausted for {purpose}.")
-        return last_exception_details if last_exception_details else {"error": f"All API keys failed for {self.provider} during {purpose} after exhausting all attempts."}
+        final_error_payload = last_exception_details if last_exception_details else {"error": f"All API keys failed for {self.provider} during {purpose} after exhausting all attempts."}
+        self._log_request_data("llm_json_final_failure_all_keys", {"purpose": purpose, "details": final_error_payload})
+        return final_error_payload
 
     # --- Tool Interaction Methods ---
 
@@ -539,13 +612,15 @@ class LLMClient:
             The generated message string, or an error string if the single attempt fails.
         """
         # Ensure personality prompt is included, followed by the full history
-        final_messages = [{"role": "system", "content": personality_prompt}]
-        final_messages.extend(messages)
+        final_messages_for_llm = [{"role": "system", "content": personality_prompt}]
+        final_messages_for_llm.extend(messages)
+        self._log_request_data("llm_final_request", {"request_messages": final_messages_for_llm})
 
         if self.provider not in self.api_keys or not self.api_keys[self.provider]:
             model_name_for_log = self.model if self.model else "N/A"
             error_msg = f"No API keys loaded for provider '{self.provider}' (model: {model_name_for_log}). Cannot generate final response."
             print(f"Error: {error_msg}")
+            self._log_request_data("llm_final_failure_no_keys", {"details": error_msg})
             return error_msg # Return the error message string
 
         num_available_keys = len(self.api_keys.get(self.provider, []))
@@ -559,28 +634,32 @@ class LLMClient:
                 print(f"Error: Failed to retrieve an API key for {self.provider} on attempt {attempt + 1}/{num_available_keys} for final response.")
                 # This indicates an internal issue, update last_error_message
                 last_error_message = f"Error: Internal error retrieving API key for {self.provider}."
+                self._log_request_data("llm_final_failure_key_retrieval", {"details": last_error_message, "attempt": attempt + 1})
                 break # Stop if key retrieval fails
 
             print(f"Attempt {attempt + 1}/{num_available_keys} for Final Response using key ending ...{api_key[-4:]}")
 
             try:
+                response_text = None 
                 if self.provider == 'openai':
-                    response_text = await self._generate_openai_response(final_messages, api_key)
-                    return response_text # Success
+                    response_text = await self._generate_openai_response(final_messages_for_llm, api_key)
                 elif self.provider == 'gemini':
-                    response_text = await self._generate_gemini_response(final_messages, api_key)
-                    return response_text # Success
+                    response_text = await self._generate_gemini_response(final_messages_for_llm, api_key)
                 else:
-                    # This should ideally be caught earlier or by a more general mechanism if providers are dynamic
                     unsupported_provider_msg = f"Error: Unsupported provider '{self.provider}' for final response generation."
                     print(unsupported_provider_msg)
-                    return unsupported_provider_msg # Not a retriable error with other keys
+                    self._log_request_data("llm_final_failure_unsupported_provider", {"details": unsupported_provider_msg, "attempt": attempt + 1})
+                    return unsupported_provider_msg 
+
+                self._log_request_data("llm_final_response_success", {"key_info": api_key[-4:], "response_text": response_text, "attempt": attempt + 1})
+                return response_text # Success
 
             except (OpenAIRateLimitError, google_exceptions.ResourceExhausted, google_exceptions.PermissionDenied) as e:
                 error_type = "Rate limit" if isinstance(e, (OpenAIRateLimitError, google_exceptions.ResourceExhausted)) else "Permission/API Key"
                 current_error_msg = f"{error_type} error on attempt {attempt + 1} with key ...{api_key[-4:]}: {e}"
                 print(current_error_msg)
                 last_error_message = f"Error: {current_error_msg}" # Store as the latest error encountered
+                self._log_request_data("llm_final_attempt_failure_api", {"key_info": api_key[-4:], "error_type": error_type, "error_details": str(e), "attempt": attempt + 1})
                 if attempt < num_available_keys - 1:
                     print("Retrying with next key for final response...")
                     continue # Try next key
@@ -591,9 +670,11 @@ class LLMClient:
                 # For any other unexpected exception during the helper call
                 unexpected_error_msg = f"Unexpected error during final response generation on attempt {attempt + 1} with key ...{api_key[-4:]}: {e}"
                 logging.exception(unexpected_error_msg)
+                self._log_request_data("llm_final_attempt_failure_unexpected", {"key_info": api_key[-4:], "error_details": str(e), "attempt": attempt + 1})
                 return f"Error: {unexpected_error_msg}" # Stop on unexpected errors
 
         # If loop completes, all keys were tried and failed with retriable errors
+        self._log_request_data("llm_final_failure_all_keys", {"details": last_error_message})
         return last_error_message
 
     async def _generate_openai_response(self, messages: List[Dict], api_key: str) -> str:
