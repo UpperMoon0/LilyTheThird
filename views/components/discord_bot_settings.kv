@@ -3,8 +3,7 @@
 
 <DiscordBotSettings>:
     orientation: 'vertical'
-    size_hint_y: None
-    height: self.minimum_height
+    size_hint_y: 1
     spacing: dp(10) # Adjusted spacing for title
     padding: dp(10)
     canvas.before:
@@ -156,6 +155,7 @@
 
     # Reusable LLM Selector Component
     LLMSelector:
+        height: dp(100)
         size_hint_x: None
         width: dp(450)
         pos_hint: {'center_x': 0.5}

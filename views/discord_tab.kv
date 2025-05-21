@@ -6,6 +6,7 @@
 
 <DiscordTab>:
     orientation: 'vertical'
+    size_hint_y: 1
     padding: dp(20)
     spacing: dp(20)
 
@@ -18,15 +19,13 @@
     BoxLayout:
         orientation: 'horizontal'
         spacing: dp(20)
-        size_hint_y: None # Let it take the height of its children
-        height: self.minimum_height
+        size_hint_y: 3  
 
         # Column 1: Discord Bot Status
         DiscordBotStatus:
             id: discord_bot_status_id # Added ID here
-            size_hint_x: 0.4 # Adjust as needed for column width
-            size_hint_y: None
-            height: self.minimum_height
+            size_hint_x: 0.4 
+            size_hint_y: 1
             pos_hint: {'top': 1} # Added to align to the top
             manual_send_channel_id: root.manual_send_channel_id_prop # Bind to the new property in DiscordTab
             on_manual_send_channel_id: root.manual_send_channel_id_prop = self.manual_send_channel_id # Add this for two-way binding
@@ -37,7 +36,8 @@
 
         # Column 2: Discord Bot Settings
         DiscordBotSettings:
-            size_hint_x: 0.6 # Adjust as needed for column width
+            size_hint_x: 0.6 
+            size_hint_y: 1
             discord_token: root.discord_token
             guild_id: root.guild_id
             channel_id: root.channel_id
@@ -58,7 +58,6 @@
 
     # Save All Settings Button for the entire tab
     BoxLayout:
-        size_hint_y: None
         height: dp(40)
         padding: [0, dp(10), 0, 0] # Add some top padding
         pos_hint: {'center_x': 0.5}
@@ -70,6 +69,7 @@
             on_press: root.save_all_discord_settings()
             font_size: '16sp'
 
-    # Add a spacer to push content upwards if needed
+    # Spacer to push everything up
     Widget:
         size_hint_y: 1
+
