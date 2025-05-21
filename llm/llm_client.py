@@ -312,17 +312,7 @@ class LLMClient:
                             temperature=0.1,
                             response_format={"type": "json_object"}
                         )
-                    # TODO: There are two identical OpenAI calls here. Was this intentional? Assuming the second one is the one to keep for now.
-                    # If both are needed, the first response is overwritten.
-                    response = current_client.chat.completions.create( 
-                        messages=messages,
-                            model=self.model,
-                            max_tokens=400,
-                            temperature=0.1,
-                            response_format={"type": "json_object"}
-                        )
-                    content = response.choices[0].message.content.strip()
-                    # print(f"Raw OpenAI JSON response for {purpose}: {content}") # Less verbose logging
+                    content = response.choices[0].message.content.strip() # Restored content assignment
                     if content:
                         self._log_request_data("llm_json_response_raw", {"purpose": purpose, "key_info": api_key[-4:], "raw_response": content, "attempt": attempt + 1})
 
@@ -345,7 +335,7 @@ class LLMClient:
 
                     # Combine prompts
                     prompt_parts = [
-                        f"System Instructions:\n{' '.join(system_prompts)}\n\nUser Request:\n{user_message_content}\n\n"
+                        f"System Instructions:\\n{' '.join(system_prompts)}\\n\\nUser Request:\\n{user_message_content}\\n\\n"
                         f"IMPORTANT: Respond ONLY with a valid JSON object based on the request. Do not include any other text or explanations."
                     ]
 
@@ -362,7 +352,6 @@ class LLMClient:
                         generation_config=generation_config
                     )
                     content = response.text.strip()
-                    # print(f"Raw Gemini JSON response for {purpose}: {content}") # Less verbose logging
                     if content:
                         self._log_request_data("llm_json_response_raw", {"purpose": purpose, "key_info": api_key[-4:], "raw_response": content, "attempt": attempt + 1})
                 else: # This else corresponds to the if/elif for provider
@@ -497,8 +486,7 @@ class LLMClient:
             "Example for not using a tool: {\"tool_name\": null}"
         ])
 
-        system_prompt = "\n".join(system_prompt_lines)
-        # print(f"--- Tool Selection Prompt ---\n{system_prompt}\n--------------------------") # DEBUG
+        system_prompt = "\\n".join(system_prompt_lines)
 
         # Prepare messages for the LLM
         request_messages = [msg for msg in messages] # Create a copy
@@ -515,7 +503,6 @@ class LLMClient:
             if tool_name is None or tool_name == "null" or tool_name in choosable_tool_names:
                  # If the tool name is the string "null", treat it as None (no tool)
                  actual_tool_name = None if tool_name == "null" else tool_name
-                 # print(f"LLM decided action: {actual_tool_name}") # DEBUG
                  return {"action_type": "tool_choice", "tool_name": actual_tool_name}
             else:
                  print(f"Error: LLM chose an invalid tool name: {tool_name}")
@@ -576,10 +563,9 @@ class LLMClient:
             f"Tool Description: {tool.description}\n"
             f"Based ONLY on the preceding conversation history, determine the values for the following required arguments:\n" +
             "\n".join(arg_descriptions) + "\n\n" +
-            f"Respond ONLY with a single, valid JSON object containing these keys and their determined values. Your entire response must be the JSON object, starting with {{ and ending with }}.\n"
+            f"Respond ONLY with a single, valid JSON object containing these keys and their determined values. Your entire response must be the JSON object, starting with {{ and ending with }}.\\n"
             f"Example JSON format (values depend on context): {example_json_str}"
         )
-        # print(f"--- Argument Generation Prompt for {tool.name} ---\n{system_prompt}\n--------------------------") # DEBUG
 
         request_messages = [msg for msg in messages] # Create a copy
         # Prepend the system prompt for argument generation
@@ -680,13 +666,12 @@ class LLMClient:
     async def _generate_openai_response(self, messages: List[Dict], api_key: str) -> str:
         """Handles the actual OpenAI API call for message generation, using the provided key."""
         # Note: No try/except here, handled by the calling loop
-        # print(f"--- Calling OpenAI API for Final Response (Key: ...{api_key[-4:]}) ---")
         current_client = OpenAI(api_key=api_key) # Initialize with the specific key for this attempt
         response = await current_client.chat.completions.create( # Use await for async
                 messages=messages,
                 model=self.model,
-                max_tokens=450,
-                temperature=random.uniform(0.2, 0.8),
+                max_tokens=1000,
+                temperature=random.uniform(0.4, 1.0), 
             )
         message = response.choices[0].message.content.strip()
         print(f"Final OpenAI Response received (using key ...{api_key[-4:]}).")
@@ -695,7 +680,6 @@ class LLMClient:
 
     async def _generate_gemini_response(self, messages: List[Dict], api_key: str) -> str:
         """Handles the actual Gemini API call for message generation, using the provided key."""
-        # print(f"--- Calling Gemini API for Final Response (Key: ...{api_key[-4:]}) ---")
         genai.configure(api_key=api_key)
 
         system_instruction_text = None
@@ -721,20 +705,15 @@ class LLMClient:
             )
             
             generation_config = genai.types.GenerationConfig(
-                max_output_tokens=450,
-                temperature=random.uniform(0.2, 0.8)
+                max_output_tokens=1000,
+                temperature=random.uniform(0.4, 1.0) 
             )
-
-            # print(f"DEBUG: Gemini history_contents: {history_contents}")
-            # print(f"DEBUG: Gemini system_instruction: {system_instruction_text}")
-            # print(f"DEBUG: Gemini model: {self.model}, config: {generation_config}")
 
             response = await model_instance.generate_content_async(
                 contents=history_contents,
                 generation_config=generation_config
             )
             
-            # print(f"DEBUG: Raw Gemini response object: {response}")
 
             if not response.candidates:
                 block_reason_info = ""
@@ -743,7 +722,6 @@ class LLMClient:
                 return f"Error: No candidates returned from Gemini.{block_reason_info} (key ...{api_key[-4:]})"
 
             candidate = response.candidates[0]
-            # print(f"DEBUG: Gemini candidate: {candidate}")
 
             # FinishReason enums (integer values):
             # UNSPECIFIED = 0, STOP = 1, MAX_TOKENS = 2, SAFETY = 3, RECITATION = 4, OTHER = 5
