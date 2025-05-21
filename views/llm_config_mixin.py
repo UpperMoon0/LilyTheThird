@@ -1,10 +1,12 @@
 from kivy.properties import ListProperty, StringProperty, BooleanProperty, ObjectProperty
 from kivy.clock import Clock
-# Import model lists from config
-from config.models import OPENAI_MODELS, GEMINI_MODELS
 # Import settings manager functions
 # from settings_manager import load_settings, save_settings # No longer directly used by mixin
 
+# Import the new model fetching functions
+from llm.llm_client import get_openai_models, get_gemini_models
+from llm.llm_client import API_KEYS_FILE # To access API keys
+import json # For loading API keys
 
 # Apply the combined metaclass to the mixin
 # Note: We don't inherit ABC directly anymore, the metaclass handles abstract checks
@@ -50,7 +52,7 @@ class LLMConfigMixin:
     def _save_llm_settings(self):
         """Save LLM related settings using the specific keys and the provided save_function."""
         if self._updating_models:
-            print(f"{self.__class__.__name__}: Skipping save during model update.")
+            print(f"{self.__class__.__name__}: Skipping save because _updating_models is True.") # MODIFIED LOG
             return
         
         if not self.load_function or not self.save_function:
@@ -69,30 +71,56 @@ class LLMConfigMixin:
     def update_models(self, *args, initial_load=False):
         """Update the list of models based on the selected provider."""
         self._updating_models = True # Set flag immediately
-        try: # Use try/finally to ensure flag is cleared
-            print(f"{self.__class__.__name__}: Updating models for provider: {self.selected_provider}")
-            saved_model = None
-            if initial_load:
-                if not self.load_function:
-                    print(f"{self.__class__.__name__}: Warning - load_function not set during initial_load. Cannot load saved model.")
-                else:
-                    settings = self.load_function() # Load again to get the saved model for this provider
-                    provider_key = self._get_provider_setting_key()
-                    model_key = self._get_model_setting_key()
-                    if settings.get(provider_key) == self.selected_provider:
-                        saved_model = settings.get(model_key)
-                        print(f"{self.__class__.__name__}: Found saved model for initial load: {saved_model}")
+        try:
+            print(f"{self.__class__.__name__}: Updating models for provider: {self.selected_provider}. Initial load: {initial_load}")
+            saved_model = "" # Initialize to empty
+            if initial_load and self.load_function:
+                settings = self.load_function()
+                model_key = self._get_model_setting_key()
+                saved_model = settings.get(model_key, "")
+                print(f"{self.__class__.__name__}: Loaded saved model '{saved_model}' during initial load.")
 
-            # Determine models based on provider
-            if self.selected_provider == "OpenAI":
-                self.llm_models = OPENAI_MODELS[:]
-                default_model = self.llm_models[0] if self.llm_models else ""
-            elif self.selected_provider == "Gemini":
-                self.llm_models = GEMINI_MODELS[:]
+            current_api_keys = {}
+            if API_KEYS_FILE.exists():
+                with open(API_KEYS_FILE, 'r') as f:
+                    try:
+                        current_api_keys = json.load(f)
+                    except json.JSONDecodeError as e:
+                        print(f"ERROR: Failed to decode JSON from API keys file: {API_KEYS_FILE}")
+                        print(f"Error details: {e}")
+                        # current_api_keys remains {}, subsequent logic should handle this gracefully.
+            else:
+                print(f"INFO: API keys file not found at {API_KEYS_FILE}. Proceeding without API keys from file.")
+
+            api_key_for_provider = None
+            if self.selected_provider.lower() in current_api_keys and current_api_keys[self.selected_provider.lower()]:
+                api_key_for_provider = current_api_keys[self.selected_provider.lower()][0] # Use the first key
+
+            fetched_models = []
+            if api_key_for_provider:
+                if self.selected_provider == "OpenAI":
+                    fetched_models = get_openai_models(api_key_for_provider)
+                elif self.selected_provider == "Gemini":
+                    fetched_models = get_gemini_models(api_key_for_provider)
+            else:
+                print(f"{self.__class__.__name__}: No API key found for {self.selected_provider}. Cannot fetch models.")
+
+            if fetched_models:
+                self.llm_models = fetched_models
                 default_model = self.llm_models[0] if self.llm_models else ""
             else:
-                self.llm_models = []
-                default_model = ""
+                # Fallback to predefined models if API call fails or no key
+                print(f"{self.__class__.__name__}: Falling back to predefined models for {self.selected_provider}.")
+                from config.models import OPENAI_MODELS, GEMINI_MODELS # Local import for fallback
+                if self.selected_provider == "OpenAI":
+                    self.llm_models = OPENAI_MODELS[:]
+                    default_model = self.llm_models[0] if self.llm_models else ""
+                elif self.selected_provider == "Gemini":
+                    self.llm_models = GEMINI_MODELS[:]
+                    default_model = self.llm_models[0] if self.llm_models else ""
+                else:
+                    self.llm_models = []
+                    default_model = ""
 
             # Determine the model to select
             model_to_select = default_model # Start with the default
@@ -100,20 +128,18 @@ class LLMConfigMixin:
                 model_to_select = saved_model # Use saved model if valid
                 print(f"{self.__class__.__name__}: Applying saved model '{saved_model}' for provider '{self.selected_provider}'.")
             elif saved_model:
-                print(f"{self.__class__.__name__}: Saved model '{saved_model}' not valid for provider '{self.selected_provider}'. Using default '{default_model}'.")
-            else:
-                 print(f"{self.__class__.__name__}: No saved model found for provider '{self.selected_provider}'. Using default '{default_model}'.")
+                print(f"{self.__class__.__name__}: Saved model '{saved_model}' not in new list for {self.selected_provider}. Using default: '{default_model}'.")
 
-            # Explicitly set the selected_model property *after* list is populated
-            print(f"{self.__class__.__name__}: Setting selected_model to '{model_to_select}'") # ADDED LOG
-            self.selected_model = model_to_select
-
-            print(f"{self.__class__.__name__}: Models updated. Provider: {self.selected_provider}, Models: {self.llm_models}, Final Selected: {self.selected_model}")
+            if self.selected_model != model_to_select:
+                self.selected_model = model_to_select
+            elif not self.selected_model and model_to_select: # If current is empty but we have a default
+                self.selected_model = model_to_select
+            
+            print(f"{self.__class__.__name__}: Models updated. Selected model: {self.selected_model}. Models list: {self.llm_models}")
 
         finally:
-            # Clear the flag *after* the current event cycle using Clock.schedule_once
-            print(f"{self.__class__.__name__}: Scheduling _updating_models = False") # ADDED LOG
-            Clock.schedule_once(lambda dt: self.set_update_flag(False), 0)
+            # Schedule the flag to be reset slightly later
+            Clock.schedule_once(lambda dt: self.set_update_flag(False), 0.1) # Adjusted delay if necessary
 
     def set_update_flag(self, value):
         """Helper function to set the flag, used with Clock.schedule_once."""

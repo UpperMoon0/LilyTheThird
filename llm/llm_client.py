@@ -5,10 +5,12 @@ from pathlib import Path
 import logging 
 from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
 import google.generativeai as genai
-from google.api_core import exceptions as google_exceptions # For Gemini exceptions
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
-from openai import OpenAI, RateLimitError as OpenAIRateLimitError # For OpenAI exceptions
+from google.api_core import exceptions as google_exceptions
+from openai import OpenAI, RateLimitError as OpenAIRateLimitError
 from typing import List, Dict, Optional, Any
+
+import google.generativeai as genai
+import json 
 
 # Assuming history manager is in the same directory or adjust import path
 from .history_manager import HistoryManager
@@ -18,6 +20,30 @@ from .history_manager import HistoryManager
 PROJECT_ROOT = Path(__file__).parent.parent
 API_KEYS_FILE = PROJECT_ROOT / "llm_api_keys.json"
 API_KEYS_TEMPLATE_FILE = PROJECT_ROOT / "llm_api_keys.json.template"
+
+# --- Helper functions to fetch models ---
+def get_openai_models(api_key: str) -> List[str]:
+    """Fetches available models from OpenAI."""
+    try:
+        client = OpenAI(api_key=api_key)
+        models = client.models.list()
+        # Filter for GPT models and sort by creation date or name if needed
+        # For now, returning all model IDs that seem like primary models
+        return sorted([model.id for model in models if "gpt" in model.id and "instruct" not in model.id and "vision" not in model.id])
+    except Exception as e:
+        print(f"Error fetching OpenAI models: {e}")
+        return []
+
+def get_gemini_models(api_key: str) -> List[str]:
+    """Fetches available models from Gemini."""
+    try:
+        genai.configure(api_key=api_key)
+        models = genai.list_models()
+        # Filter for models that support 'generateContent'
+        return sorted([m.name for m in models if 'generateContent' in m.supported_generation_methods])
+    except Exception as e:
+        print(f"Error fetching Gemini models: {e}")
+        return []
 
 class LLMClient:
     """

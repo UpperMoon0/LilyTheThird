@@ -467,7 +467,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             print(f"ChatTab Error: chat_box not available in add_message. Message '{text}' lost.")
             # Avoid trying to link here, rely on _post_init
 
-    def clear_history(self):
+    def clear_chat_history(self): 
         """Clears the chat history display in ChatBox and LLM internal history."""
         print("ChatTab: Clearing chat history.")
         if self.chat_box:
