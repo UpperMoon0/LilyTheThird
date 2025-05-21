@@ -2,23 +2,22 @@
 
 <LLMSelector>:
     orientation: 'vertical'
-    size_hint_y: None
-    height: self.minimum_height # Adjust height based on content
-    spacing: dp(10) # Space between the rows
-    padding: dp(10) # Add padding inside the border
+    size_hint_y: 1
+    spacing: dp(10) 
+    padding: dp(10) 
 
     canvas.before:
         Color:
-            rgba: 0.5, 0.5, 0.5, 1 # Border color (gray)
+            rgba: 0.5, 0.5, 0.5, 1 
         Line:
-            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2) # Draw rectangle slightly inside bounds
-            width: 1 # Border width
+            rectangle: self.x + dp(1), self.y + dp(1), self.width - dp(2), self.height - dp(2) 
+            width: 1 
 
     # Title Label
     Label:
         text: "LLM Configuration"
         size_hint_y: None
-        height: self.texture_size[1] + dp(5) # Add a little padding below
+        height: self.texture_size[1] + dp(5) 
         font_size: '16sp' # Make title slightly larger
         bold: True
         halign: 'left'

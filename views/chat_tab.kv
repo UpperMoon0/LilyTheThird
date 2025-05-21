@@ -22,7 +22,7 @@
         id: row_a
         orientation: 'horizontal'
         size_hint_y: None
-        height: dp(320) # Fixed height for the top section (adjust as needed)
+        height: dp(320) 
         spacing: dp(10)
 
         # Column 1: Avatar (Using AnchorLayout for robust centering)
@@ -30,7 +30,7 @@
             id: col_1_avatar_anchor # Renamed id slightly
             anchor_x: 'center'
             anchor_y: 'center'
-            size_hint_x: 0.4
+            size_hint_x: 0.2
             padding: dp(10) # Padding still applies
 
             CircularImage:
@@ -48,7 +48,7 @@
         BoxLayout:
             id: col_2_controls
             orientation: 'vertical'
-            size_hint_x: 0.3 # Adjust size hint for the middle column
+            size_hint_x: 0.5
             # Make height wrap content instead of filling row_a
             size_hint_y: None
             height: self.minimum_height

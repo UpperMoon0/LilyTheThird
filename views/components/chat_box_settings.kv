@@ -30,15 +30,14 @@
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
-        height: self.minimum_height
+        height: dp(180) 
         spacing: dp(10)
 
         # TTS Settings Group
         BoxLayout:
             orientation: 'vertical'
-            size_hint_x: 0.5 # Take half of the horizontal space
-            size_hint_y: None
-            height: self.minimum_height
+            size_hint_x: 0.4
+            size_hint_y: 1 
             spacing: dp(5)
             padding: dp(5)
             canvas.before:
@@ -118,9 +117,7 @@
         # LLM Selector Component
         LLMSelector:
             id: llm_selector_in_settings
-            size_hint_x: 0.5 # Take half of the horizontal space
-            size_hint_y: None
-            height: self.minimum_height
+            size_hint_x: 0.6 
             llm_providers: root.llm_providers
             llm_models: root.llm_models
             selected_provider: root.selected_provider
