@@ -21,6 +21,10 @@ TOOL_USE_RETRY = 10         # Max retries for LLM failing argument generation or
 FINAL_MEMORY_RETRY = 10      # Max retries for final save/update memory step (argument/execution error)
 TOOL_RETRY_DELAY_SECONDS = 2 # Delay between tool retries
 
+# Constants for history summarization
+MAX_ARG_SUMMARY_LEN = 150
+MAX_RESULT_SUMMARY_LEN = 250
+
 class BaseLLMOrchestrator(ABC):
     """
     Abstract base class for LLM orchestration, handling common logic like
@@ -76,6 +80,23 @@ class BaseLLMOrchestrator(ABC):
         Subclasses must implement this to specify the maximum number of tool calls per turn.
         """
         pass
+
+    def _summarize_for_history(self, data: any, max_len: int) -> str:
+        """Helper to summarize data for concise history logging."""
+        if data is None:
+            return "N/A"
+        try:
+            if isinstance(data, (dict, list)):
+                # Compact JSON for dicts/lists
+                s_data = json.dumps(data, separators=(',', ':'))
+            else:
+                s_data = str(data)
+        except TypeError:
+            s_data = str(data) # Fallback for non-serializable objects
+        
+        if len(s_data) > max_len:
+            return s_data[:max_len-3] + "..."
+        return s_data
 
     def _prepare_user_message_for_history(self, user_message: str, **kwargs) -> str:
         """
@@ -249,10 +270,11 @@ class BaseLLMOrchestrator(ABC):
 
                     # Add retry context if this is a retry attempt
                     if use_retry_count > 0:
+                        summarized_error_for_retry_ctx = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
                         retry_context = (
-                            f"RETRY CONTEXT: Previous attempt (attempt {use_retry_count}) to use tool '{tool_name}' failed with the following error: "
-                            f"'{tool_result}'. Please analyze the error and the conversation history, then try generating "
-                            f"the arguments for '{tool_name}' again, correcting any potential issues."
+                            f"RETRY CONTEXT: Previous attempt (attempt {use_retry_count}) to use tool \'{tool_name}\' failed with the following error: "
+                            f"\'{summarized_error_for_retry_ctx}\'. Please analyze the error (also see system message for previous attempt) and the conversation history, then try generating "
+                            f"the arguments for \'{tool_name}\' again, correcting any potential issues."
                         )
                         # Add specific guidance for update_memory failure
                         if tool_name == 'update_memory' and "memory_id" in str(tool_result) and retrieved_facts_context_string:
@@ -309,13 +331,15 @@ class BaseLLMOrchestrator(ABC):
                         else:
                             print(f"[{self.__class__.__name__}] Tool execution failed for {tool_name}. Retrying (attempt {use_retry_count + 1}/{TOOL_USE_RETRY if TOOL_USE_RETRY != -1 else 'infinite'})...")
                             # Add the error result to history immediately so the LLM sees it for the next argument generation attempt
-                            temp_error_message = {
-                                "tool_used": tool_name,
-                                "arguments": arguments,
-                                "result": tool_result,
-                                "status": f"Execution Failed (Attempt {use_retry_count + 1})"
-                            }
-                            self.history_manager.add_message('system', json.dumps(temp_error_message))
+                            args_summary_retry = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
+                            error_summary_retry = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN) # tool_result is the error
+
+                            history_retry_error_summary = (
+                                f"System: Tool '{tool_name}' execution failed during attempt {use_retry_count + 1}. "
+                                f"Arguments: {args_summary_retry}. Error: {error_summary_retry}. "
+                                f"Preparing to retry argument generation."
+                            )
+                            self.history_manager.add_message('system', history_retry_error_summary)
                             use_retry_count += 1
                             await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
                             continue # Go to next iteration of while loop (will regenerate args based on error)
@@ -337,19 +361,21 @@ class BaseLLMOrchestrator(ABC):
                 successful_tool_call_details = {
                     "tool_name": tool_name,
                     "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
-                    "result": tool_result,
+                    "result": tool_result, # Keep full result for this tracked list
                     "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
                 }
                 successful_tool_calls.append(successful_tool_call_details)
-                print(f"[{self.__class__.__name__}] Added details for successful '{tool_name}' call to list.")
+                print(f"[{self.__class__.__name__}] Added details for successful \'{tool_name}\' call to list.")
 
-            tool_result_message_content = {
-                "tool_used": tool_name,
-                "arguments": arguments if arguments is not None else "N/A (argument generation failed)",
-                "result": tool_result,
-                "status": final_tool_status
-            }
-            self.history_manager.add_message('system', json.dumps(tool_result_message_content))
+            # Simplified history message for tool usage
+            args_summary = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
+            result_summary = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
+
+            if final_tool_status.startswith("Failed"):
+                history_tool_summary = f"System: Tool '{tool_name}' attempt failed. Status: {final_tool_status}. Arguments: {args_summary}. Details: {result_summary}"
+            else: # Success
+                history_tool_summary = f"System: Tool '{tool_name}' executed successfully. Arguments: {args_summary}. Result: {result_summary}"
+            self.history_manager.add_message('system', history_tool_summary)
 
             # Increment tool calls *only* if execution was attempted (i.e., arguments were generated)
             if arguments is not None:
@@ -409,10 +435,11 @@ class BaseLLMOrchestrator(ABC):
 
                     # Add retry context if needed
                     if final_mem_retry_count > 0:
+                        summarized_error_for_mem_retry_ctx = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
                         retry_context = (
-                            f"RETRY CONTEXT: Previous attempt (attempt {final_mem_retry_count}) to use final memory tool '{chosen_tool_name}' failed with the following error: "
-                            f"'{tool_result}'. Please analyze the error and the conversation history, then try generating "
-                            f"the arguments for '{chosen_tool_name}' again, correcting any potential issues."
+                            f"RETRY CONTEXT: Previous attempt (attempt {final_mem_retry_count}) to use final memory tool \'{chosen_tool_name}\' failed with the following error: "
+                            f"\'{summarized_error_for_mem_retry_ctx}\'. Please analyze the error and the conversation history, then try generating "
+                            f"the arguments for \'{chosen_tool_name}\' again, correcting any potential issues."
                         )
                         # Add specific guidance for update_memory failure if ID was the issue
                         if chosen_tool_name == 'update_memory' and "memory_id" in str(tool_result) and retrieved_facts_context_string:
@@ -498,22 +525,25 @@ class BaseLLMOrchestrator(ABC):
                 successful_tool_call_details = {
                     "tool_name": chosen_tool_name,
                     "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
-                    "result": tool_result,
+                    "result": tool_result, # Keep full result for this tracked list
                     "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
                 }
                 successful_tool_calls.append(successful_tool_call_details)
-                print(f"[{self.__class__.__name__}] Added details for successful final memory op '{chosen_tool_name}' call to list.")
+                print(f"[{self.__class__.__name__}] Added details for successful final memory op \'{chosen_tool_name}\' call to list.")
 
 
-            tool_result_message_content = {
-                "tool_used": chosen_tool_name,
-                "arguments": arguments if arguments is not None else "N/A (argument generation failed)",
-                "result": tool_result,
-                "status": f"Final Memory Op ({final_mem_status})" # Clarify this is the final op
-            }
+            # Simplified history message for final memory tool usage
+            args_summary_mem = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
+            result_summary_mem = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
+            status_for_history = f"Final Memory Op ({final_mem_status})"
+
+            if final_mem_status.startswith("Failed"):
+                history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' attempt failed. Status: {status_for_history}. Arguments: {args_summary_mem}. Details: {result_summary_mem}"
+            else: # Success
+                history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' executed successfully. Status: {status_for_history}. Arguments: {args_summary_mem}. Result: {result_summary_mem}"
             # Add result here so LLM knows it happened before final response generation.
-            self.history_manager.add_message('system', json.dumps(tool_result_message_content))
-            # Note: We don't increment tool_calls_made for this final optional step.
+            self.history_manager.add_message('system', history_mem_tool_summary)
+            # Note: We don\'t increment tool_calls_made for this final optional step.
         else:
             print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
 
@@ -544,6 +574,15 @@ class BaseLLMOrchestrator(ABC):
         if retrieved_facts_context_string:
             messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
             print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt.")
+
+        # Add a general grounding instruction
+        grounding_instruction = (
+            "IMPORTANT: Generate your response based *only* on the information available in the preceding conversation history, "
+            "tool outputs, and provided facts. If the answer cannot be found in the provided context, "
+            "clearly state that you don't have enough information to answer. Do not invent information or rely on external knowledge not explicitly provided."
+        )
+        messages_for_final_response.append({'role': 'system', 'content': grounding_instruction})
+        print(f"[{self.__class__.__name__}] Added general grounding instruction to final prompt.")
 
 
         # Extract original personality prompt (still needed for Gemini adaptation potentially)
