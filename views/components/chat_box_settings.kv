@@ -26,112 +26,119 @@
         valign: 'top'
         text_size: self.width - dp(20), None # Allow wrapping within padding
 
-    # TTS Settings Group
+    # Horizontal container for TTS and LLM settings
     BoxLayout:
-        orientation: 'vertical'
+        orientation: 'horizontal'
         size_hint_y: None
         height: self.minimum_height
-        spacing: dp(5)
-        padding: dp(5)
-        canvas.before:
-            Color:
-                rgba: 0.3, 0.3, 0.3, 1 # Border color for the group
-            Line:
-                rectangle: self.x, self.y, self.width, self.height
-                width: 1
-        Label:
-            text: "TTS Settings"
-            size_hint_y: None
-            height: self.texture_size[1]
-            font_size: '15sp'
-            bold: True
-            halign: 'left'
-            valign: 'top'
-            text_size: self.width - dp(10), None
-            padding: [dp(5), dp(2)]
+        spacing: dp(10)
 
-        # TTS Checkbox Row
+        # TTS Settings Group
         BoxLayout:
+            orientation: 'vertical'
+            size_hint_x: 0.5 # Take half of the horizontal space
             size_hint_y: None
-            height: dp(30)
-            CheckBox:
-                id: tts_checkbox
-                active: root.tts_enabled # Bind to the component's property
-                size_hint_x: None
-                width: dp(40)
-                on_active: root.tts_enabled = self.active # Update the component's property
+            height: self.minimum_height
+            spacing: dp(5)
+            padding: dp(5)
+            canvas.before:
+                Color:
+                    rgba: 0.3, 0.3, 0.3, 1 # Border color for the group
+                Line:
+                    rectangle: self.x, self.y, self.width, self.height
+                    width: 1
             Label:
-                text: "Enable TTS"
-                size_hint_x: 1
-                text_size: self.width, None
+                text: "TTS Settings"
+                size_hint_y: None
+                height: self.texture_size[1]
+                font_size: '15sp'
+                bold: True
                 halign: 'left'
-                valign: 'middle'
+                valign: 'top'
+                text_size: self.width - dp(10), None
+                padding: [dp(5), dp(2)]
 
-        # TTS Model Spinner Row
-        BoxLayout:
-            size_hint_y: None
-            height: dp(40) # Increased height for spinner
-            disabled: not tts_checkbox.active # Disable if TTS is not enabled
-            Label:
-                text: "TTS Model:"
-                size_hint_x: 0.4 # Give some space for the label
-                text_size: self.width, None
-                halign: 'left'
-                valign: 'middle'
-            Spinner:
-                id: tts_model_spinner
-                text: root.selected_tts_model
-                values: root.tts_models
-                size_hint_x: 0.6
-                on_text: root.selected_tts_model = self.text # Update property on change
+            # TTS Checkbox Row
+            BoxLayout:
+                size_hint_y: None
+                height: dp(30)
+                CheckBox:
+                    id: tts_checkbox
+                    active: root.tts_enabled # Bind to the component's property
+                    size_hint_x: None
+                    width: dp(40)
+                    on_active: root.tts_enabled = self.active # Update the component's property
+                Label:
+                    text: "Enable TTS"
+                    size_hint_x: 1
+                    text_size: self.width, None
+                    halign: 'left'
+                    valign: 'middle'
 
-        # TTS Speaker ID Input Row (NEW)
-        BoxLayout:
+            # TTS Model Spinner Row
+            BoxLayout:
+                size_hint_y: None
+                height: dp(40) # Increased height for spinner
+                disabled: not tts_checkbox.active # Disable if TTS is not enabled
+                Label:
+                    text: "TTS Model:"
+                    size_hint_x: 0.4 # Give some space for the label
+                    text_size: self.width, None
+                    halign: 'left'
+                    valign: 'middle'
+                Spinner:
+                    id: tts_model_spinner
+                    text: root.selected_tts_model
+                    values: root.tts_models
+                    size_hint_x: 0.6
+                    on_text: root.selected_tts_model = self.text # Update property on change
+
+            # TTS Speaker ID Input Row (NEW)
+            BoxLayout:
+                size_hint_y: None
+                height: dp(40) # Consistent height
+                disabled: not tts_checkbox.active # Disable if TTS is not enabled
+                Label:
+                    text: "TTS Speaker ID:"
+                    size_hint_x: 0.4 # Give some space for the label
+                    text_size: self.width, None
+                    halign: 'left'
+                    valign: 'middle'
+                TextInput:
+                    id: tts_speaker_input
+                    text: str(root.selected_tts_speaker) # Display current speaker ID
+                    size_hint_x: 0.6
+                    input_filter: 'int' # Allow only integers
+                    multiline: False
+                    halign: 'center'
+                    valign: 'middle'
+                    on_text_validate: root.selected_tts_speaker = int(self.text) if self.text else 1 # Update property when Enter is pressed or focus is lost (if not multiline)
+                    # Consider adding on_focus to update if text changed and focus lost without Enter
+
+        # LLM Selector Component
+        LLMSelector:
+            id: llm_selector_in_settings
+            size_hint_x: 0.5 # Take half of the horizontal space
             size_hint_y: None
-            height: dp(40) # Consistent height
-            disabled: not tts_checkbox.active # Disable if TTS is not enabled
-            Label:
-                text: "TTS Speaker ID:"
-                size_hint_x: 0.4 # Give some space for the label
-                text_size: self.width, None
-                halign: 'left'
-                valign: 'middle'
-            TextInput:
-                id: tts_speaker_input
-                text: str(root.selected_tts_speaker) # Display current speaker ID
-                size_hint_x: 0.6
-                input_filter: 'int' # Allow only integers
-                multiline: False
-                halign: 'center'
-                valign: 'middle'
-                on_text_validate: # Update property when Enter is pressed or focus is lost (if not multiline)
-                    root.selected_tts_speaker = int(self.text) if self.text else 1
-                # Consider adding on_focus to update if text changed and focus lost without Enter
+            height: self.minimum_height
+            llm_providers: root.llm_providers
+            llm_models: root.llm_models
+            selected_provider: root.selected_provider
+            selected_model: root.selected_model
+            on_selected_provider:
+                root.selected_provider = self.selected_provider
+                root.dispatch('on_llm_provider_changed_event', root.selected_provider)
+            on_selected_model:
+                root.selected_model = self.selected_model
+                root.dispatch('on_llm_model_changed_event', root.selected_model)
 
     # Clear History Button Row
     BoxLayout:
         size_hint_y: None
         height: dp(40)
-        padding: [0, dp(10), 0, 0] # Add some top padding
         Button:
             id: clear_history_button
             text: "Clear History"
             size_hint: 1, 1 # Make button fill the row
             on_press: root.dispatch('on_clear_history')
             font_size: '16sp'
-
-    # LLM Selector Component
-    LLMSelector:
-        id: llm_selector_in_settings
-        size_hint_y: None
-        height: self.minimum_height
-        llm_providers: root.llm_providers
-        llm_models: root.llm_models
-        selected_provider: root.selected_provider
-        selected_model: root.selected_model
-        on_selected_provider:
-            root.selected_provider = self.selected_provider
-            root.dispatch('on_llm_provider_changed_event', root.selected_provider)
-        on_selected_model:
-            root.selected_model = self.selected_model
-            root.dispatch('on_llm_model_changed_event', root.selected_model)

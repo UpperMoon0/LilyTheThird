@@ -88,8 +88,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         # Use .get() with defaults
         self.tts_enabled = settings.get('tts_provider_enabled', False) # Key from DEFAULT_CHAT_SETTINGS
         self.selected_tts_model = settings.get('selected_tts_model', 'edge') # Load selected TTS model
-        self.temperature = settings.get('temperature', 0.7) # Key from DEFAULT_CHAT_SETTINGS
         self.selected_tts_speaker = settings.get('selected_tts_speaker', 1) # Load selected TTS speaker ID
+        self.temperature = settings.get('temperature', 0.7) # Key from DEFAULT_CHAT_SETTINGS
 
     def _post_init(self, dt):
         """Tasks to run after widgets are loaded."""
