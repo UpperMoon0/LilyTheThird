@@ -83,10 +83,30 @@
                 text: root.selected_tts_model
                 values: root.tts_models
                 size_hint_x: 0.6
-                on_text:
-                    root.selected_tts_model = self.text
-                    root.dispatch('on_tts_model_changed_event', self.text)
-                disabled: not tts_checkbox.active # Also disable spinner directly
+                on_text: root.selected_tts_model = self.text # Update property on change
+
+        # TTS Speaker ID Input Row (NEW)
+        BoxLayout:
+            size_hint_y: None
+            height: dp(40) # Consistent height
+            disabled: not tts_checkbox.active # Disable if TTS is not enabled
+            Label:
+                text: "TTS Speaker ID:"
+                size_hint_x: 0.4 # Give some space for the label
+                text_size: self.width, None
+                halign: 'left'
+                valign: 'middle'
+            TextInput:
+                id: tts_speaker_input
+                text: str(root.selected_tts_speaker) # Display current speaker ID
+                size_hint_x: 0.6
+                input_filter: 'int' # Allow only integers
+                multiline: False
+                halign: 'center'
+                valign: 'middle'
+                on_text_validate: # Update property when Enter is pressed or focus is lost (if not multiline)
+                    root.selected_tts_speaker = int(self.text) if self.text.isdigit() and self.text else 1
+                # Consider adding on_focus to update if text changed and focus lost without Enter
 
     # Clear History Button Row
     BoxLayout:

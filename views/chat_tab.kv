@@ -59,23 +59,28 @@
             # ChatBoxSettings now contains LLMSelector
             ChatBoxSettings:
                 id: chat_controls
-                # Pass LLM properties down to ChatBoxSettings
-                tts_enabled: root.tts_enabled
-                selected_tts_model: root.selected_tts_model # Bind ChatTab's property to ChatBoxSettings
+                # Pass down LLM related properties from ChatTab (root)
                 llm_providers: root.llm_providers
                 llm_models: root.llm_models
                 selected_provider: root.selected_provider
                 selected_model: root.selected_model
-                temperature: root.temperature # Bind temperature
-                # Handle events bubbling up
-                on_clear_history: root.clear_history()
-                on_tts_enabled: root.tts_enabled = self.tts_enabled
-                on_selected_tts_model: root.selected_tts_model = self.selected_tts_model # Update ChatTab from ChatBoxSettings event
-                on_tts_model_changed_event: root.selected_tts_model = args[1] # Handle the new event
-                # Bind to NEW event names from ChatBoxSettings
-                on_llm_provider_changed_event: root.selected_provider = self.selected_provider
-                on_llm_model_changed_event: root.selected_model = self.selected_model
-                on_temperature: root.temperature = self.temperature
+                # Pass down TTS related properties
+                tts_enabled: root.tts_enabled
+                selected_tts_model: root.selected_tts_model
+                selected_tts_speaker: root.selected_tts_speaker # ADDED BINDING
+
+                # Bind events from ChatBoxSettings to ChatTab's (root) methods or property changes
+                on_clear_history: root.clear_chat_history()
+                # When ChatBoxSettings dispatches 'on_llm_provider_changed_event', update root.selected_provider
+                on_llm_provider_changed_event: root.selected_provider = args[1]
+                # When ChatBoxSettings dispatches 'on_llm_model_changed_event', update root.selected_model
+                on_llm_model_changed_event: root.selected_model = args[1]
+                # Bind TTS property changes from ChatBoxSettings back to ChatTab
+                on_tts_enabled: root.tts_enabled = args[1] # Assuming ChatBoxSettings dispatches this or it's a direct property bind
+                on_selected_tts_model: root.selected_tts_model = args[1] # Assuming ChatBoxSettings dispatches this
+                # Bind events for TTS model and speaker changes
+                on_tts_model_changed_event: root.selected_tts_model = args[1]
+                on_tts_speaker_changed_event: root.selected_tts_speaker = args[1] # ADDED EVENT BINDING
 
 
         # Column 3: Actions List

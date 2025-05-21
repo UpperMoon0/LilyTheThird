@@ -34,6 +34,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     # is_recording = BooleanProperty(False) # MOVED to ChatBox (state managed here, UI in ChatBox)
     # record_button_icon = StringProperty("assets/mic_idle.png") # MOVED to ChatBox
     temperature = NumericProperty(0.7) # Default temperature
+    selected_tts_speaker = NumericProperty(1) # ADDED TTS speaker ID property
 
     # Flag to indicate if the backend LLM is ready
     backend_initialized = BooleanProperty(False)
@@ -88,6 +89,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         self.tts_enabled = settings.get('tts_provider_enabled', False) # Key from DEFAULT_CHAT_SETTINGS
         self.selected_tts_model = settings.get('selected_tts_model', 'edge') # Load selected TTS model
         self.temperature = settings.get('temperature', 0.7) # Key from DEFAULT_CHAT_SETTINGS
+        self.selected_tts_speaker = settings.get('selected_tts_speaker', 1) # Load selected TTS speaker ID
 
     def _post_init(self, dt):
         """Tasks to run after widgets are loaded."""
@@ -210,6 +212,10 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         print(f"ChatTab: Selected TTS Model changed to: {value}")
         self._save_chat_settings() # Save chat-specific settings
 
+    def on_selected_tts_speaker(self, instance, value): # ADDED Kivy property observer
+        """Called when selected_tts_speaker changes."""
+        self._save_chat_settings()
+
     def _save_chat_settings(self):
         """Helper method to save only the ChatTab specific settings (TTS, temperature)."""
         if not self.load_function or not self.save_function:
@@ -219,6 +225,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         settings = self.load_function() # Load existing chat settings first
         settings['tts_provider_enabled'] = self.tts_enabled
         settings['selected_tts_model'] = self.selected_tts_model # Save selected TTS model
+        settings['selected_tts_speaker'] = self.selected_tts_speaker # Save selected TTS speaker ID
         settings['temperature'] = self.temperature
         self.save_function(settings) # Save updated chat settings
         print(f"ChatTab: Chat-specific settings (TTS, temp, tts_model) saved using {self.save_function.__name__}.")
@@ -446,7 +453,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     def _run_tts_async(self, text_to_speak: str):
         """Helper to run the async TTS function in a new event loop in a separate thread."""
         try:
-            asyncio.run(generate_speech_from_provider(text_to_speak, model=self.selected_tts_model))
+            asyncio.run(generate_speech_from_provider(text_to_speak, speaker=int(self.selected_tts_speaker), model=self.selected_tts_model))
         except Exception as e:
             print(f"ChatTab: Error running TTS in thread: {e}")
 

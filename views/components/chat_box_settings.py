@@ -1,5 +1,5 @@
 from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import BooleanProperty, ListProperty, StringProperty
+from kivy.properties import BooleanProperty, ListProperty, StringProperty, NumericProperty
 from kivy.event import EventDispatcher
 from kivy.lang import Builder
 from kivy.clock import Clock # Added import
@@ -15,6 +15,7 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
     tts_enabled = BooleanProperty(False)
     tts_models = ListProperty(["edge", "zonos"]) # Available TTS models
     selected_tts_model = StringProperty("edge") # Default selected TTS model
+    selected_tts_speaker = NumericProperty(1) # ADDED TTS speaker ID property
 
     # --- LLM Properties (Passed down from parent) ---
     llm_providers = ListProperty([])
@@ -30,6 +31,7 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
         self.register_event_type('on_llm_provider_changed_event')
         self.register_event_type('on_llm_model_changed_event')
         self.register_event_type('on_tts_model_changed_event') # Register new event for TTS model
+        self.register_event_type('on_tts_speaker_changed_event') # ADDED event for TTS speaker
 
     def on_clear_history(self, *args):
         """
@@ -62,12 +64,26 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
         # This event will be bound by the parent (ChatTab)
         pass
 
+    def on_tts_speaker_changed_event(self, speaker_id): # ADDED event handler stub
+        """
+        Handler for the 'on_tts_speaker_changed_event' dispatched from this class.
+        """
+        print(f"DEBUG: ChatBoxSettings: Event 'on_tts_speaker_changed_event' dispatched with value: {speaker_id}")
+        # This event will be bound by the parent (ChatTab)
+        pass
+
     # --- Property Observers for Debugging (Kivy's on_<property_name>) ---
     def on_selected_tts_model(self, instance, value): # Kivy property observer
         """Called by Kivy when self.selected_tts_model KivyProperty changes."""
         print(f"DEBUG: ChatBoxSettings: own selected_tts_model (property observer) changed to: {value}")
         # You can add logic here if the ChatBoxSettings itself needs to react directly
         # to changes in selected_tts_model, beyond just dispatching an event.
+        self.dispatch('on_tts_model_changed_event', value) # Dispatch event when property changes
+
+    def on_selected_tts_speaker(self, instance, value): # ADDED Kivy property observer
+        """Called by Kivy when self.selected_tts_speaker KivyProperty changes."""
+        print(f"DEBUG: ChatBoxSettings: own selected_tts_speaker (property observer) changed to: {value}")
+        self.dispatch('on_tts_speaker_changed_event', value) # Dispatch event
 
     def on_llm_models(self, instance, value):
         """Called by Kivy when self.llm_models changes."""
