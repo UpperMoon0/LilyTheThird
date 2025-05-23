@@ -81,6 +81,22 @@ class BaseLLMOrchestrator(ABC):
         """
         pass
 
+    def _get_tools_to_exclude_from_main_loop(self) -> List[str]:
+        """
+        Returns a list of tool names to be excluded from the main tool interaction loop.
+        Memory tools like fetch_memory and save_memory are typically excluded here
+        as they are handled at specific stages (initial retrieval, final save).
+        Subclasses can override this to exclude additional tools (e.g., update_memory for Discord).
+        """
+        return ['fetch_memory', 'save_memory']
+
+    def _should_perform_final_memory_step(self) -> bool:
+        """
+        Determines if the final memory operation step (save/update memory) should be performed.
+        Defaults to True. Subclasses (like DiscordLLM) can override to skip this step.
+        """
+        return True
+
     def _summarize_for_history(self, data: any, max_len: int) -> str:
         """Helper to summarize data for concise history logging."""
         if data is None:
@@ -170,17 +186,17 @@ class BaseLLMOrchestrator(ABC):
 
         # 4. Main Tool Interaction Loop (Excluding Memory Tools)
         print(f"--- Step 4: Main Tool Loop ---")
-        # Determine tools allowed in the main loop (exclude memory tools)
+        tools_to_exclude = self._get_tools_to_exclude_from_main_loop() # Use new hook
         main_loop_allowed_tools = None
         if allowed_tools_overall is not None:
             main_loop_allowed_tools = [
-                tool for tool in allowed_tools_overall if tool not in ['fetch_memory', 'save_memory']
+                tool for tool in allowed_tools_overall if tool not in tools_to_exclude
             ]
         # If allowed_tools_overall was None (meaning all tools allowed), we need to get all tool names and then filter.
         elif allowed_tools_overall is None:
              all_tool_names = self.tool_executor.get_all_tool_names() # Need a method in ToolExecutor for this
              main_loop_allowed_tools = [
-                 tool for tool in all_tool_names if tool not in ['fetch_memory', 'save_memory']
+                 tool for tool in all_tool_names if tool not in tools_to_exclude
              ]
 
 
@@ -392,160 +408,163 @@ class BaseLLMOrchestrator(ABC):
 
         # 5. Final Memory Operation Step (Optional: Save or Update)
         print(f"--- Step 5: Final Memory Save/Update Check ---")
-        current_history_save = self.history_manager.get_history() # Get history before save/update check
-        messages_for_save = base_system_messages + current_history_save
+        if self._should_perform_final_memory_step(): # Use new hook
+            current_history_save = self.history_manager.get_history() # Get history before save/update check
+            messages_for_save = base_system_messages + current_history_save
 
-        # Add guidance for choosing save vs update
-        memory_guidance_prompt = (
-            "Based on the conversation history and retrieved facts (if any), decide if a final memory operation is needed. "
-            "Use 'save_memory' for new information not previously stored. "
-            "Use 'update_memory' to modify existing information, ensuring you provide a valid 'memory_id' from the retrieved facts. "
-            "If no memory operation is needed, choose null."
-        )
-        if retrieved_facts_context_string:
-            memory_guidance_prompt += f"\n\nRetrieved facts that might be relevant for updating:\n{retrieved_facts_context_string}"
-        messages_for_save.append({'role': 'system', 'content': memory_guidance_prompt})
-        print(f"[{self.__class__.__name__}] Added guidance prompt for final memory operation.")
+            # Add guidance for choosing save vs update
+            memory_guidance_prompt = (
+                "Based on the conversation history and retrieved facts (if any), decide if a final memory operation is needed. "
+                "Use 'save_memory' for new information not previously stored. "
+                "Use 'update_memory' to modify existing information, ensuring you provide a valid 'memory_id' from the retrieved facts. "
+                "If no memory operation is needed, choose null."
+            )
+            if retrieved_facts_context_string:
+                memory_guidance_prompt += f"\n\nRetrieved facts that might be relevant for updating:\n{retrieved_facts_context_string}"
+            messages_for_save.append({'role': 'system', 'content': memory_guidance_prompt})
+            print(f"[{self.__class__.__name__}] Added guidance prompt for final memory operation.")
 
-        save_or_update_decision = await self.llm_client.get_next_action(
-            messages_for_save,
-            allowed_tools=allowed_tools_overall, # Check against all allowed tools
-            context_type=self.context_name, # Pass context for potential encouragement
-            force_tool_options=['save_memory', 'update_memory'] # Force choice: save, update, or null
-        )
+            save_or_update_decision = await self.llm_client.get_next_action(
+                messages_for_save,
+                allowed_tools=allowed_tools_overall, # Check against all allowed tools
+                context_type=self.context_name, # Pass context for potential encouragement
+                force_tool_options=['save_memory', 'update_memory'] # Force choice: save, update, or null
+            )
 
-        chosen_tool_name = save_or_update_decision.get("tool_name") if save_or_update_decision else None
+            chosen_tool_name = save_or_update_decision.get("tool_name") if save_or_update_decision else None
 
-        if chosen_tool_name in ['save_memory', 'update_memory']:
-            print(f"[{self.__class__.__name__}] LLM decided final memory operation: {chosen_tool_name}")
-            # --- Argument Generation & Execution for save_memory or update_memory (with Retry) ---
-            final_mem_retry_count = 0
-            arguments = None
-            tool_result = None
-            tool_definition = find_tool(chosen_tool_name)
+            if chosen_tool_name in ['save_memory', 'update_memory']:
+                print(f"[{self.__class__.__name__}] LLM decided final memory operation: {chosen_tool_name}")
+                # --- Argument Generation & Execution for save_memory or update_memory (with Retry) ---
+                final_mem_retry_count = 0
+                arguments = None
+                tool_result = None
+                tool_definition = find_tool(chosen_tool_name)
 
-            if not tool_definition:
-                print(f"[{self.__class__.__name__}] Error: Tool '{chosen_tool_name}' definition not found.")
-                tool_result = f"Error: Could not find definition for tool '{chosen_tool_name}'."
+                if not tool_definition:
+                    print(f"[{self.__class__.__name__}] Error: Tool '{chosen_tool_name}' definition not found.")
+                    tool_result = f"Error: Could not find definition for tool '{chosen_tool_name}'."
+                else:
+                    # Loop for retries
+                    while FINAL_MEMORY_RETRY == -1 or final_mem_retry_count <= FINAL_MEMORY_RETRY:
+                        # Prepare messages for argument generation (use history *before* save/update check, including guidance)
+                        messages_for_args = messages_for_save # Use the already prepared list
+
+                        # Add retry context if needed
+                        if final_mem_retry_count > 0:
+                            summarized_error_for_mem_retry_ctx = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
+                            retry_context = (
+                                f"RETRY CONTEXT: Previous attempt (attempt {final_mem_retry_count}) to use final memory tool \'{chosen_tool_name}\' failed with the following error: "
+                                f"\'{summarized_error_for_mem_retry_ctx}\'. Please analyze the error and the conversation history, then try generating "
+                                f"the arguments for \'{chosen_tool_name}\' again, correcting any potential issues."
+                            )
+                            # Add specific guidance for update_memory failure if ID was the issue
+                            if chosen_tool_name == 'update_memory' and "memory_id" in str(tool_result) and retrieved_facts_context_string:
+                                 retry_context += (
+                                     "\nIt seems the 'memory_id' might have been invalid. "
+                                     "Please select a valid ID from the retrieved facts below to update.\n"
+                                     f"{retrieved_facts_context_string}"
+                                 )
+                            # Use a temporary list to avoid modifying messages_for_save directly if it's reused
+                            messages_for_args_retry = messages_for_args + [{'role': 'system', 'content': retry_context}]
+                            print(f"[{self.__class__.__name__}] Added retry context for final {chosen_tool_name} argument generation (Attempt {final_mem_retry_count + 1}).")
+                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS) # Wait before retrying
+                        else:
+                            messages_for_args_retry = messages_for_args # Use original messages on first attempt
+
+                        # Get arguments
+                        argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_args_retry)
+
+                        if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
+                            print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {argument_decision}.")
+                            tool_result = argument_decision.get("error", f"Error: Failed to get arguments for final tool '{chosen_tool_name}'.")
+                            arguments = None # Ensure arguments is None
+
+                            # Check retry limits
+                            if FINAL_MEMORY_RETRY != -1 and final_mem_retry_count >= FINAL_MEMORY_RETRY:
+                                print(f"[{self.__class__.__name__}] Final memory argument generation failed after max retries ({FINAL_MEMORY_RETRY}). Aborting.")
+                                break # Break the inner while loop
+                            elif FINAL_MEMORY_RETRY == 0:
+                                print(f"[{self.__class__.__name__}] Final memory argument generation failed (retries disabled). Aborting.")
+                                break # Break the inner while loop
+                            else:
+                                print(f"[{self.__class__.__name__}] Final memory argument generation failed. Retrying (attempt {final_mem_retry_count + 1}/{FINAL_MEMORY_RETRY if FINAL_MEMORY_RETRY != -1 else 'infinite'})...")
+                                final_mem_retry_count += 1
+                                continue # Retry argument generation
+
+                        arguments = argument_decision.get("arguments", {})
+                        print(f"[{self.__class__.__name__}] Arguments prepared for final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {arguments}") # Log arguments before execution
+
+                        # Execute the tool
+                        tool_result = await self.tool_executor.execute(chosen_tool_name, arguments)
+                        print(f"[{self.__class__.__name__}] Result from final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {tool_result}")
+
+                        # Check for execution error condition for retry
+                        is_execution_error = isinstance(tool_result, str) and tool_result.startswith("Error:")
+
+                        if is_execution_error:
+                            # Check retry limits
+                            if FINAL_MEMORY_RETRY != -1 and final_mem_retry_count >= FINAL_MEMORY_RETRY:
+                                print(f"[{self.__class__.__name__}] Final memory execution failed after max retries ({FINAL_MEMORY_RETRY}). Aborting.")
+                                break # Break the inner while loop
+                            elif FINAL_MEMORY_RETRY == 0:
+                                print(f"[{self.__class__.__name__}] Final memory execution failed (retries disabled). Aborting.")
+                                break # Break the inner while loop
+                            else:
+                                print(f"[{self.__class__.__name__}] Final memory execution failed. Retrying (attempt {final_mem_retry_count + 1}/{FINAL_MEMORY_RETRY if FINAL_MEMORY_RETRY != -1 else 'infinite'})...")
+                                # Add the error result to history immediately so the LLM sees it for the next argument generation attempt (if applicable)
+                                # Note: This might not be strictly necessary if the retry only re-runs execution, but good for logging.
+                                temp_error_message = {
+                                    "tool_used": chosen_tool_name,
+                                    "arguments": arguments,
+                                    "result": tool_result,
+                                    "status": f"Final Memory Execution Failed (Attempt {final_mem_retry_count + 1})"
+                                }
+                                # Avoid adding duplicate errors if arg gen fails again
+                                # self.history_manager.add_message('system', json.dumps(temp_error_message))
+                                final_mem_retry_count += 1
+                                await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
+                                continue # Go to next iteration of while loop (will regenerate args based on error)
+                        else:
+                            # Success!
+                            break # Exit the while loop
+
+                # --- After the final memory while loop ---
+                # Add the final tool result (or error) to history
+                final_mem_status = "Success" # Assume success initially
+                if tool_result is None:
+                    tool_result = "Error: Final memory tool execution did not produce a result or failed during argument generation."
+                    final_mem_status = f"Failed (Args/Definition - {final_mem_retry_count + 1} attempts)"
+                elif isinstance(tool_result, str) and tool_result.startswith("Error:"):
+                    final_mem_status = f"Failed (Execution - {final_mem_retry_count + 1} attempts)"
+                elif final_mem_status == "Success": # Only append if it was actually successful
+                     # Append full details dictionary instead of just the name
+                    successful_tool_call_details = {
+                        "tool_name": chosen_tool_name,
+                        "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
+                        "result": tool_result, # Keep full result for this tracked list
+                        "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
+                    }
+                    successful_tool_calls.append(successful_tool_call_details)
+                    print(f"[{self.__class__.__name__}] Added details for successful final memory op \'{chosen_tool_name}\' call to list.")
+
+
+                # Simplified history message for final memory tool usage
+                args_summary_mem = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
+                result_summary_mem = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
+                status_for_history = f"Final Memory Op ({final_mem_status})"
+
+                if final_mem_status.startswith("Failed"):
+                    history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' attempt failed. Status: {status_for_history}. Arguments: {args_summary_mem}. Details: {result_summary_mem}"
+                else: # Success
+                    history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' executed successfully. Status: {status_for_history}. Arguments: {args_summary_mem}. Result: {result_summary_mem}"
+                # Add result here so LLM knows it happened before final response generation.
+                self.history_manager.add_message('system', history_mem_tool_summary)
+                # Note: We don\'t increment tool_calls_made for this final optional step.
             else:
-                # Loop for retries
-                while FINAL_MEMORY_RETRY == -1 or final_mem_retry_count <= FINAL_MEMORY_RETRY:
-                    # Prepare messages for argument generation (use history *before* save/update check, including guidance)
-                    messages_for_args = messages_for_save # Use the already prepared list
-
-                    # Add retry context if needed
-                    if final_mem_retry_count > 0:
-                        summarized_error_for_mem_retry_ctx = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
-                        retry_context = (
-                            f"RETRY CONTEXT: Previous attempt (attempt {final_mem_retry_count}) to use final memory tool \'{chosen_tool_name}\' failed with the following error: "
-                            f"\'{summarized_error_for_mem_retry_ctx}\'. Please analyze the error and the conversation history, then try generating "
-                            f"the arguments for \'{chosen_tool_name}\' again, correcting any potential issues."
-                        )
-                        # Add specific guidance for update_memory failure if ID was the issue
-                        if chosen_tool_name == 'update_memory' and "memory_id" in str(tool_result) and retrieved_facts_context_string:
-                             retry_context += (
-                                 "\nIt seems the 'memory_id' might have been invalid. "
-                                 "Please select a valid ID from the retrieved facts below to update.\n"
-                                 f"{retrieved_facts_context_string}"
-                             )
-                        # Use a temporary list to avoid modifying messages_for_save directly if it's reused
-                        messages_for_args_retry = messages_for_args + [{'role': 'system', 'content': retry_context}]
-                        print(f"[{self.__class__.__name__}] Added retry context for final {chosen_tool_name} argument generation (Attempt {final_mem_retry_count + 1}).")
-                        await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS) # Wait before retrying
-                    else:
-                        messages_for_args_retry = messages_for_args # Use original messages on first attempt
-
-                    # Get arguments
-                    argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_args_retry)
-
-                    if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
-                        print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {argument_decision}.")
-                        tool_result = argument_decision.get("error", f"Error: Failed to get arguments for final tool '{chosen_tool_name}'.")
-                        arguments = None # Ensure arguments is None
-
-                        # Check retry limits
-                        if FINAL_MEMORY_RETRY != -1 and final_mem_retry_count >= FINAL_MEMORY_RETRY:
-                            print(f"[{self.__class__.__name__}] Final memory argument generation failed after max retries ({FINAL_MEMORY_RETRY}). Aborting.")
-                            break # Break the inner while loop
-                        elif FINAL_MEMORY_RETRY == 0:
-                            print(f"[{self.__class__.__name__}] Final memory argument generation failed (retries disabled). Aborting.")
-                            break # Break the inner while loop
-                        else:
-                            print(f"[{self.__class__.__name__}] Final memory argument generation failed. Retrying (attempt {final_mem_retry_count + 1}/{FINAL_MEMORY_RETRY if FINAL_MEMORY_RETRY != -1 else 'infinite'})...")
-                            final_mem_retry_count += 1
-                            continue # Retry argument generation
-
-                    arguments = argument_decision.get("arguments", {})
-                    print(f"[{self.__class__.__name__}] Arguments prepared for final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {arguments}") # Log arguments before execution
-
-                    # Execute the tool
-                    tool_result = await self.tool_executor.execute(chosen_tool_name, arguments)
-                    print(f"[{self.__class__.__name__}] Result from final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {tool_result}")
-
-                    # Check for execution error condition for retry
-                    is_execution_error = isinstance(tool_result, str) and tool_result.startswith("Error:")
-
-                    if is_execution_error:
-                        # Check retry limits
-                        if FINAL_MEMORY_RETRY != -1 and final_mem_retry_count >= FINAL_MEMORY_RETRY:
-                            print(f"[{self.__class__.__name__}] Final memory execution failed after max retries ({FINAL_MEMORY_RETRY}). Aborting.")
-                            break # Break the inner while loop
-                        elif FINAL_MEMORY_RETRY == 0:
-                            print(f"[{self.__class__.__name__}] Final memory execution failed (retries disabled). Aborting.")
-                            break # Break the inner while loop
-                        else:
-                            print(f"[{self.__class__.__name__}] Final memory execution failed. Retrying (attempt {final_mem_retry_count + 1}/{FINAL_MEMORY_RETRY if FINAL_MEMORY_RETRY != -1 else 'infinite'})...")
-                            # Add the error result to history immediately so the LLM sees it for the next argument generation attempt (if applicable)
-                            # Note: This might not be strictly necessary if the retry only re-runs execution, but good for logging.
-                            temp_error_message = {
-                                "tool_used": chosen_tool_name,
-                                "arguments": arguments,
-                                "result": tool_result,
-                                "status": f"Final Memory Execution Failed (Attempt {final_mem_retry_count + 1})"
-                            }
-                            # Avoid adding duplicate errors if arg gen fails again
-                            # self.history_manager.add_message('system', json.dumps(temp_error_message))
-                            final_mem_retry_count += 1
-                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
-                            continue # Go to next iteration of while loop (will regenerate args based on error)
-                    else:
-                        # Success!
-                        break # Exit the while loop
-
-            # --- After the final memory while loop ---
-            # Add the final tool result (or error) to history
-            final_mem_status = "Success" # Assume success initially
-            if tool_result is None:
-                tool_result = "Error: Final memory tool execution did not produce a result or failed during argument generation."
-                final_mem_status = f"Failed (Args/Definition - {final_mem_retry_count + 1} attempts)"
-            elif isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                final_mem_status = f"Failed (Execution - {final_mem_retry_count + 1} attempts)"
-            elif final_mem_status == "Success": # Only append if it was actually successful
-                 # Append full details dictionary instead of just the name
-                successful_tool_call_details = {
-                    "tool_name": chosen_tool_name,
-                    "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
-                    "result": tool_result, # Keep full result for this tracked list
-                    "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
-                }
-                successful_tool_calls.append(successful_tool_call_details)
-                print(f"[{self.__class__.__name__}] Added details for successful final memory op \'{chosen_tool_name}\' call to list.")
-
-
-            # Simplified history message for final memory tool usage
-            args_summary_mem = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
-            result_summary_mem = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
-            status_for_history = f"Final Memory Op ({final_mem_status})"
-
-            if final_mem_status.startswith("Failed"):
-                history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' attempt failed. Status: {status_for_history}. Arguments: {args_summary_mem}. Details: {result_summary_mem}"
-            else: # Success
-                history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' executed successfully. Status: {status_for_history}. Arguments: {args_summary_mem}. Result: {result_summary_mem}"
-            # Add result here so LLM knows it happened before final response generation.
-            self.history_manager.add_message('system', history_mem_tool_summary)
-            # Note: We don\'t increment tool_calls_made for this final optional step.
+                print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
         else:
-            print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
+            print(f"--- Step 5: Final Memory Save/Update Check SKIPPED (due to _should_perform_final_memory_step() returning False) ---")
 
 
         # 6. Final Response Generation
