@@ -31,7 +31,21 @@ def fetch_url_content(url: str, timeout: int = 10) -> Optional[str]:
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # Remove script, style, nav, header, footer, and aside elements first
-        for unwanted_tag in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
+        # Also remove common metadata/navigation elements often found in sidebars, user tools, etc.
+        for unwanted_tag in soup([
+            "script", "style", "nav", "header", "footer", "aside", "form",
+            "div#p-personal",  # Wikipedia personal tools
+            "div#left-navigation",  # Wikipedia left navigation
+            "div#siteNotice",  # Wikipedia site notice
+            "div.mw-jump-link",  # Wikipedia jump links
+            "div#toc", "div.toc", # Table of contents
+            "div.sidebar", "div.mw-sidebar", # Generic sidebars
+            "div.vector-menu-content", # Common menu content wrapper
+            "div#mw-panel", # Wikipedia panel
+            "div.noprint", # Elements not for printing, often metadata
+            "div#footer-icons", # Footer icons
+            "div.printfooter" # Footer in print view
+        ]):
             unwanted_tag.decompose()
 
         # Try to find main content elements

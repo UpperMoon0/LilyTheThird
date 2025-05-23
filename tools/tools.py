@@ -1,131 +1,67 @@
-from typing import List, Optional
+from typing import List, Optional, Type
+from pydantic import BaseModel
+# Import the new argument schemas
+from llm.schemas import (
+    GetCurrentTimeArgs,
+    ReadFileArgs,
+    WriteFileArgs,
+    FetchMemoryArgs,
+    UpdateMemoryArgs,
+    SaveMemoryArgs,
+    SearchWebArgs
+)
 
 
 class ToolDefinition:
     """Represents an available tool for the LLM."""
-    def __init__(self, name: str, description: str, instruction: str, json_schema: dict):
+    def __init__(self, name: str, description: str, argument_schema: Optional[Type[BaseModel]]):
         """
         Initializes a ToolDefinition.
 
         Args:
             name: The unique identifier for the tool.
             description: A brief description for the LLM to understand the tool's purpose.
-            instruction: Detailed instructions for the LLM on how to format the arguments for this tool.
-            json_schema: A dictionary representing the JSON schema for the expected arguments.
+            argument_schema: The Pydantic model for the expected arguments. None if no arguments.
         """
         self.name = name
         self.description = description
-        self.instruction = instruction # Detailed prompt for how to use the tool
-        self.json_schema = json_schema # Expected JSON format for arguments
+        self.argument_schema = argument_schema # Store the Pydantic model
 
 AVAILABLE_TOOLS = [
     ToolDefinition(
         name="get_current_time",
         description="Gets the current date and time.",
-        instruction="Indicate you want the current time. Respond with an empty JSON object {}.",
-        json_schema={
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
+        argument_schema=GetCurrentTimeArgs # Use Pydantic model
     ),
     ToolDefinition(
         name="read_file",
         description="Reads the content of a specified file path.",
-        instruction="Provide the exact path of the file you want to read. Respond with a JSON object containing the 'file_path' key. Example: {\"file_path\": \"C:/Users/Example/Documents/notes.txt\"}",
-        json_schema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "The full path to the file to be read."
-                }
-            },
-            "required": ["file_path"]
-        }
+        argument_schema=ReadFileArgs # Use Pydantic model
     ),
     ToolDefinition(
         name="write_file",
         description="Writes content to a specified file path. Overwrites the file if it exists, creates directories if they don't exist.",
-        instruction="Provide the exact path of the file you want to write to and the full content to write. Respond with a JSON object containing the 'file_path' and 'content' keys. Example: {\"file_path\": \"C:/Users/Example/Documents/new_notes.txt\", \"content\": \"This is the content of the file.\"}",
-        json_schema={
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "The full path to the file to be written."
-                },
-                "content": {
-                    "type": "string",
-                    "description": "The full content to write into the file."
-                }
-            },
-            "required": ["file_path", "content"]
-        }
+        argument_schema=WriteFileArgs # Use Pydantic model
     ),
     ToolDefinition(
         name="fetch_memory",
-        description="Fetches relevant information from long-term memory based on a query, returning facts with their unique IDs. Priotize using this over 'search_web' and your general knowledge.",
-        instruction="Provide a query describing the information you need from long-term memory. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"details about project X discussed last week\"}. The tool will return a list of matching facts, each with a 'memory_id' and 'content'.",
-        json_schema={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Keywords or description of the information to retrieve from memory."
-                }
-            },
-            "required": ["query"]
-        }
+        description="Fetches relevant information from long-term memory based on a query, returning facts with their unique IDs. Prioritize using this over 'search_web' and your general knowledge.",
+        argument_schema=FetchMemoryArgs # Use Pydantic model
     ),
     ToolDefinition(
         name="update_memory",
         description="Updates the content of an existing memory fact using its unique ID. Prioritize using this over 'save_memory' for existing facts.",
-        instruction="Provide the unique 'memory_id' of the fact to update (obtained from 'fetch_memory') and the 'new_content'. Example: {\"memory_id\": \"60b8d295f1d2a5e6f3e4b5c6\", \"new_content\": \"The project deadline is now next Friday.\"}",
-        json_schema={
-            "type": "object",
-            "properties": {
-                "memory_id": {
-                    "type": "string",
-                    "description": "The unique ID of the memory fact to update."
-                },
-                "new_content": {
-                    "type": "string",
-                    "description": "The new content for the memory fact."
-                }
-            },
-            "required": ["memory_id", "new_content"]
-        }
+        argument_schema=UpdateMemoryArgs # Use Pydantic model
     ),
     ToolDefinition(
         name="save_memory",
         description="Saves a piece of information to long-term memory for future recall. This is only for new facts.",
-        instruction="Provide the specific information you want to save to long-term memory. Respond with a JSON object containing the 'content' key. Example: {\"content\": \"User prefers concise answers.\"}",
-        json_schema={
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "The information to store in long-term memory."
-                }
-            },
-            "required": ["content"]
-        }
+        argument_schema=SaveMemoryArgs # Use Pydantic model
     ),
     ToolDefinition(
         name="search_web",
         description="Searches the web for information based on a query and summarizes the findings from multiple relevant pages. Only use this if the information is not available in memory or your general knowledge.",
-        instruction="Provide a clear and concise search query. Respond with a JSON object containing the 'query' key. Example: {\"query\": \"latest advancements in AI research\"}",
-        json_schema={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query to use for finding information on the web."
-                }
-            },
-            "required": ["query"]
-        }
+        argument_schema=SearchWebArgs # Use Pydantic model
     ),
 # Add more tools here as needed
 ]

@@ -8,6 +8,17 @@ from tools import time_tool, file_tool
 from tools.web_search_tool import perform_web_search
 from memory.mongo_handler import MongoHandler
 from .llm_client import LLMClient # Needed for web search summarization
+# Import Pydantic models for argument validation (optional but good practice)
+from .schemas import (
+    GetCurrentTimeArgs,
+    ReadFileArgs,
+    WriteFileArgs,
+    FetchMemoryArgs,
+    UpdateMemoryArgs,
+    SaveMemoryArgs,
+    SearchWebArgs
+)
+from tools.tools import find_tool # To get argument schemas
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -89,6 +100,8 @@ class ToolExecutor:
     async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """
         Executes the specified tool with the given arguments.
+        The 'arguments' dictionary is now expected to be directly usable by the tool
+        as it comes from Gemini's function calling (already structured).
 
         Args:
             tool_name: The name of the tool to execute.
@@ -102,6 +115,19 @@ class ToolExecutor:
             return f"Error: Unknown tool '{tool_name}'."
 
         action_function = self._tool_dispatcher[tool_name]
+        
+        # Optional: Validate arguments against Pydantic schema for the tool
+        # This adds an extra layer of safety, though Gemini should adhere to the schema.
+        tool_definition = find_tool(tool_name)
+        if tool_definition and tool_definition.argument_schema:
+            try:
+                # If arguments is None (e.g. for GetCurrentTimeArgs), provide an empty dict
+                args_to_validate = arguments if arguments is not None else {}
+                tool_definition.argument_schema(**args_to_validate)
+                logging.info(f"Arguments for '{tool_name}' successfully validated against Pydantic schema.")
+            except Exception as pydantic_exc: # Catch Pydantic's ValidationError and other potential errors
+                logging.error(f"Pydantic validation failed for tool '{tool_name}' with args {arguments}: {pydantic_exc}")
+                return f"Error: Invalid arguments received for tool '{tool_name}' after LLM generation. Validation: {pydantic_exc}"
 
         try:
             # Check if the function is async

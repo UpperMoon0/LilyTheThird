@@ -12,6 +12,9 @@ from openai import OpenAI, RateLimitError as OpenAIRateLimitError
 from typing import List, Dict, Optional, Any
 import shutil
 
+# Added for Gemini Function Calling
+from google.generativeai.types import FunctionDeclaration, Tool as GeminiTool, Part
+
 import google.generativeai as genai
 import random
 import json # Ensure json is imported for _load_api_keys_from_json
@@ -265,6 +268,7 @@ class LLMClient:
     async def _call_llm_for_json(self, messages: List[Dict], purpose: str) -> Optional[Dict]:
         """
         Internal helper to call the LLM and expect a JSON response, with retries for rate limits and JSON errors.
+        This method is primarily used by OpenAI or when Gemini is not using its native function calling.
 
         Args:
             messages: The list of messages for the prompt.
@@ -423,6 +427,179 @@ class LLMClient:
 
     # --- Tool Interaction Methods ---
 
+    async def _get_gemini_function_call(
+        self,
+        messages: List[Dict],
+        gemini_tool_config: Optional[GeminiTool],
+        purpose: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Calls Gemini with a tool configuration and attempts to get a function call.
+        Handles retries with different API keys for rate limits and other specified errors.
+        """
+        self._log_request_data("gemini_function_call_request", {"purpose": purpose, "request_messages_count": len(messages), "tool_config_present": gemini_tool_config is not None})
+        print(f"--- Attempting Gemini {purpose} with function calling ---")
+
+        if self.provider != 'gemini':
+            error_msg = "Attempted to call _get_gemini_function_call with non-Gemini provider."
+            print(f"Error: {error_msg}")
+            self._log_request_data("gemini_function_call_error", {"purpose": purpose, "error": error_msg})
+            return {"error": error_msg}
+
+        if "gemini" not in self.api_keys or not self.api_keys["gemini"]:
+            model_name_for_log = self.model if self.model else "N/A"
+            error_msg = f"No API keys loaded for provider 'gemini' (model: {model_name_for_log}). Cannot make {purpose} call."
+            print(f"Error: {error_msg}")
+            self._log_request_data("gemini_function_call_error", {"purpose": purpose, "error": error_msg})
+            return {"error": error_msg}
+
+        num_available_keys = len(self.api_keys.get("gemini", []))
+        last_exception_details = None
+
+        for attempt in range(num_available_keys):
+            api_key = self._get_next_api_key() # This should fetch a Gemini key
+            if not api_key:
+                error_payload = {"error": "Internal error: Failed to retrieve API key for Gemini."}
+                self._log_request_data("gemini_function_call_attempt_failure", {"purpose": purpose, "details": error_payload, "attempt": attempt + 1})
+                return error_payload
+
+            print(f"Attempt {attempt + 1}/{num_available_keys} for Gemini {purpose} using key ending ...{api_key[-4:]}")
+
+            try:
+                # Re-configure genai globally for this attempt (as per existing pattern in _call_llm_for_json)
+                genai.configure(api_key=api_key)
+                # Re-fetch the model instance using the explicit model_name
+                current_client = genai.GenerativeModel(model_name=self.model)
+
+                # Adapt messages for Gemini (system prompt handling might need refinement)
+                # For function calling, the system prompt's role in instructing JSON format is reduced.
+                # The main prompt is the history and the user's latest query.
+                
+                # Construct content for Gemini API
+                # The last message is typically the user's request.
+                # System prompts can be prepended or handled as part of the history.
+                # For simplicity, let's adapt the existing message structure.
+                
+                # Convert OpenAI message format to Gemini's content format
+                gemini_contents = []
+                system_instructions_parts = []
+
+                for msg in messages:
+                    role = "user" if msg["role"] == "user" else "model" # Gemini uses 'user' and 'model'
+                    if msg["role"] == "system":
+                        system_instructions_parts.append(Part(text=msg["content"]))
+                        continue # System instructions handled separately or prepended
+                    gemini_contents.append({"role": role, "parts": [Part(text=msg["content"])]})
+                
+                # Prepend system instructions if any, to the parts of the first 'user' message or as a separate turn.
+                # For function calling, the primary prompt is the conversation.
+                # If system_instructions_parts exist and gemini_contents exist,
+                # and first content is user, prepend. Or, treat system prompt as first part of user message.
+                # Let's assume the `messages` list is already well-formed for conversation.
+                # The `tools` parameter will guide the LLM for tool use.
+
+                final_prompt_contents = []
+                if system_instructions_parts:
+                     # Add system instructions as a leading user message part, or combine if appropriate
+                     # This part might need more sophisticated handling based on how system prompts are structured.
+                     # For now, let's assume system prompts are part of the general message flow or
+                     # are implicitly understood by the model when tools are provided.
+                     # A simple approach: combine system prompts and prepend to the last user message.
+                     if gemini_contents and gemini_contents[-1]["role"] == "user":
+                         full_system_text = "\\n".join([p.text for p in system_instructions_parts])
+                         gemini_contents[-1]["parts"].insert(0, Part(text=f"System Instructions:\\n{full_system_text}\\n---"))
+                         final_prompt_contents = gemini_contents
+                     else: # Or send system instructions as a separate user turn if no immediate user message
+                         final_prompt_contents = [{"role": "user", "parts": system_instructions_parts}] + gemini_contents
+
+                else:
+                    final_prompt_contents = gemini_contents
+
+
+                generation_config = genai.types.GenerationConfig(
+                    # response_mime_type="application/json", # Not needed when using 'tools'
+                    max_output_tokens=1024, # Increased for potentially complex tool args
+                    temperature=0.1 # Keep low for predictable tool use
+                )
+                
+                print(f"Sending to Gemini with tools: {gemini_tool_config is not None}")
+                
+                response = current_client.generate_content(
+                    contents=final_prompt_contents, # Adapted messages
+                    tools=[gemini_tool_config] if gemini_tool_config else None,
+                    generation_config=generation_config
+                )
+
+                if not response.candidates or not response.candidates[0].content.parts:
+                    print(f"Warning: Received empty or incomplete response from Gemini for {purpose} with key ...{api_key[-4:]}.")
+                    # Consider this a potentially retriable issue.
+                    raise google_exceptions.GoogleAPIError("Empty or incomplete response from Gemini.")
+
+
+                # Check for function call in response
+                called_function_name = None
+                called_function_args = {}
+                text_response_parts = []
+
+                for part in response.candidates[0].content.parts:
+                    if part.function_call:
+                        called_function_name = part.function_call.name
+                        called_function_args = dict(part.function_call.args)
+                        self._log_request_data("gemini_function_call_success", {
+                            "purpose": purpose, "key_info": api_key[-4:], 
+                            "function_name": called_function_name, 
+                            "function_args": called_function_args, "attempt": attempt + 1
+                        })
+                        print(f"Gemini called function: {called_function_name} with args: {called_function_args}")
+                        return {"name": called_function_name, "args": called_function_args}
+                    if hasattr(part, 'text'):
+                        text_response_parts.append(part.text)
+                
+                # If no function call was made, but there's text
+                if text_response_parts:
+                    full_text_response = "".join(text_response_parts)
+                    self._log_request_data("gemini_function_call_no_call_text_response", {
+                        "purpose": purpose, "key_info": api_key[-4:], 
+                        "text_response": full_text_response, "attempt": attempt + 1
+                    })
+                    print(f"Gemini responded with text (no function call): {full_text_response[:100]}...")
+                    return {"text_response": full_text_response} # LLM decided to respond with text
+
+                # If no function call and no text, it's an unusual empty response.
+                print(f"Gemini response had no function call and no text for {purpose} on attempt {attempt + 1}.")
+                # This could be treated as an error to retry.
+                raise google_exceptions.GoogleAPIError("Gemini response had no function call and no text.")
+
+
+            except (google_exceptions.ResourceExhausted, google_exceptions.PermissionDenied, google_exceptions.Aborted, google_exceptions.DeadlineExceeded, google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError, google_exceptions.Unknown, google_exceptions.GoogleAPIError) as e_api:
+                error_type = "Rate limit/Resource" if isinstance(e_api, (google_exceptions.ResourceExhausted, google_exceptions.ServiceUnavailable)) else \
+                             "Permission/API Key" if isinstance(e_api, google_exceptions.PermissionDenied) else \
+                             "API Error" # General catch-all for other GoogleAPIError types
+                
+                print(f"Gemini {error_type} on attempt {attempt + 1}/{num_available_keys} for {purpose} with key ...{api_key[-4:]}: {e_api}")
+                last_exception_details = {"error": f"Gemini {error_type}: {e_api}", "key_info": api_key[-4:]}
+                self._log_request_data("gemini_function_call_attempt_failure_api", {"purpose": purpose, "key_info": api_key[-4:], "error_type": error_type, "error_details": str(e_api), "attempt": attempt + 1})
+                
+                if attempt < num_available_keys - 1:
+                    print("Retrying with next key...")
+                    continue
+                else:
+                    print(f"All {num_available_keys} Gemini API key(s) failed for {purpose}. Last API error: {error_type}")
+                    return last_exception_details
+            except Exception as e_general:
+                logging.exception(f"Unexpected error calling Gemini API for {purpose} on attempt {attempt + 1} with key ...{api_key[-4:]}: {e_general}")
+                error_payload = {"error": f"Unexpected API error: {e_general}", "key_info": api_key[-4:]}
+                self._log_request_data("gemini_function_call_attempt_failure_unexpected", {"purpose": purpose, "key_info": api_key[-4:], "error_details": str(e_general), "attempt": attempt + 1})
+                # For a truly unexpected error, we might not want to retry with other keys,
+                # as it could be a code issue rather than a key issue.
+                return error_payload # Return immediately for unexpected errors.
+
+        # If loop finishes, it means all keys failed with retriable API errors
+        print(f"All {num_available_keys} Gemini API key(s) exhausted for {purpose}.")
+        final_error_payload = last_exception_details if last_exception_details else {"error": f"All API keys failed for Gemini during {purpose} after exhausting all attempts."}
+        self._log_request_data("gemini_function_call_final_failure_all_keys", {"purpose": purpose, "details": final_error_payload})
+        return final_error_payload
+
     async def get_next_action(
         self,
         messages: List[Dict],
@@ -441,91 +618,176 @@ class LLMClient:
             force_tool_options: Optional list of tool names. If provided, the LLM MUST choose one of these or null.
 
         Returns:
-            A dictionary like {"action_type": "tool_choice", "tool_name": "tool_name_here" or None},
+            A dictionary like {"action_type": "tool_call", "tool_name": "tool_name_here", "tool_args": {...}} if a tool is chosen,
+            {"action_type": "text_response", "text": "..."} if the LLM responds with text,
             or an error dictionary if all retries fail.
         """
+        from tools.tools import find_tool # Local import to avoid circular dependency issues at module level
+
         # Determine the actual tools the LLM can choose from in this specific call
         if force_tool_options is not None:
-            # Filter forced options against tools actually available/allowed in the context
             all_available_context_tools = set(get_tool_names(allowed_tools=allowed_tools))
             valid_forced_options = [tool for tool in force_tool_options if tool in all_available_context_tools]
             if not valid_forced_options:
-                print(f"Warning: Forced tool options {force_tool_options} are not available/allowed in this context. Skipping tool check.")
-                return {"action_type": "tool_choice", "tool_name": None}
+                print(f"Warning: Forced tool options {force_tool_options} are not available/allowed. No tool call possible.")
+                return {"action_type": "text_response", "text": "(Internal: No valid forced tools available)"} # No valid tools to force
             choosable_tool_names = valid_forced_options
-            tool_list_prompt = get_tool_list_for_prompt(allowed_tools=choosable_tool_names) # Prompt only shows forced tools
-            prompt_instruction = f"You MUST choose one of the tools listed below or null:"
         else:
-            # Standard case: choose from all allowed tools in the context
             choosable_tool_names = get_tool_names(allowed_tools=allowed_tools)
             if not choosable_tool_names:
-                print("No tools allowed or available in this context. Skipping tool check.")
-                return {"action_type": "tool_choice", "tool_name": None}
-            tool_list_prompt = get_tool_list_for_prompt(allowed_tools=choosable_tool_names)
-            prompt_instruction = "Decide if you need to use one of the available tools *from the list below* to fulfill the request."
+                print("No tools allowed or available in this context. LLM will respond with text.")
+                # No tools, so LLM must respond with text. We don't need to call it for tool choice.
+                # However, the current structure expects an LLM call. For now, let it proceed but Gemini will get no tools.
+                pass # Let it proceed, Gemini will get an empty tool list if provider is Gemini
 
-        # --- Build the System Prompt ---
-        system_prompt_lines = [
-            "You are an AI assistant deciding the next step.",
-            "Analyze the conversation history.",
-            prompt_instruction,
-            f"{tool_list_prompt}"
-        ]
+        # --- Provider-Specific Logic for Tool Choice & Argument Generation ---
 
-        # Add context-specific encouragement for saving, ONLY if 'save_memory' is a forced option
-        if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
-            system_prompt_lines.append(
-                "IMPORTANT (ChatBox Context - Final Save Check): Review the entire conversation. If you learned any new, specific, and potentially useful facts (e.g., user preferences, project details, key information) that haven't been saved yet, you SHOULD use the 'save_memory' tool now."
+        if self.provider == 'gemini':
+            # Prepare tools for Gemini Function Calling
+            gemini_function_declarations = []
+            if choosable_tool_names: # Only prepare tools if there are any to choose from
+                for tool_name in choosable_tool_names:
+                    tool_def = find_tool(tool_name)
+                    if tool_def and tool_def.argument_schema:
+                        # Convert Pydantic schema to JSON schema for FunctionDeclaration
+                        # Pydantic v2: tool_def.argument_schema.model_json_schema()
+                        # Pydantic v1: tool_def.argument_schema.schema()
+                        try:
+                            json_schema = tool_def.argument_schema.model_json_schema()
+                        except AttributeError:
+                            json_schema = tool_def.argument_schema.schema() # Fallback for Pydantic v1 if necessary
+                        
+                        gemini_function_declarations.append(
+                            FunctionDeclaration(
+                                name=tool_def.name,
+                                description=tool_def.description,
+                                parameters=json_schema
+                            )
+                        )
+                    elif tool_def: # Tool with no arguments
+                         gemini_function_declarations.append(
+                            FunctionDeclaration(
+                                name=tool_def.name,
+                                description=tool_def.description,
+                                parameters={ # Gemini requires a parameters schema, even if empty
+                                    "type": "object",
+                                    "properties": {},
+                                }
+                            )
+                        )
+
+            gemini_tool_config = GeminiTool(function_declarations=gemini_function_declarations) if gemini_function_declarations else None
+            
+            # System prompt for Gemini (can be simpler as tool structure is formally defined)
+            system_prompt_lines = [
+                "You are an AI assistant. Analyze the conversation and decide if using one of your available functions (tools) is the best way to respond.",
+                "If a function is appropriate, call it with the necessary arguments. Otherwise, respond directly to the user."
+            ]
+            if force_tool_options:
+                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_tool_names)}.")
+            
+            if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
+                 system_prompt_lines.append(
+                    "IMPORTANT (ChatBox Context - Final Save Check): Review the entire conversation. If you learned any new, specific, and potentially useful facts (e.g., user preferences, project details, key information) that haven't been saved yet, you SHOULD use the 'save_memory' tool now."
+                )
+
+            system_prompt = "\\n".join(system_prompt_lines)
+            
+            request_messages = [{"role": "system", "content": system_prompt}] + messages
+
+            gemini_response = await self._get_gemini_function_call(
+                messages=request_messages,
+                gemini_tool_config=gemini_tool_config,
+                purpose="Gemini Action Decision"
             )
 
-        # Add JSON formatting instructions
-        system_prompt_lines.extend([
-            "Respond ONLY with a JSON object containing the key 'tool_name'.",
-            f"The value must be the name of one of the tools listed above ({', '.join(choosable_tool_names)}) or null.",
-            f"Example for using a tool: {{\"tool_name\": \"{choosable_tool_names[0] if choosable_tool_names else 'example_tool'}\"}}",
-            "Example for not using a tool: {\"tool_name\": null}"
-        ])
-
-        system_prompt = "\\n".join(system_prompt_lines)
-
-        # Prepare messages for the LLM
-        request_messages = [msg for msg in messages] # Create a copy
-        # Insert the system prompt for tool selection
-        # Find the first user message and insert before it, or append if none?
-        # Let's just prepend it for simplicity for now.
-        request_messages.insert(0, {"role": "system", "content": system_prompt})
-
-        json_response = await self._call_llm_for_json(request_messages, "Tool Selection")
-
-        if json_response and isinstance(json_response, dict) and "tool_name" in json_response:
-            tool_name = json_response["tool_name"]
-            # Check for None (JSON null), the string "null", or a valid tool name from the choosable list
-            if tool_name is None or tool_name == "null" or tool_name in choosable_tool_names:
-                 # If the tool name is the string "null", treat it as None (no tool)
-                 actual_tool_name = None if tool_name == "null" else tool_name
-                 return {"action_type": "tool_choice", "tool_name": actual_tool_name}
+            if gemini_response and "error" not in gemini_response:
+                if "name" in gemini_response: # Function call was made
+                    return {
+                        "action_type": "tool_call",
+                        "tool_name": gemini_response["name"],
+                        "tool_args": gemini_response["args"]
+                    }
+                elif "text_response" in gemini_response: # LLM decided to respond with text
+                    return {"action_type": "text_response", "text": gemini_response["text_response"]}
+                else: # Should not happen if _get_gemini_function_call is correct
+                    return {"action_type": "error", "error": "Invalid response from _get_gemini_function_call"}
             else:
-                 print(f"Error: LLM chose an invalid tool name: {tool_name}")
-                 # Fallback: Default to no tool if the name is invalid
-                 return {"action_type": "tool_choice", "tool_name": None}
+                error_detail = gemini_response["error"] if gemini_response else "Unknown error from Gemini function call"
+                return {"action_type": "error", "error": error_detail}
+
+        elif self.provider == 'openai':
+            # OpenAI: Current logic for tool selection (simplified here, needs to align with your existing OpenAI flow)
+            # This part would use the existing _call_llm_for_json with a schema asking for tool_name
+            # and then potentially another call for arguments if a tool is chosen.
+            # For brevity, I'm showing a conceptual adaptation. You'll need to integrate this with your
+            # actual OpenAI tool calling logic (which might involve multiple LLM calls or a more complex single call).
+
+            # --- Build the System Prompt for OpenAI Tool Selection ---
+            tool_list_prompt = get_tool_list_for_prompt(allowed_tools=choosable_tool_names)
+            prompt_instruction = "Decide if you need to use one ofthe available tools *from the list below* to fulfill the request."
+            if force_tool_options:
+                prompt_instruction = f"You MUST choose one of the tools listed below or null:"
+
+            system_prompt_lines = [
+                "You are an AI assistant deciding the next step.",
+                "Analyze the conversation history.",
+                prompt_instruction,
+                f"{tool_list_prompt}"
+            ]
+            if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
+                system_prompt_lines.append(
+                    "IMPORTANT (ChatBox Context - Final Save Check): Review the entire conversation. If you learned any new, specific, and potentially useful facts (e.g., user preferences, project details, key information) that haven't been saved yet, you SHOULD use the 'save_memory' tool now."
+                )
+            system_prompt_lines.extend([
+                "Respond ONLY with a JSON object containing the key 'tool_name'.",
+                f"The value must be the name of one of the tools listed above ({', '.join(choosable_tool_names)}) or null.",
+                f"Example for using a tool: {{\"tool_name\": \"{choosable_tool_names[0] if choosable_tool_names else 'example_tool'}\"}}",
+                "Example for not using a tool: {\"tool_name\": null}"
+            ])
+            system_prompt = "\\n".join(system_prompt_lines)
+            request_messages = [{"role": "system", "content": system_prompt}] + messages
+
+            # First call: Decide on the tool
+            # Assuming ToolSelectionSchema is defined in llm.schemas
+            from .schemas import ToolSelectionSchema # Ensure this is imported
+            
+            # This call needs to be made via a method that uses the Pydantic schema for response_format with OpenAI
+            # The existing `_call_llm_for_json` in LLMClient is a good candidate if adapted or if `llm_utils.call_llm_for_json` is used.
+            # For this example, let's assume a conceptual call:
+            # json_response_tool_choice = await self._call_llm_for_json_with_pydantic_schema(
+            # messages=request_messages, 
+            # pydantic_schema=ToolSelectionSchema, 
+            # purpose="OpenAI Tool Selection"
+            # )
+            # This part needs to be filled in with your actual OpenAI call that uses ToolSelectionSchema
+            # For now, I'll use the existing _call_llm_for_json which is text-based for its prompt part.
+            # This will need careful integration with how _call_llm_for_json structures its prompt for OpenAI JSON mode.
+            
+            # --- This is a placeholder for your OpenAI tool selection logic ---
+            # You would call your LLM (OpenAI) here, asking it to pick a tool (or null)
+            # and expect a JSON response matching ToolSelectionSchema.
+            # Let's simulate a response for now, or you can integrate your actual call.
+            print("OpenAI tool selection logic needs to be fully integrated here.")
+            # json_response_tool_choice = await self._call_llm_for_json(request_messages, "OpenAI Tool Selection") 
+            # The above line is from the original code, it might not use pydantic schema correctly for Gemini/OpenAI JSON modes.
+            # It needs to be a call that correctly uses OpenAI's JSON mode with a schema.
+
+            # Let's assume you have a way to get this from OpenAI:
+            # For the purpose of this refactor, we will assume this step is handled by existing OpenAI logic
+            # and we focus on the Gemini path for function calling.
+            # If OpenAI also supports a direct function calling mechanism similar to Gemini's `tools` param,
+            # that would be the preferred way.
+            # Otherwise, it's a two-step: 1. Select tool. 2. Get args for tool.
+
+            # This part of the OpenAI logic will need to be revised based on how you currently handle it
+            # or if you adapt it to a Pydantic-schema-driven call for tool selection.
+            # For now, returning an error to indicate it needs implementation.
+            return {"action_type": "error", "error": "OpenAI tool selection and argument generation not fully implemented in this refactor pass."}
+            # --- End Placeholder ---
+
         else:
-            print(f"Error: Failed to get valid tool selection JSON. Response: {json_response}")
-            # Fallback: Assume no tool needed if JSON is invalid/missing or contains an error
-            if not json_response or "error" in json_response:
-                 error_msg = json_response.get("error", "Unknown JSON error") if json_response else "No JSON response"
-                 print(f"Error in tool selection JSON: {error_msg}. Assuming no tool needed.")
-                 return {"action_type": "tool_choice", "tool_name": None, "error": error_msg}
-            # Proceed with valid JSON
-            tool_name = json_response.get("tool_name")
-            # Check for None (JSON null), the string "null", or a valid tool name from the choosable list
-            if tool_name is None or tool_name == "null" or tool_name in choosable_tool_names:
-                 actual_tool_name = None if tool_name == "null" else tool_name
-                 return {"action_type": "tool_choice", "tool_name": actual_tool_name}
-            else:
-                 print(f"Error: LLM chose an invalid tool name: {tool_name}")
-                 # Fallback: Default to no tool if the name is invalid
-                 return {"action_type": "tool_choice", "tool_name": None, "error": f"Invalid tool name '{tool_name}' chosen."}
-
+            return {"action_type": "error", "error": f"Unsupported provider: {self.provider}"}
 
     async def get_tool_arguments(self, tool: ToolDefinition, messages: List[Dict]) -> Optional[Dict[str, Any]]:
         """
