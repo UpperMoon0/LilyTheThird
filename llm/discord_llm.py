@@ -129,13 +129,12 @@ class DiscordLLM(BaseLLMOrchestrator):
             A tuple containing the final response string and None (as expected by discord_bot.py).
         """
         print(f"--- Processing Discord message from {discord_user_name} ({discord_user_id}) ---")
-        # Pass Discord-specific context to the core processing method
-        final_response = await self._process_message(
+        response_string, _tool_calls = await self._process_message(
             user_message,
             discord_user_id=discord_user_id,
             discord_user_name=discord_user_name
         )
-        # Return format expected by discord_bot.py
-        return final_response, None
+        # Return format expected by discord_bot.py: (string_response, None)
+        return response_string, None
 
     # __del__ is inherited from BaseLLMOrchestrator
