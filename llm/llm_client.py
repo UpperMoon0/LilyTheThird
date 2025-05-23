@@ -598,7 +598,12 @@ class LLMClient:
             The generated message string, or an error string if the single attempt fails.
         """
         # Ensure personality prompt is included, followed by the full history
-        final_messages_for_llm = [{"role": "system", "content": personality_prompt}]
+        final_messages_for_llm = []
+        # Check if the personality_prompt is already the first system message in 'messages'
+        # to avoid duplication.
+        if not (messages and messages[0].get("role") == "system" and messages[0].get("content") == personality_prompt):
+            final_messages_for_llm.append({"role": "system", "content": personality_prompt})
+        
         final_messages_for_llm.extend(messages)
         self._log_request_data("llm_final_request", {"request_messages": final_messages_for_llm})
 

@@ -563,17 +563,20 @@ class BaseLLMOrchestrator(ABC):
             messages_for_final_response.append({'role': 'system', 'content': "You are a helpful assistant."})
 
         # Add the rest of the base system messages (excluding the primary personality)
-        # These might include things like date/time, user info, etc.
         if len(base_system_messages) > 1:
              messages_for_final_response.extend(base_system_messages[1:]) # Add other base system messages
+
+        # Add the retrieved facts context *before* the main history, if it exists
+        if retrieved_facts_context_string:
+            messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
+            print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt before history.")
 
         # Add the main conversation history (user messages, previous assistant replies, tool results)
         messages_for_final_response.extend(final_history)
 
-        # Add the retrieved facts context *just before* the final call, if it exists
-        if retrieved_facts_context_string:
-            messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
-            print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt.")
+        # Remove the explicit date/time message if present from base_system_messages for BaseLLMOrchestrator
+        # This is a more general fix. DiscordLLM specific fix is also applied.
+        messages_for_final_response = [m for m in messages_for_final_response if not ("role" in m and m["role"] == "system" and m["content"].startswith("Current date and time:"))]
 
         # Add a general grounding instruction
         grounding_instruction = (

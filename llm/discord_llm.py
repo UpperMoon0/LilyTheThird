@@ -78,11 +78,8 @@ class DiscordLLM(BaseLLMOrchestrator):
             personality = p1 + discord_user_name + p2
 
         # Prepare Base System Messages
-        current_date_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         base_messages = [
             {'role': 'system', 'content': personality},
-            {'role': 'system', 'content': f"Current date and time: {current_date_time}"},
-            {'role': 'system', 'content': f"You are interacting with user '{discord_user_name}' (ID: {discord_user_id}). They are {'your Master' if is_master else 'not your Master'}."}
         ]
         return base_messages
 
@@ -311,10 +308,6 @@ class DiscordLLM(BaseLLMOrchestrator):
              messages_for_final_response.extend(base_system_messages[1:])
 
         messages_for_final_response.extend(final_history)
-
-        if retrieved_facts_context_string:
-            messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
-            print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt.")
 
         final_personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
 
