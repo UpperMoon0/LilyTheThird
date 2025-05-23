@@ -13,8 +13,7 @@ from typing import List, Dict, Optional, Any
 import shutil
 
 # Added for Gemini Function Calling
-from google.generativeai.types import FunctionDeclaration, Tool as GeminiTool, Part
-
+from google.generativeai.types import FunctionDeclaration, Tool as GeminiTool
 import google.generativeai as genai
 import random
 import json # Ensure json is imported for _load_api_keys_from_json
@@ -487,9 +486,9 @@ class LLMClient:
                 for msg in messages:
                     role = "user" if msg["role"] == "user" else "model" # Gemini uses 'user' and 'model'
                     if msg["role"] == "system":
-                        system_instructions_parts.append(Part(text=msg["content"]))
+                        system_instructions_parts.append(genai.protos.Part(text=msg["content"]))
                         continue # System instructions handled separately or prepended
-                    gemini_contents.append({"role": role, "parts": [Part(text=msg["content"])]})
+                    gemini_contents.append({"role": role, "parts": [genai.protos.Part(text=msg["content"])]})
                 
                 # Prepend system instructions if any, to the parts of the first 'user' message or as a separate turn.
                 # For function calling, the primary prompt is the conversation.
@@ -507,7 +506,7 @@ class LLMClient:
                      # A simple approach: combine system prompts and prepend to the last user message.
                      if gemini_contents and gemini_contents[-1]["role"] == "user":
                          full_system_text = "\\n".join([p.text for p in system_instructions_parts])
-                         gemini_contents[-1]["parts"].insert(0, Part(text=f"System Instructions:\\n{full_system_text}\\n---"))
+                         gemini_contents[-1]["parts"].insert(0, genai.protos.Part(text=f"System Instructions:\\n{full_system_text}\\n---"))
                          final_prompt_contents = gemini_contents
                      else: # Or send system instructions as a separate user turn if no immediate user message
                          final_prompt_contents = [{"role": "user", "parts": system_instructions_parts}] + gemini_contents
@@ -651,17 +650,25 @@ class LLMClient:
                     if tool_def and tool_def.argument_schema:
                         # Convert Pydantic schema to JSON schema for FunctionDeclaration
                         # Pydantic v2: tool_def.argument_schema.model_json_schema()
-                        # Pydantic v1: tool_def.argument_schema.schema()
+                        # Pydantic v1: tool_def.argument_schema.schema()                        
                         try:
                             json_schema = tool_def.argument_schema.model_json_schema()
                         except AttributeError:
                             json_schema = tool_def.argument_schema.schema() # Fallback for Pydantic v1 if necessary
                         
+                        # Remove 'title' field from the schema as Gemini doesn't accept it
+                        clean_schema = {k: v for k, v in json_schema.items() if k != 'title'}
+                        # Also clean 'title' from properties if they exist
+                        if 'properties' in clean_schema:
+                            for prop_name, prop_schema in clean_schema['properties'].items():
+                                if isinstance(prop_schema, dict) and 'title' in prop_schema:
+                                    clean_schema['properties'][prop_name] = {k: v for k, v in prop_schema.items() if k != 'title'}
+                        
                         gemini_function_declarations.append(
                             FunctionDeclaration(
                                 name=tool_def.name,
                                 description=tool_def.description,
-                                parameters=json_schema
+                                parameters=clean_schema
                             )
                         )
                     elif tool_def: # Tool with no arguments

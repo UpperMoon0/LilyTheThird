@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from .history_manager import HistoryManager
 from .llm_client import LLMClient
 from .tool_executor import ToolExecutor
+from .error_analyzer import ErrorAnalyzer, ErrorCategory
 from memory.mongo_handler import MongoHandler
 from tools.tools import find_tool
 
@@ -20,6 +21,11 @@ TOOL_SELECT_RETRY = 5       # Max retries for LLM failing to choose a tool (0=di
 TOOL_USE_RETRY = 10         # Max retries for LLM failing argument generation or tool execution error (0=disable, -1=infinite)
 FINAL_MEMORY_RETRY = 10      # Max retries for final save/update memory step (argument/execution error)
 TOOL_RETRY_DELAY_SECONDS = 2 # Delay between tool retries
+
+# Additional constants for enhanced error handling
+MAX_SAME_ERROR_RETRIES = 3   # Max retries for the exact same error pattern
+ESCALATING_DELAY_FACTOR = 1.5  # Increase delay each retry
+MAX_RETRY_DELAY = 10        # Maximum delay between retries
 
 # Constants for history summarization
 MAX_ARG_SUMMARY_LEN = 150
@@ -43,10 +49,12 @@ class BaseLLMOrchestrator(ABC):
 
         # LLMClient handles provider/model logic and client initialization
         # Subclasses can influence provider/model before calling super().__init__ or pass them here
-        self.llm_client = LLMClient(provider=provider, model_name=model_name)
-
-        # Initialize ToolExecutor, passing dependencies
+        self.llm_client = LLMClient(provider=provider, model_name=model_name)        # Initialize ToolExecutor, passing dependencies
         self.tool_executor = ToolExecutor(mongo_handler=self.mongo_handler, llm_client=self.llm_client)
+        
+        # Initialize error analyzer for enhanced retry logic
+        self.error_analyzer = ErrorAnalyzer()
+        self.recent_errors = []  # Track recent errors for pattern detection
 
         self.provider = self.llm_client.provider
         self.model = self.llm_client.get_model_name()
@@ -109,7 +117,6 @@ class BaseLLMOrchestrator(ABC):
                 s_data = str(data)
         except TypeError:
             s_data = str(data) # Fallback for non-serializable objects
-        
         if len(s_data) > max_len:
             return s_data[:max_len-3] + "..."
         return s_data
@@ -121,6 +128,129 @@ class BaseLLMOrchestrator(ABC):
         kwargs can receive context like user_name.
         """
         return user_message
+
+    def _track_error_pattern(self, tool_name: str, error_message: str, arguments: dict, error_category: ErrorCategory) -> bool:
+        """
+        Track error patterns to detect repeated mistakes.
+        Returns True if this is a repeated pattern that should receive enhanced guidance.
+        """
+        error_record = {
+            "tool_name": tool_name,
+            "error_category": error_category,
+            "error_message": error_message,
+            "arguments": arguments,
+            "timestamp": datetime.now(timezone.utc)
+        }
+        
+        # Keep only recent errors (last 10)
+        self.recent_errors.append(error_record)
+        if len(self.recent_errors) > 10:
+            self.recent_errors.pop(0)
+        
+        # Check for repeated patterns (same tool + same error category)
+        same_pattern_count = sum(1 for error in self.recent_errors 
+                               if error["tool_name"] == tool_name and 
+                                  error["error_category"] == error_category)
+        
+        return same_pattern_count >= 3  # Consider it a pattern after 3 occurrences
+
+    def _generate_enhanced_retry_context(self, tool_name: str, error_message: str, arguments: dict, 
+                                       retry_count: int, retrieved_facts: Optional[str] = None) -> str:
+        """
+        Generate enhanced retry context using error analysis and pattern detection.
+        """
+        # Analyze the error
+        error_category, specific_guidance = self.error_analyzer.analyze_error(error_message, tool_name, arguments)
+        
+        # Track the error pattern
+        is_repeated_pattern = self._track_error_pattern(tool_name, error_message, arguments, error_category)
+        
+        # Build enhanced context
+        base_context = (
+            f"RETRY CONTEXT (Attempt {retry_count}): Tool '{tool_name}' failed. "
+            f"Error Category: {error_category.value.upper()}\n\n"
+            f"SPECIFIC GUIDANCE: {specific_guidance}\n\n"
+        )
+        
+        # Add pattern-specific warnings
+        if is_repeated_pattern:
+            base_context += (
+                "⚠️ REPEATED MISTAKE DETECTED: You have made this same type of error multiple times. "
+                "Please carefully review the guidance above and ensure you understand the requirements "
+                "before proceeding. Take extra care with the argument format and values.\n\n"
+            )
+        
+        # Add context for specific error types
+        if error_category == ErrorCategory.MEMORY_ID_ERROR and retrieved_facts:
+            base_context += (
+                "MEMORY ID REFERENCE: Here are the available memory facts you can update:\n"
+                f"{retrieved_facts}\n\n"
+                "IMPORTANT: Only use memory_id values that appear in the facts above.\n\n"
+            )
+        
+        # Add progressive guidance based on retry count
+        if retry_count >= 3:
+            base_context += (
+                "PROGRESSIVE GUIDANCE: This is your third or later attempt. Consider:\n"
+                "1. Double-check the tool's parameter requirements and data types\n"
+                "2. Verify that all required arguments are provided\n"
+                "3. Ensure argument values match the expected format exactly\n"
+                "4. Review any error-specific guidance provided above\n\n"
+            )
+        
+        # Add examples for complex tools on repeated failures
+        if retry_count >= 2 and tool_name in ["update_memory", "save_memory"]:
+            base_context += self._get_tool_examples(tool_name)
+        
+        return base_context
+    
+    def _get_tool_examples(self, tool_name: str) -> str:
+        """Provide concrete examples for complex tools that frequently fail."""
+        examples = {
+            "update_memory": (
+                "EXAMPLE: For update_memory, use:\n"
+                '{"memory_id": "507f1f77bcf86cd799439011", "new_content": "Updated information"}\n'
+                "Make sure the memory_id is EXACTLY as shown in the retrieved facts.\n\n"
+            ),
+            "save_memory": (
+                "EXAMPLE: For save_memory, use:\n"
+                '{"content": "New information to remember"}\n'
+                "Content should be descriptive and self-contained.\n\n"
+            ),
+            "write_file": (
+                "EXAMPLE: For write_file, use:\n"
+                '{"file_path": "/full/path/to/file.txt", "content": "File content here"}\n'
+                "Ensure the path is absolute and directory exists.\n\n"
+            )
+        }
+        return examples.get(tool_name, "")
+    
+    def _should_abort_retry_sequence(self, tool_name: str, error_message: str, retry_count: int) -> bool:
+        """
+        Determine if retry sequence should be aborted due to futile attempts.
+        """
+        # Count exact same error occurrences
+        exact_same_errors = sum(1 for error in self.recent_errors[-5:] 
+                              if error.get("tool_name") == tool_name and 
+                                 error.get("error_message") == error_message)
+        
+        # Abort if we've seen the exact same error too many times
+        if exact_same_errors >= MAX_SAME_ERROR_RETRIES:
+            return True
+        
+        # Abort for certain categories that are unlikely to succeed
+        error_category, _ = self.error_analyzer.analyze_error(error_message, tool_name, {})
+        non_retryable_on_high_count = [
+            ErrorCategory.INVALID_ARGUMENT,
+            ErrorCategory.MISSING_ARGUMENT,
+            ErrorCategory.RESOURCE_NOT_FOUND,
+            ErrorCategory.PERMISSION_DENIED
+        ]
+        
+        if retry_count >= 4 and error_category in non_retryable_on_high_count:
+            return True
+        
+        return False
 
     async def _retrieve_and_add_memory_context(self, query_text: str) -> Optional[str]:
         """
