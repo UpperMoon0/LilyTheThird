@@ -358,11 +358,9 @@ class BaseLLMOrchestrator(ABC):
                     allowed_tools=main_loop_allowed_tools, # Use filtered list
                     context_type=self.context_name
                     # No force_tool_options here
-                )
-
-                # Check if the decision is valid
-                if action_decision and action_decision.get("action_type") == "tool_choice":
-                    # Valid decision, break the retry loop
+                )                # Check if the decision is valid
+                if action_decision and action_decision.get("action_type") in ["tool_choice", "text_response"]:
+                    # Valid decision (either tool choice or text response), break the retry loop
                     break
                 else:
                     # Invalid decision or error
@@ -381,15 +379,25 @@ class BaseLLMOrchestrator(ABC):
                         # Retry tool selection
                         print(f"[{self.__class__.__name__}] Retrying tool selection (attempt {select_retry_count + 1}/{TOOL_SELECT_RETRY if TOOL_SELECT_RETRY != -1 else 'infinite'})...")
                         select_retry_count += 1
-                        # Continue to the next iteration of the while loop
-
-            # --- End Tool Selection with Retry ---
+                        # Continue to the next iteration of the while loop            # --- End Tool Selection with Retry ---
 
             # Check the final action_decision after the retry loop
-            if not action_decision or action_decision.get("action_type") != "tool_choice":
+            if not action_decision:
                 # This handles cases where selection failed after retries or was invalid initially (if retries disabled)
-                print(f"[{self.__class__.__name__}] Failed to get a valid tool choice after retries or retries disabled. Breaking main loop.")
+                print(f"[{self.__class__.__name__}] Failed to get a valid response after retries or retries disabled. Breaking main loop.")
                 break # Exit main loop on definitive failure
+            
+            # Handle text response - LLM decided to respond directly without tools
+            if action_decision.get("action_type") == "text_response":
+                print(f"[{self.__class__.__name__}] LLM provided direct text response: '{action_decision.get('text', '')[:50]}...'")
+                # Add the text response to history as assistant message and break main loop
+                self.history_manager.add_message('assistant', action_decision.get('text', ''))
+                break # Exit main loop - no tools needed
+            
+            # Handle tool choice
+            if action_decision.get("action_type") != "tool_choice":
+                print(f"[{self.__class__.__name__}] Unexpected action_type after validation: {action_decision.get('action_type')}. Breaking main loop.")
+                break # Exit main loop on unexpected format
 
             tool_name = action_decision.get("tool_name")
 
@@ -694,12 +702,16 @@ class BaseLLMOrchestrator(ABC):
             else:
                 print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
         else:
-            print(f"--- Step 5: Final Memory Save/Update Check SKIPPED (due to _should_perform_final_memory_step() returning False) ---")
-
-
-        # 6. Final Response Generation
+            print(f"--- Step 5: Final Memory Save/Update Check SKIPPED (due to _should_perform_final_memory_step() returning False) ---")        # 6. Final Response Generation
         print(f"--- Step 6: Final Response Generation ---")
         final_history = self.history_manager.get_history() # Get history *after* all tool steps
+
+        # Check if we already have a text response from the main loop
+        # If the last message in history is an assistant message from a direct text response, use it
+        if final_history and final_history[-1].get("role") == "assistant":
+            print(f"[{self.__class__.__name__}] Using existing text response from main loop, skipping final response generation.")
+            final_message = final_history[-1].get("content", "")
+            return final_message, successful_tool_calls # Return both response and list
 
         # Prepare messages for final response generation
         messages_for_final_response = []
