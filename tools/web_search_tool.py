@@ -30,20 +30,53 @@ def fetch_url_content(url: str, timeout: int = 10) -> Optional[str]:
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Extract text from the entire body, clean up whitespace, limit length
-        # Remove script and style elements first
-        for script_or_style in soup(["script", "style"]):
-            script_or_style.decompose() # Remove these tags and their content
+        # Remove script, style, nav, header, footer, and aside elements first
+        for unwanted_tag in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
+            unwanted_tag.decompose()
 
-        # Get text from the rest of the body
-        content = soup.get_text()
+        # Try to find main content elements
+        main_content_selectors = [
+            "article",
+            "main",
+            "div[role='main']",
+            "div#main",
+            "div#content",
+            "div.content",
+            "div.main-content",
+            "div.post-body",
+            "div.entry-content",
+            "div.article-body", # Common for news sites
+            "section.content"
+        ]
+
+        content_element = None
+        for selector in main_content_selectors:
+            found_element = soup.select_one(selector)
+            if found_element:
+                content_element = found_element
+                logging.info(f"Found main content using selector: '{selector}' for URL: {url}")
+                break
+        
+        if not content_element:
+            # Fallback: if no specific main content element is found, use the whole body
+            # This might still include some unwanted elements if they weren't caught by the initial decompose
+            content_element = soup.body
+            if not content_element: # If body is also not found for some reason
+                 logging.warning(f"Could not find <body> tag or specific content element for URL: {url}")
+                 return None
+            logging.info(f"No specific main content element found for URL: {url}. Using body content.")
+
+
+        # Get text from the selected element or the body
+        content = content_element.get_text(separator='\\n', strip=True)
+
 
         # Break into lines and remove leading/trailing space on each
         lines = (line.strip() for line in content.splitlines())
         # Break multi-headlines into a line each
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         # Drop blank lines
-        content = '\n'.join(chunk for chunk in chunks if chunk)
+        content = '\\n'.join(chunk for chunk in chunks if chunk)
 
         # Limit the content length to avoid overly long results
         max_content_length = 10000
@@ -131,17 +164,11 @@ async def perform_web_search(query: str, max_results: int = 5) -> str:
                 detailed_content = await asyncio.to_thread(fetch_url_content, href)
 
                 if detailed_content:
-                    display_body = f"Summary: {detailed_content}"
-                    logging.info(f"Successfully fetched and summarized content for {href}")
+                    display_body = f"Content: {detailed_content}" # MODIFIED: Assign fetched content
                 else:
-                    logging.warning(f"Failed to fetch detailed content for {href}, using snippet.")
-                    # Fallback to original snippet is already handled by default
+                    logging.info(f"Failed to fetch detailed content for {href}, using snippet.") # ADDED: Logging for fallback
             else:
-                 # Log if URL is invalid or missing, snippet will be used by default
-                 if not href:
-                     logging.warning(f"Result {i+1} ('{title}') has no URL. Using snippet.")
-                 elif not href.startswith(('http://', 'https://')):
-                     logging.warning(f"Result {i+1} ('{title}') has an invalid URL: {href}. Using snippet.")
+                 logging.warning(f"Invalid or missing URL for result {i+1}: {title}, using snippet.") # ADDED: Logging for fallback
 
 
             results_str += f"{i+1}. Title: {title}\n"
