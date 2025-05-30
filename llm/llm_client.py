@@ -74,10 +74,11 @@ class LLMClient:
         self.client = None
         self.api_keys: Dict[str, List[str]] = {}
         self.key_iterators: Dict[str, cycle] = {} # Store iterators for round-robin
+        self.model_list_cache: Dict[str, List[str]] = {} # Cache for model lists
 
         self._setup_request_logger() # Added logger setup
         self._load_api_keys_from_json()
-        self._initialize_client()
+        # self._initialize_client() # Deferred to ensure_initialized
 
     def _setup_request_logger(self):
         """Sets up the logger for LLM requests."""
@@ -203,7 +204,19 @@ class LLMClient:
                 # Fetch models and pick the first one as default, or a fallback
                 # This requires an API call, ensure it's handled if key is invalid
                 try:
-                    models = get_openai_models(initial_api_key)
+                    models = []
+                    if "openai" in self.model_list_cache:
+                        models = self.model_list_cache["openai"]
+                        # print("Using cached OpenAI models.") # Optional: for debugging
+                    else:
+                        fetched_models = get_openai_models(initial_api_key)
+                        if fetched_models: # Cache only if successful and models list is not empty
+                            self.model_list_cache["openai"] = fetched_models
+                            models = fetched_models
+                        elif "openai" in self.model_list_cache: # Use stale cache if fetch fails but cache exists
+                            models = self.model_list_cache["openai"]
+
+
                     if models:
                         self.model = models[0] # Or a preferred default like "gpt-3.5-turbo"
                         print(f"Default OpenAI model set to: {self.model}")
@@ -217,7 +230,17 @@ class LLMClient:
                 try:
                     # Configure genai temporarily for model listing if needed, or rely on a default
                     # genai.configure(api_key=initial_api_key) # Might be needed if get_gemini_models doesn't configure
-                    models = get_gemini_models(initial_api_key) # Pass key to get_gemini_models
+                    models = []
+                    if "gemini" in self.model_list_cache:
+                        models = self.model_list_cache["gemini"]
+                        # print("Using cached Gemini models.") # Optional: for debugging
+                    else:
+                        fetched_models = get_gemini_models(initial_api_key) # Pass key to get_gemini_models
+                        if fetched_models: # Cache only if successful and models list is not empty
+                            self.model_list_cache["gemini"] = fetched_models
+                            models = fetched_models
+                        elif "gemini" in self.model_list_cache: # Use stale cache if fetch fails but cache exists
+                            models = self.model_list_cache["gemini"]
                     if models:
                         # Prefer "gemini-1.5-flash-latest" or "gemini-pro" if available
                         preferred_models = ["gemini-1.5-flash-latest", "gemini-pro", "gemini-1.0-pro"]
@@ -259,9 +282,17 @@ class LLMClient:
             # This is complex as _initialize_client is called once.
             # Better to let subsequent calls fail and retry with next key.
 
+    def ensure_initialized(self):
+        """Ensures the client is initialized. Calls _initialize_client if not already done."""
+        if self.client is None:
+            self._initialize_client()
+
     def get_model_name(self) -> str:
         """Returns the name of the model being used."""
-        return self.model
+        self.ensure_initialized()
+        if self.model:
+            return self.model
+        return "Error: Model not set (client initialization failed or pending)"
 
     # --- Core LLM Call for JSON ---
     async def _call_llm_for_json(self, messages: List[Dict], purpose: str) -> Optional[Dict]:
@@ -276,6 +307,13 @@ class LLMClient:
         Returns:
             A dictionary parsed from the JSON response, or an error dictionary if the single attempt fails.
         """
+        self.ensure_initialized()
+        if self.client is None:
+            error_msg = f"LLMClient for {self.provider} not initialized. Cannot make {purpose} call."
+            print(f"Error in _call_llm_for_json: {error_msg}")
+            self._log_request_data("llm_json_request_failure_not_initialized", {"purpose": purpose, "error": error_msg})
+            return {"error": error_msg}
+
         self._log_request_data("llm_json_request", {"purpose": purpose, "request_messages": messages})
 
         print(f"--- Attempting {purpose} JSON call (Provider: {self.provider}) ---")
@@ -436,6 +474,13 @@ class LLMClient:
         Calls Gemini with a tool configuration and attempts to get a function call.
         Handles retries with different API keys for rate limits and other specified errors.
         """
+        self.ensure_initialized()
+        if self.client is None: # Gemini client is the model instance after genai.configure
+            error_msg = f"LLMClient for {self.provider} (Gemini) not initialized. Cannot make {purpose} call."
+            print(f"Error in _get_gemini_function_call: {error_msg}")
+            self._log_request_data("gemini_function_call_request_failure_not_initialized", {"purpose": purpose, "error": error_msg})
+            return {"error": error_msg}
+
         self._log_request_data("gemini_function_call_request", {"purpose": purpose, "request_messages_count": len(messages), "tool_config_present": gemini_tool_config is not None})
         print(f"--- Attempting Gemini {purpose} with function calling ---")
 
@@ -465,65 +510,45 @@ class LLMClient:
             print(f"Attempt {attempt + 1}/{num_available_keys} for Gemini {purpose} using key ending ...{api_key[-4:]}")
 
             try:
-                # Re-configure genai globally for this attempt (as per existing pattern in _call_llm_for_json)
+                # Re-configure genai globally for this attempt
                 genai.configure(api_key=api_key)
-                # Re-fetch the model instance using the explicit model_name
-                current_client = genai.GenerativeModel(model_name=self.model)
 
-                # Adapt messages for Gemini (system prompt handling might need refinement)
-                # For function calling, the system prompt's role in instructing JSON format is reduced.
-                # The main prompt is the history and the user's latest query.
-                
-                # Construct content for Gemini API
-                # The last message is typically the user's request.
-                # System prompts can be prepended or handled as part of the history.
-                # For simplicity, let's adapt the existing message structure.
-                
-                # Convert OpenAI message format to Gemini's content format
-                gemini_contents = []
-                system_instructions_parts = []
+                system_instruction_text = None
+                conversation_messages = []
 
-                for msg in messages:
-                    role = "user" if msg["role"] == "user" else "model" # Gemini uses 'user' and 'model'
-                    if msg["role"] == "system":
-                        system_instructions_parts.append(genai.protos.Part(text=msg["content"]))
-                        continue # System instructions handled separately or prepended
-                    gemini_contents.append({"role": role, "parts": [genai.protos.Part(text=msg["content"])]})
-                
-                # Prepend system instructions if any, to the parts of the first 'user' message or as a separate turn.
-                # For function calling, the primary prompt is the conversation.
-                # If system_instructions_parts exist and gemini_contents exist,
-                # and first content is user, prepend. Or, treat system prompt as first part of user message.
-                # Let's assume the `messages` list is already well-formed for conversation.
-                # The `tools` parameter will guide the LLM for tool use.
-
-                final_prompt_contents = []
-                if system_instructions_parts:
-                     # Add system instructions as a leading user message part, or combine if appropriate
-                     # This part might need more sophisticated handling based on how system prompts are structured.
-                     # For now, let's assume system prompts are part of the general message flow or
-                     # are implicitly understood by the model when tools are provided.
-                     # A simple approach: combine system prompts and prepend to the last user message.
-                     if gemini_contents and gemini_contents[-1]["role"] == "user":
-                         full_system_text = "\n".join([p.text for p in system_instructions_parts])
-                         gemini_contents[-1]["parts"].insert(0, genai.protos.Part(text=f"System Instructions:\n{full_system_text}\n---"))
-                         final_prompt_contents = gemini_contents
-                     else: # Or send system instructions as a separate user turn if no immediate user message
-                         final_prompt_contents = [{"role": "user", "parts": system_instructions_parts}] + gemini_contents
-
+                if messages and messages[0]["role"] == "system":
+                    system_instruction_text = messages[0]["content"]
+                    conversation_messages = messages[1:]
                 else:
-                    final_prompt_contents = gemini_contents
+                    # This case should ideally not happen if get_next_action always prepends a system prompt
+                    print("Warning: No system prompt found at the start of messages for _get_gemini_function_call.")
+                    conversation_messages = messages
+                
+                # Initialize the model instance with system_instruction
+                current_client = genai.GenerativeModel(
+                    model_name=self.model,
+                    system_instruction=system_instruction_text
+                )
 
+                # Convert remaining OpenAI message format to Gemini's content format
+                gemini_formatted_contents = []
+                for msg in conversation_messages:
+                    role = "user" if msg["role"] == "user" else "model" # Gemini uses 'user' and 'model'
+                    # Ensure content is a string, as Gemini parts expect text.
+                    content_text = msg.get("content", "")
+                    if not isinstance(content_text, str): # Handle cases where content might be non-string (e.g. from tool_results)
+                        content_text = str(content_text)
+                    gemini_formatted_contents.append({"role": role, "parts": [genai.protos.Part(text=content_text)]})
 
                 generation_config = genai.types.GenerationConfig(
-                    # response_mime_type="application/json", # Not needed when using 'tools'
+                    # response_mime_type="application/json", # Not needed when using 'tools' for function calling
                     max_output_tokens=1024, # Increased for potentially complex tool args
                     temperature=0.1 # Keep low for predictable tool use
                 )
                 
-                print(f"Sending to Gemini with tools: {gemini_tool_config is not None}")
+                print(f"Sending to Gemini with tools: {gemini_tool_config is not None}. System instruction: {'Present' if system_instruction_text else 'Absent'}")
                 response = current_client.generate_content(
-                    contents=final_prompt_contents, # Adapted messages
+                    contents=gemini_formatted_contents, # Use the adapted conversation messages
                     tools=[gemini_tool_config] if gemini_tool_config else None,
                     generation_config=generation_config
                 )
@@ -605,6 +630,89 @@ class LLMClient:
         print(f"All {num_available_keys} Gemini API key(s) exhausted for {purpose}.")
         final_error_payload = last_exception_details if last_exception_details else {"error": f"All API keys failed for Gemini during {purpose} after exhausting all attempts."}
         self._log_request_data("gemini_function_call_final_failure_all_keys", {"purpose": purpose, "details": final_error_payload})
+        return final_error_payload
+
+    async def _call_openai_with_tools(
+        self,
+        messages: List[Dict],
+        tools: Optional[List[Dict]], # OpenAI tool format
+        tool_choice: Optional[Any], # OpenAI tool_choice format
+        purpose: str
+    ) -> Any: # Returns the OpenAI SDK response object or an error dict
+        """
+        Calls OpenAI with a tool configuration and attempts to get a function call or text response.
+        Handles retries with different API keys for rate limits and other specified errors.
+        """
+        self.ensure_initialized()
+        if self.client is None: # OpenAI client
+            error_msg = f"LLMClient for {self.provider} (OpenAI) not initialized. Cannot make {purpose} call."
+            print(f"Error in _call_openai_with_tools: {error_msg}")
+            self._log_request_data("openai_tool_call_request_failure_not_initialized", {"purpose": purpose, "error": error_msg})
+            return {"error": error_msg}
+
+        self._log_request_data("openai_tool_call_request", {"purpose": purpose, "request_messages_count": len(messages), "tools_present": tools is not None})
+        print(f"--- Attempting OpenAI {purpose} with tools ---")
+
+        if self.provider != 'openai':
+            error_msg = "Attempted to call _call_openai_with_tools with non-OpenAI provider."
+            print(f"Error: {error_msg}")
+            self._log_request_data("openai_tool_call_error_provider", {"purpose": purpose, "error": error_msg})
+            return {"error": error_msg}
+
+        if "openai" not in self.api_keys or not self.api_keys["openai"]:
+            model_name_for_log = self.model if self.model else "N/A"
+            error_msg = f"No API keys loaded for provider 'openai' (model: {model_name_for_log}). Cannot make {purpose} call."
+            print(f"Error: {error_msg}")
+            self._log_request_data("openai_tool_call_error_no_keys", {"purpose": purpose, "error": error_msg})
+            return {"error": error_msg}
+
+        num_available_keys = len(self.api_keys.get("openai", []))
+        last_exception_details = None
+
+        for attempt in range(num_available_keys):
+            api_key = self._get_next_api_key() # This should fetch an OpenAI key
+            if not api_key:
+                error_payload = {"error": "Internal error: Failed to retrieve API key for OpenAI."}
+                self._log_request_data("openai_tool_call_attempt_failure_key_retrieval", {"purpose": purpose, "details": error_payload, "attempt": attempt + 1})
+                return error_payload
+
+            print(f"Attempt {attempt + 1}/{num_available_keys} for OpenAI {purpose} using key ending ...{api_key[-4:]}")
+
+            try:
+                current_client = OpenAI(api_key=api_key)
+                response = await current_client.chat.completions.create( # Use await for async
+                    model=self.model,
+                    messages=messages,
+                    tools=tools if tools else None,
+                    tool_choice=tool_choice if tool_choice else "auto", # "auto" is default, can be more specific
+                    temperature=0.1, # Low temperature for predictable tool use
+                    max_tokens=1024  # Sufficient for tool arguments and some text
+                )
+                self._log_request_data("openai_tool_call_api_success_raw", {"purpose": purpose, "key_info": api_key[-4:], "attempt": attempt + 1})
+                return response # Return the full response object
+
+            except OpenAIRateLimitError as e_rate_limit:
+                print(f"OpenAI Rate limit error on attempt {attempt + 1}/{num_available_keys} for {purpose} with key ...{api_key[-4:]}: {e_rate_limit}")
+                last_exception_details = {"error": f"OpenAI Rate limit error: {e_rate_limit}", "key_info": api_key[-4:]}
+                self._log_request_data("openai_tool_call_attempt_failure_rate_limit", {"purpose": purpose, "key_info": api_key[-4:], "error_details": str(e_rate_limit), "attempt": attempt + 1})
+                if attempt < num_available_keys - 1:
+                    print("Retrying with next key...")
+                    continue
+                else:
+                    print(f"All {num_available_keys} OpenAI API key(s) failed for {purpose} due to rate limits.")
+                    return last_exception_details
+            except Exception as e_general: # Catch other OpenAI client errors or general errors
+                logging.exception(f"Unexpected error calling OpenAI API for {purpose} on attempt {attempt + 1} with key ...{api_key[-4:]}: {e_general}")
+                error_payload = {"error": f"Unexpected API error: {e_general}", "key_info": api_key[-4:]}
+                self._log_request_data("openai_tool_call_attempt_failure_unexpected", {"purpose": purpose, "key_info": api_key[-4:], "error_details": str(e_general), "attempt": attempt + 1})
+                # For truly unexpected errors, decide if retry is appropriate or return immediately.
+                # For now, let's assume most other errors are not key-specific and return.
+                return error_payload
+
+        # If loop finishes, it means all keys failed with retriable errors (e.g. rate limits)
+        print(f"All {num_available_keys} OpenAI API key(s) exhausted for {purpose}.")
+        final_error_payload = last_exception_details if last_exception_details else {"error": f"All API keys failed for OpenAI during {purpose} after exhausting all attempts."}
+        self._log_request_data("openai_tool_call_final_failure_all_keys", {"purpose": purpose, "details": final_error_payload})
         return final_error_payload
 
     async def get_next_action(
@@ -738,68 +846,104 @@ class LLMClient:
             # For brevity, I'm showing a conceptual adaptation. You'll need to integrate this with your
             # actual OpenAI tool calling logic (which might involve multiple LLM calls or a more complex single call).
 
-            # --- Build the System Prompt for OpenAI Tool Selection ---
-            tool_list_prompt = get_tool_list_for_prompt(allowed_tools=choosable_tool_names)
-            prompt_instruction = "Decide if you need to use one ofthe available tools *from the list below* to fulfill the request."
-            if force_tool_options:
-                prompt_instruction = f"You MUST choose one of the tools listed below or null:"
-
+            # --- OpenAI Native Function Calling Path ---
+            openai_tools_definitions = []
+            if choosable_tool_names:
+                for tool_name in choosable_tool_names:
+                    tool_def = find_tool(tool_name)
+                    if tool_def:
+                        param_schema = {}
+                        if tool_def.argument_schema:
+                            try: # Pydantic v2
+                                param_schema = tool_def.argument_schema.model_json_schema()
+                            except AttributeError: # Pydantic v1
+                                param_schema = tool_def.argument_schema.schema()
+                            # OpenAI schema doesn't like 'title' at the top level of parameters,
+                            # but it's fine within properties. Remove if present at top.
+                            if 'title' in param_schema:
+                                del param_schema['title']
+                        
+                        openai_tools_definitions.append({
+                            "type": "function",
+                            "function": {
+                                "name": tool_def.name,
+                                "description": tool_def.description,
+                                "parameters": param_schema if tool_def.argument_schema else {"type": "object", "properties": {}},
+                            }
+                        })
+            
             system_prompt_lines = [
-                "You are an AI assistant deciding the next step.",
-                "Analyze the conversation history.",
-                prompt_instruction,
-                f"{tool_list_prompt}"
+                "You are an AI assistant. Analyze the conversation and decide if using one of your available functions (tools) is the best way to respond.",
+                "If a function is appropriate, call it with the necessary arguments. Otherwise, respond directly to the user."
             ]
+            if force_tool_options:
+                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_tool_names)}.")
+            
             if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
-                system_prompt_lines.append(
+                 system_prompt_lines.append(
                     "IMPORTANT (ChatBox Context - Final Save Check): Review the entire conversation. If you learned any new, specific, and potentially useful facts (e.g., user preferences, project details, key information) that haven't been saved yet, you SHOULD use the 'save_memory' tool now."
                 )
-            system_prompt_lines.extend([
-                "Respond ONLY with a JSON object containing the key 'tool_name'.",
-                f"The value must be the name of one of the tools listed above ({', '.join(choosable_tool_names)}) or null.",
-                f"Example for using a tool: {{\"tool_name\": \"{choosable_tool_names[0] if choosable_tool_names else 'example_tool'}\"}}",
-                "Example for not using a tool: {\"tool_name\": null}"
-            ])
             system_prompt = "\\n".join(system_prompt_lines)
             request_messages = [{"role": "system", "content": system_prompt}] + messages
 
-            # First call: Decide on the tool
-            # Assuming ToolSelectionSchema is defined in llm.schemas
-            from .schemas import ToolSelectionSchema # Ensure this is imported
-            
-            # This call needs to be made via a method that uses the Pydantic schema for response_format with OpenAI
-            # The existing `_call_llm_for_json` in LLMClient is a good candidate if adapted or if `llm_utils.call_llm_for_json` is used.
-            # For this example, let's assume a conceptual call:
-            # json_response_tool_choice = await self._call_llm_for_json_with_pydantic_schema(
-            # messages=request_messages, 
-            # pydantic_schema=ToolSelectionSchema, 
-            # purpose="OpenAI Tool Selection"
-            # )
-            # This part needs to be filled in with your actual OpenAI call that uses ToolSelectionSchema
-            # For now, I'll use the existing _call_llm_for_json which is text-based for its prompt part.
-            # This will need careful integration with how _call_llm_for_json structures its prompt for OpenAI JSON mode.
-            
-            # --- This is a placeholder for your OpenAI tool selection logic ---
-            # You would call your LLM (OpenAI) here, asking it to pick a tool (or null)
-            # and expect a JSON response matching ToolSelectionSchema.
-            # Let's simulate a response for now, or you can integrate your actual call.
-            print("OpenAI tool selection logic needs to be fully integrated here.")
-            # json_response_tool_choice = await self._call_llm_for_json(request_messages, "OpenAI Tool Selection") 
-            # The above line is from the original code, it might not use pydantic schema correctly for Gemini/OpenAI JSON modes.
-            # It needs to be a call that correctly uses OpenAI's JSON mode with a schema.
+            tool_choice_openai = "auto"
+            if force_tool_options and len(force_tool_options) == 1 and force_tool_options[0] in choosable_tool_names:
+                # If exactly one tool is forced and valid, tell OpenAI to use it.
+                tool_choice_openai = {"type": "function", "function": {"name": force_tool_options[0]}}
+            elif force_tool_options:
+                # If multiple tools are forced, OpenAI doesn't have a direct way to force *one of a list*.
+                # "auto" with a strong prompt is the best approach.
+                # Or, if only specific tools are allowed (not just preferred), the `tools` list itself restricts.
+                pass
 
-            # Let's assume you have a way to get this from OpenAI:
-            # For the purpose of this refactor, we will assume this step is handled by existing OpenAI logic
-            # and we focus on the Gemini path for function calling.
-            # If OpenAI also supports a direct function calling mechanism similar to Gemini's `tools` param,
-            # that would be the preferred way.
-            # Otherwise, it's a two-step: 1. Select tool. 2. Get args for tool.
 
-            # This part of the OpenAI logic will need to be revised based on how you currently handle it
-            # or if you adapt it to a Pydantic-schema-driven call for tool selection.
-            # For now, returning an error to indicate it needs implementation.
-            return {"action_type": "error", "error": "OpenAI tool selection and argument generation not fully implemented in this refactor pass."}
-            # --- End Placeholder ---
+            openai_response_obj = await self._call_openai_with_tools(
+                messages=request_messages,
+                tools=openai_tools_definitions if openai_tools_definitions else None,
+                tool_choice=tool_choice_openai,
+                purpose="OpenAI Action Decision"
+            )
+
+            if isinstance(openai_response_obj, dict) and "error" in openai_response_obj:
+                # Error from _call_openai_with_tools
+                return {"action_type": "error", "error": openai_response_obj["error"]}
+            
+            if openai_response_obj and hasattr(openai_response_obj, 'choices') and openai_response_obj.choices:
+                choice = openai_response_obj.choices[0]
+                response_message = choice.message
+
+                if response_message.tool_calls:
+                    # For now, assume one tool call, as per typical agentic flows.
+                    # OpenAI can technically return multiple in one go.
+                    tool_call = response_message.tool_calls[0]
+                    if tool_call.type == "function":
+                        tool_name = tool_call.function.name
+                        tool_args_str = tool_call.function.arguments
+                        try:
+                            tool_args = json.loads(tool_args_str)
+                            self._log_request_data("openai_tool_call_success_parsed", {"tool_name": tool_name, "tool_args": tool_args})
+                            return {"action_type": "tool_call", "tool_name": tool_name, "tool_args": tool_args}
+                        except json.JSONDecodeError as e:
+                            error_msg = f"Failed to parse tool arguments JSON from OpenAI: {tool_args_str}. Error: {e}"
+                            print(f"Error: {error_msg}")
+                            self._log_request_data("openai_tool_call_parse_failure", {"tool_name": tool_name, "raw_args": tool_args_str, "error": str(e)})
+                            return {"action_type": "error", "error": error_msg}
+                elif response_message.content:
+                    self._log_request_data("openai_tool_call_text_response", {"text_response": response_message.content})
+                    return {"action_type": "text_response", "text": response_message.content}
+                else: # No tool call and no text content, could be due to finish_reason (e.g. length, content_filter)
+                    finish_reason = choice.finish_reason
+                    error_msg = f"OpenAI responded with no tool_call and no text content. Finish reason: {finish_reason}"
+                    print(f"Warning: {error_msg}")
+                    self._log_request_data("openai_tool_call_empty_response", {"finish_reason": finish_reason, "response_message": str(response_message)})
+                    # Decide if this should be an error or a specific type of text response
+                    return {"action_type": "text_response", "text": f"(AI decided no action or text response. Finish reason: {finish_reason})"}
+
+            else: # Should not happen if _call_openai_with_tools returns valid response or error dict
+                error_msg = "Invalid or unexpected response from _call_openai_with_tools."
+                print(f"Error: {error_msg}")
+                self._log_request_data("openai_tool_call_invalid_response_obj", {"response_obj": str(openai_response_obj)})
+                return {"action_type": "error", "error": error_msg}
 
         else:
             return {"action_type": "error", "error": f"Unsupported provider: {self.provider}"}
@@ -874,6 +1018,13 @@ class LLMClient:
         Returns:
             The generated message string, or an error string if the single attempt fails.
         """
+        self.ensure_initialized()
+        if self.client is None:
+            error_msg = f"LLMClient for {self.provider} not initialized. Cannot generate final response."
+            print(f"Error in generate_final_response: {error_msg}")
+            self._log_request_data("llm_final_request_failure_not_initialized", {"error": error_msg})
+            return error_msg # Return the error message string
+
         # Ensure personality prompt is included, followed by the full history
         final_messages_for_llm = []
         # Check if the personality_prompt is already the first system message in 'messages'

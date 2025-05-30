@@ -12,8 +12,8 @@ from tools.tools import find_tool # find_tool is used
 
 # Constants for retry logic (copied from BaseLLMOrchestrator)
 TOOL_SELECT_RETRY = 5       # Max retries for LLM failing to choose a tool (0=disable, -1=infinite)
-TOOL_USE_RETRY = 10         # Max retries for LLM failing argument generation or tool execution error (0=disable, -1=infinite)
-TOOL_RETRY_DELAY_SECONDS = 2 # Delay between tool retries
+# TOOL_USE_RETRY = 10 # No longer used directly, execution failure feeds back to LLM for next action
+# TOOL_RETRY_DELAY_SECONDS = 2 # No longer used directly
 
 # Constants for history summarization (copied from BaseLLMOrchestrator)
 MAX_ARG_SUMMARY_LEN = 150
@@ -100,10 +100,11 @@ class ToolOrchestrator:
 
                 action_decision = await self.llm_client.get_next_action(
                     messages_for_loop,
-                    allowed_tools=main_loop_allowed_tools, 
-                    context_type=context_name 
-                )                
-                if action_decision and action_decision.get("action_type") in ["tool_choice", "text_response"]:
+                    allowed_tools=main_loop_allowed_tools,
+                    context_type=context_name
+                )
+                # get_next_action now returns "tool_call", "text_response", or "error"
+                if action_decision and action_decision.get("action_type") in ["tool_call", "text_response"]:
                     break
                 else:
                     print(f"[{self.__class__.__name__}] Error or invalid format in tool selection (Attempt {select_retry_count + 1}): {action_decision}.")
@@ -134,16 +135,27 @@ class ToolOrchestrator:
                 self.history_manager.add_message('assistant', action_decision.get('text', '')) # Ensure history is up-to-date
                 break 
             
-            if action_decision.get("action_type") != "tool_choice":
+            # action_type "tool_choice" is now "tool_call"
+            if action_decision.get("action_type") != "tool_call":
                 print(f"[{self.__class__.__name__}] Unexpected action_type after validation: {action_decision.get('action_type')}. Breaking main tool loop.")
                 break
 
             tool_name = action_decision.get("tool_name")
-            tool_call_id = action_decision.get("tool_call_id") # If your LLM client provides it
+            # Arguments are now part of action_decision if action_type is "tool_call"
+            arguments = action_decision.get("tool_args")
+            # tool_call_id might be provided by OpenAI, otherwise, we'll generate one
+            tool_call_id = action_decision.get("tool_call_id")
 
-            if tool_name is None:
-                print(f"[{self.__class__.__name__}] LLM decided no further tools needed in main loop.")
-                break 
+            if tool_name is None: # Should not happen if action_type is "tool_call"
+                print(f"[{self.__class__.__name__}] LLM decided no further tools needed (tool_name is None despite action_type tool_call). Breaking.")
+                break
+            if arguments is None: # Should not happen if action_type is "tool_call" and tool_name is present
+                print(f"[{self.__class__.__name__}] LLM chose tool {tool_name} but arguments are missing. Breaking.")
+                # Add an error message to history?
+                error_content = f"System: Tool '{tool_name}' was chosen by the LLM, but arguments were missing in the decision."
+                self.history_manager.add_message('system', error_content)
+                tool_interaction_messages.append({'role': 'system', 'content': error_content})
+                break
 
             # Add tool call message to history and tool_interaction_messages
             # The exact format might depend on your LLM (e.g., OpenAI's format)

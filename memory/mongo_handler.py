@@ -31,12 +31,13 @@ class MongoHandler:
         self.db = None
         self.collection = None
         self.embedding_model = None # Initialize embedding model attribute
+        self._embedding_model_loaded = False
 
         if not self.mongo_uri or self.mongo_uri == "YOUR_MONGO_CONNECTION_URI":
             logging.warning("MONGO_URI not found or not set in .env file. MongoDB memory functions will be disabled.")
             # Still try to load the embedding model even if DB connection fails,
             # as it might be used independently or connection restored later.
-            self._load_embedding_model()
+            # self._load_embedding_model() # Deferred: Model will be loaded on first use
             return # Don't attempt DB connection if URI is missing/default
 
         try:
@@ -55,15 +56,15 @@ class MongoHandler:
             self.collection = self.db[collection_name]
             logging.info(f"Successfully connected to MongoDB. Database: '{db_name}', Collection: '{collection_name}'")
 
-            # --- Load Embedding Model ---
-            self._load_embedding_model() # Load the model after confirming DB connection possibility
+            # --- Load Embedding Model --- # Deferred: Model will be loaded on first use
+            # self._load_embedding_model()
 
             # --- Ensure Indexes ---
             self._ensure_text_index() # Keep text index for potential keyword fallback or other uses
             # Vector index check removed as it's not applicable for local MongoDB similarity search implementation
 
-            # --- Automatically clean up duplicate facts on startup ---
-            self.cleanup_duplicate_facts() # Keep cleanup logic
+            # --- Automatically clean up duplicate facts on startup --- # Removed for performance
+            # self.cleanup_duplicate_facts()
 
             # --- Duplicate conversation cleanup removed ---
 
@@ -77,24 +78,35 @@ class MongoHandler:
             logging.error(f"An unexpected error occurred during MongoDB connection: {e}")
             self.client = None # Ensure client is None on error
         finally:
-             # Ensure model is loaded even if DB connection fails initially
-             if not self.embedding_model:
-                 self._load_embedding_model()
-
+             # Ensure model is loaded even if DB connection fails initially # Deferred: Model will be loaded on first use
+             # if not self.embedding_model:
+             #     self._load_embedding_model()
+            pass # Add pass to make the finally block syntactically correct
 
     def _load_embedding_model(self):
-        """Loads the Sentence Transformer model."""
-        if self.embedding_model: # Avoid reloading if already loaded
-            return
+        """Loads the Sentence Transformer model if not already loaded."""
+        if self._embedding_model_loaded:
+            return True
         try:
             logging.info(f"Loading sentence transformer model: {EMBEDDING_MODEL_NAME}...")
             self.embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device='cpu')
             # Perform a dummy encoding to check if model loaded correctly
-            _ = self.embedding_model.encode("test")
+            _ = self.embedding_model.encode("test") # Ensure model is functional
             logging.info(f"Sentence transformer model '{EMBEDDING_MODEL_NAME}' loaded successfully.")
+            self._embedding_model_loaded = True
+            return True
         except Exception as e:
             logging.error(f"Failed to load sentence transformer model '{EMBEDDING_MODEL_NAME}': {e}", exc_info=True)
-            self.embedding_model = None # Ensure model is None on error
+            self.embedding_model = None
+            self._embedding_model_loaded = False
+            return False
+
+    def _get_embedding_model(self):
+        """Ensures the embedding model is loaded and returns it."""
+        if not self._embedding_model_loaded:
+            if not self._load_embedding_model():
+                return None # Failed to load
+        return self.embedding_model
 
     def is_connected(self):
         """Checks if the MongoDB client is connected."""
@@ -123,14 +135,16 @@ class MongoHandler:
         if not self.is_connected():
             logging.warning("MongoDB not connected. Cannot perform similarity search.")
             return []
-        if not self.embedding_model:
-            logging.error("Embedding model not loaded. Cannot perform similarity search.")
+        
+        embedding_model = self._get_embedding_model()
+        if not embedding_model:
+            logging.error("Embedding model not available. Cannot perform similarity search.")
             return []
 
         try:
             # 1. Generate embedding for the query text
             logging.debug(f"Generating embedding for query: '{query_text}'")
-            query_embedding = np.array(self.embedding_model.encode(query_text))
+            query_embedding = np.array(embedding_model.encode(query_text))
             query_norm = np.linalg.norm(query_embedding)
             if query_norm == 0:
                 logging.warning("Query embedding has zero norm, cannot calculate similarity.")
@@ -265,8 +279,10 @@ class MongoHandler:
         if not self.is_connected():
             logging.warning("MongoDB not connected. Cannot add fact.")
             return None
-        if not self.embedding_model:
-            logging.error("Embedding model not loaded. Cannot generate embedding for fact.")
+        
+        embedding_model = self._get_embedding_model()
+        if not embedding_model:
+            logging.error("Embedding model not available. Cannot generate embedding for fact.")
             return None
 
         # --- Similarity Check Threshold ---
@@ -275,7 +291,7 @@ class MongoHandler:
         try:
             # 1. Generate embedding for the new content
             logging.debug(f"Generating embedding for potential new fact: '{content[:50]}...'")
-            new_embedding = np.array(self.embedding_model.encode(content))
+            new_embedding = np.array(embedding_model.encode(content))
             new_norm = np.linalg.norm(new_embedding)
             if new_norm == 0:
                 logging.warning("New fact embedding has zero norm. Cannot calculate similarity. Skipping insertion.")
@@ -343,8 +359,10 @@ class MongoHandler:
         if not self.is_connected():
             logging.warning("MongoDB not connected. Cannot perform semantic cleanup.")
             return
-        if not self.embedding_model:
-            logging.error("Embedding model not loaded. Cannot perform semantic cleanup.")
+        
+        embedding_model = self._get_embedding_model() # embedding_model is not used in this method directly, but good to check
+        if not embedding_model:
+            logging.error("Embedding model not available. Cannot perform semantic cleanup.")
             return
 
         # --- Similarity Threshold for Cleanup ---
@@ -433,8 +451,10 @@ class MongoHandler:
         if not self.is_connected():
             logging.warning("MongoDB not connected. Cannot replace fact.")
             return None
-        if not self.embedding_model:
-            logging.error("Embedding model not loaded. Cannot generate embedding for replacement fact.")
+        
+        embedding_model = self._get_embedding_model()
+        if not embedding_model:
+            logging.error("Embedding model not available. Cannot generate embedding for replacement fact.")
             return None
 
         try:
@@ -458,7 +478,7 @@ class MongoHandler:
 
             # 3. Generate embedding for the new content
             logging.debug(f"Generating embedding for replacement fact content...")
-            new_embedding = np.array(self.embedding_model.encode(new_content))
+            new_embedding = np.array(embedding_model.encode(new_content))
             new_norm = np.linalg.norm(new_embedding)
             if new_norm == 0:
                 logging.warning("New fact embedding has zero norm. Skipping insertion.")
