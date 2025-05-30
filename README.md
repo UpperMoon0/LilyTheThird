@@ -5,10 +5,15 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
 
 ## Setup
 
-1.  **Install Dependencies**:
+1.  **Create Conda Environment**:
     ```bash
-    pip install -r requirements.txt
+    conda env create -f environment.yml
     ```
+    After the environment is created, you can activate it using:
+    ```bash
+    conda activate your_environment_name
+    ```
+    (Replace `your_environment_name` with the name specified in the `environment.yml` file, usually found at the top of the file under the `name:` field).
 2.  **Configure Environment**:
     *   Copy `.env.template` to `.env`.
     *   Fill in the required values in `.env` (Discord tokens, MongoDB URI, personality settings, etc.).
@@ -33,7 +38,6 @@ Lily is a comprehensive unified platform that integrates multiple powerful tools
     ```bash
     python main.py
     ```
-
 ## Technologies Used
 - Python
 - Kivy
