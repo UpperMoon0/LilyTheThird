@@ -19,6 +19,7 @@ class LLMSelector(BoxLayout):
     selected_model = StringProperty("")
     llm_providers = ListProperty([])
     llm_models = ListProperty([])
+    _display_providers = ListProperty([]) # For UI, filtered list
 
     # --- Customizable Labels ---
     provider_label_text = StringProperty("LLM Provider:") # Default label text
@@ -29,6 +30,39 @@ class LLMSelector(BoxLayout):
         # Bind internal UI changes to dispatch events or update properties
         # This assumes the Kivy lang file correctly binds spinner/dropdown `text` to these properties.
         # If not, direct bindings to the spinner's on_text event would be needed here.
+
+    def on_llm_providers(self, instance, new_providers_list):
+        """
+        Called when the llm_providers list changes.
+        Updates _display_providers by filtering out 'openai'.
+        Also adjusts selected_provider if it becomes invalid or needs initialization.
+        """
+        # Ensure new_providers_list is iterable and items are strings for comparison
+        safe_new_providers_list = [str(p) for p in new_providers_list if p is not None]
+
+        self._display_providers = [p for p in safe_new_providers_list if p.lower() != "openai"]
+
+        current_selected_provider_str = str(self.selected_provider) if self.selected_provider is not None else ""
+
+        # Case 1: 'openai' was selected and is now hidden (or was never to be shown)
+        if current_selected_provider_str.lower() == "openai":
+            if self._display_providers:
+                self.selected_provider = self._display_providers[0]
+            else:
+                self.selected_provider = ""
+        # Case 2: A non-openai provider was selected, but it's no longer in the (filtered) display list
+        elif self.selected_provider and self.selected_provider not in self._display_providers:
+            if self._display_providers:
+                self.selected_provider = self._display_providers[0]
+            else:
+                self.selected_provider = ""
+        # Case 3: No provider was selected (e.g., initial state or became empty), and there are available display providers
+        elif not self.selected_provider and self._display_providers: # Catches None or "" for self.selected_provider
+            self.selected_provider = self._display_providers[0]
+        # Case 4: Providers list becomes empty, and something was selected (clear selection)
+        elif not self._display_providers and self.selected_provider:
+            self.selected_provider = ""
+        # Otherwise, the current selection is still valid or there's nothing to select.
 
     # The following methods are examples if direct binding in __init__ is preferred
     # over relying solely on kv lang for property updates from UI to these properties.

@@ -503,7 +503,8 @@ class LLMClient:
                      # This part might need more sophisticated handling based on how system prompts are structured.
                      # For now, let's assume system prompts are part of the general message flow or
                      # are implicitly understood by the model when tools are provided.
-                     # A simple approach: combine system prompts and prepend to the last user message.                     if gemini_contents and gemini_contents[-1]["role"] == "user":
+                     # A simple approach: combine system prompts and prepend to the last user message.
+                     if gemini_contents and gemini_contents[-1]["role"] == "user":
                          full_system_text = "\n".join([p.text for p in system_instructions_parts])
                          gemini_contents[-1]["parts"].insert(0, genai.protos.Part(text=f"System Instructions:\n{full_system_text}\n---"))
                          final_prompt_contents = gemini_contents
@@ -521,12 +522,12 @@ class LLMClient:
                 )
                 
                 print(f"Sending to Gemini with tools: {gemini_tool_config is not None}")
-                  response = current_client.generate_content(
+                response = current_client.generate_content(
                     contents=final_prompt_contents, # Adapted messages
                     tools=[gemini_tool_config] if gemini_tool_config else None,
                     generation_config=generation_config
                 )
-                  if not response.candidates or not response.candidates[0].content:
+                if not response.candidates or not response.candidates[0].content:
                     print(f"Warning: Received empty or incomplete response from Gemini for {purpose} with key ...{api_key[-4:]}.")
                     # Consider this a potentially retriable issue.
                     raise google_exceptions.GoogleAPIError("Empty or incomplete response from Gemini.")

@@ -37,7 +37,7 @@
         Spinner:
             id: provider_spinner # Keep id for internal reference if needed
             text: root.selected_provider # Bind to the component's property
-            values: root.llm_providers # Bind to the component's property
+            values: root._display_providers # Bind to the filtered list
             size_hint_x: 0.6
             # Update the component's property ONLY
             on_text:
