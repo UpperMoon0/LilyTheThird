@@ -411,7 +411,7 @@ class BaseLLMOrchestrator(ABC):
             
             save_or_update_decision = await self.llm_client.get_next_action(
                 messages_for_save,
-                allowed_tools=allowed_tools_overall, # Check against all allowed tools
+                allowed_tools=self.allowed_tools, # Use instance attribute for allowed tools
                 context_type=self.context_name, # Pass context for potential encouragement
                 force_tool_options=['save_memory', 'update_memory'] # Force choice: save, update, or null
             )
