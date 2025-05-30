@@ -503,10 +503,9 @@ class LLMClient:
                      # This part might need more sophisticated handling based on how system prompts are structured.
                      # For now, let's assume system prompts are part of the general message flow or
                      # are implicitly understood by the model when tools are provided.
-                     # A simple approach: combine system prompts and prepend to the last user message.
-                     if gemini_contents and gemini_contents[-1]["role"] == "user":
-                         full_system_text = "\\n".join([p.text for p in system_instructions_parts])
-                         gemini_contents[-1]["parts"].insert(0, genai.protos.Part(text=f"System Instructions:\\n{full_system_text}\\n---"))
+                     # A simple approach: combine system prompts and prepend to the last user message.                     if gemini_contents and gemini_contents[-1]["role"] == "user":
+                         full_system_text = "\n".join([p.text for p in system_instructions_parts])
+                         gemini_contents[-1]["parts"].insert(0, genai.protos.Part(text=f"System Instructions:\n{full_system_text}\n---"))
                          final_prompt_contents = gemini_contents
                      else: # Or send system instructions as a separate user turn if no immediate user message
                          final_prompt_contents = [{"role": "user", "parts": system_instructions_parts}] + gemini_contents
@@ -522,17 +521,25 @@ class LLMClient:
                 )
                 
                 print(f"Sending to Gemini with tools: {gemini_tool_config is not None}")
-                
-                response = current_client.generate_content(
+                  response = current_client.generate_content(
                     contents=final_prompt_contents, # Adapted messages
                     tools=[gemini_tool_config] if gemini_tool_config else None,
                     generation_config=generation_config
                 )
-
-                if not response.candidates or not response.candidates[0].content.parts:
+                  if not response.candidates or not response.candidates[0].content:
                     print(f"Warning: Received empty or incomplete response from Gemini for {purpose} with key ...{api_key[-4:]}.")
                     # Consider this a potentially retriable issue.
                     raise google_exceptions.GoogleAPIError("Empty or incomplete response from Gemini.")
+
+                # Check if there are any parts at all - if not, it might still be a valid empty response
+                if not response.candidates[0].content.parts:
+                    print(f"Warning: Gemini response has no parts for {purpose} with key ...{api_key[-4:]}.")
+                    # Log the response for debugging
+                    self._log_request_data("gemini_function_call_debug_no_parts", {
+                        "purpose": purpose, "key_info": api_key[-4:], 
+                        "response_structure": str(response), "attempt": attempt + 1
+                    })
+                    raise google_exceptions.GoogleAPIError("Gemini response has no content parts.")
 
 
                 # Check for function call in response

@@ -561,7 +561,7 @@ class BaseLLMOrchestrator(ABC):
                 memory_guidance_prompt += f"\n\nRetrieved facts that might be relevant for updating:\n{retrieved_facts_context_string}"
             messages_for_save.append({'role': 'system', 'content': memory_guidance_prompt})
             print(f"[{self.__class__.__name__}] Added guidance prompt for final memory operation.")
-
+            
             save_or_update_decision = await self.llm_client.get_next_action(
                 messages_for_save,
                 allowed_tools=allowed_tools_overall, # Check against all allowed tools
@@ -569,7 +569,12 @@ class BaseLLMOrchestrator(ABC):
                 force_tool_options=['save_memory', 'update_memory'] # Force choice: save, update, or null
             )
 
-            chosen_tool_name = save_or_update_decision.get("tool_name") if save_or_update_decision else None
+            # Handle empty or error responses from final memory check gracefully
+            if not save_or_update_decision or "error" in save_or_update_decision:
+                print(f"[{self.__class__.__name__}] Final memory check returned empty/error response. Treating as 'no memory operation needed'.")
+                chosen_tool_name = None
+            else:
+                chosen_tool_name = save_or_update_decision.get("tool_name")
 
             if chosen_tool_name in ['save_memory', 'update_memory']:
                 print(f"[{self.__class__.__name__}] LLM decided final memory operation: {chosen_tool_name}")
