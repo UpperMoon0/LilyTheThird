@@ -93,7 +93,7 @@ class ToolOrchestrator:
                     messages_for_loop.append(retry_context_message)
                     # Also add to tool_interaction_messages for transparency
                     tool_interaction_messages.append(retry_context_message)
-                    self.history_manager.add_message('system', retry_context_content) # Keep history manager updated too
+                    await self.history_manager.add_message('system', retry_context_content) # Keep history manager updated too
                     print(f"[{self.__class__.__name__}] Added retry context for tool selection (Attempt {select_retry_count + 1}).")
                     await asyncio.sleep(1) # Keep a small delay for retries
 
@@ -130,7 +130,7 @@ class ToolOrchestrator:
                 # We can add it to tool_interaction_messages if we want to signify the loop terminated due to text response.
                 text_response_message = {'role': 'assistant', 'content': action_decision.get('text', '')}
                 # tool_interaction_messages.append(text_response_message) # Optional: if you want to track this termination
-                self.history_manager.add_message('assistant', action_decision.get('text', '')) # Ensure history is up-to-date
+                await self.history_manager.add_message('assistant', action_decision.get('text', '')) # Ensure history is up-to-date
                 break 
             
             # action_type "tool_choice" is now "tool_call"
@@ -151,7 +151,7 @@ class ToolOrchestrator:
                 print(f"[{self.__class__.__name__}] LLM chose tool {tool_name} but arguments are missing. Breaking.")
                 # Add an error message to history?
                 error_content = f"System: Tool '{tool_name}' was chosen by the LLM, but arguments were missing in the decision."
-                self.history_manager.add_message('system', error_content)
+                await self.history_manager.add_message('system', error_content)
                 tool_interaction_messages.append({'role': 'system', 'content': error_content})
                 break
 
@@ -170,14 +170,14 @@ class ToolOrchestrator:
             if tool_definition is None:
                 error_message = f"System: Error - Tool '{tool_name}' not found by ToolOrchestrator."
                 print(f"[{self.__class__.__name__}] {error_message}")
-                self.history_manager.add_message("system", error_message)
+                await self.history_manager.add_message("system", error_message)
                 tool_interaction_messages.append({'role': 'system', 'content': error_message})
                 final_tool_status = "error"
             else:
                 # Add system message indicating the tool call
                 args_summary = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
                 call_message = f"System: Calling tool '{tool_name}' with arguments: {args_summary}"
-                self.history_manager.add_message("system", call_message)
+                await self.history_manager.add_message("system", call_message)
                 tool_interaction_messages.append({'role': 'system', 'content': call_message})
                 
                 try:
@@ -192,7 +192,7 @@ class ToolOrchestrator:
                     # Add system message summarizing the tool's result
                     result_summary = self._summarize_for_history(str(tool_result), MAX_RESULT_SUMMARY_LEN)
                     result_message = f"System: Tool '{tool_name}' executed. Result: {result_summary}"
-                    self.history_manager.add_message("system", result_message)
+                    await self.history_manager.add_message("system", result_message)
                     tool_interaction_messages.append({'role': 'system', 'content': result_message})
                     
                     # Check if the tool_result indicates an error
@@ -216,7 +216,7 @@ class ToolOrchestrator:
                     # Handle exceptions during tool execution
                     error_message = f"System: An unexpected error occurred during execution of tool '{tool_name}': {str(e)}"
                     print(f"[{self.__class__.__name__}] Exception during execution of tool '{tool_name}': {e}")
-                    self.history_manager.add_message("system", error_message)
+                    await self.history_manager.add_message("system", error_message)
                     tool_interaction_messages.append({'role': 'system', 'content': error_message})
                     final_tool_status = "error"
             

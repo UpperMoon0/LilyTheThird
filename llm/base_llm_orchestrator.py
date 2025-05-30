@@ -47,7 +47,7 @@ class BaseLLMOrchestrator(ABC):
         """
         print(f"Initializing BaseLLMOrchestrator...")
         # Initialize shared components
-        self.history_manager = HistoryManager()
+        self.history_manager = HistoryManager()  # Will set LLM client later
         self.mongo_handler = MongoHandler() # Needed for ToolExecutor
         if not self.mongo_handler.is_connected():
             print(f"Warning [{self.__class__.__name__}]: MongoDB connection failed. Memory tools will not function.")
@@ -87,6 +87,10 @@ class BaseLLMOrchestrator(ABC):
 
         self.provider = self.llm_client.provider
         self.model = self.llm_client.get_model_name()
+        
+        # Set the LLM client for history manager summarization
+        self.history_manager.set_llm_client(self.llm_client)
+        
         print(f"BaseLLMOrchestrator initialized with Provider: {self.provider}, Model: {self.model}")
 
     @property
@@ -335,7 +339,7 @@ class BaseLLMOrchestrator(ABC):
 
         # 3. Prepare and add user message to history
         prepared_user_message = self._prepare_user_message_for_history(user_message, **kwargs)
-        self.history_manager.add_message('user', prepared_user_message)
+        await self.history_manager.add_message('user', prepared_user_message)
 
         # --- Tool Usage Flow ---
         successful_tool_calls = [] # Initialize list to track successful calls
@@ -549,7 +553,7 @@ class BaseLLMOrchestrator(ABC):
                 else: # Success
                     history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' executed successfully. Status: {status_for_history}. Arguments: {args_summary_mem}. Result: {result_summary_mem}"
                 # Add result here so LLM knows it happened before final response generation.
-                self.history_manager.add_message('system', history_mem_tool_summary)
+                await self.history_manager.add_message('system', history_mem_tool_summary)
                 # Note: We don\'t increment tool_calls_made for this final optional step.
             else:
                 print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
@@ -593,9 +597,9 @@ class BaseLLMOrchestrator(ABC):
 
         # Add a general grounding instruction
         grounding_instruction = (
-            "IMPORTANT: Generate your response based *only* on the information available in the preceding conversation history, "
+            "IMPORTANT: Generate your response based on the information available in the preceding conversation history, "
             "tool outputs, and provided facts. If the answer cannot be found in the provided context, "
-            "clearly state that you don't have enough information to answer. Do not invent information or rely on external knowledge not explicitly provided."
+            "use the search tools to find relevant information or state that you cannot answer based on the current context. "
         )
         messages_for_final_response.append({'role': 'system', 'content': grounding_instruction})
         print(f"[{self.__class__.__name__}] Added general grounding instruction to final prompt.")
@@ -615,7 +619,7 @@ class BaseLLMOrchestrator(ABC):
             final_message = final_message if final_message else "Sorry, I encountered an error generating the final response."
         else:
             # Update history with the final assistant message
-            self.history_manager.add_message('assistant', final_message)
+            await self.history_manager.add_message('assistant', final_message)
 
         return final_message, successful_tool_calls # Return both response and list
 
