@@ -44,25 +44,27 @@ class LLMSelector(BoxLayout):
 
         current_selected_provider_str = str(self.selected_provider) if self.selected_provider is not None else ""
 
-        # Case 1: 'openai' was selected and is now hidden (or was never to be shown)
+        # Determine the default provider, prioritizing "gemini"
+        default_provider_to_set = ""
+        if "gemini" in self._display_providers:
+            default_provider_to_set = "gemini"
+        elif self._display_providers: # If "gemini" not available, use the first in the list
+            default_provider_to_set = self._display_providers[0]
+        # If no display providers, default_provider_to_set remains ""
+
+        # Case 1: 'openai' was selected and is now hidden
         if current_selected_provider_str.lower() == "openai":
-            if self._display_providers:
-                self.selected_provider = self._display_providers[0]
-            else:
-                self.selected_provider = ""
-        # Case 2: A non-openai provider was selected, but it's no longer in the (filtered) display list
-        elif self.selected_provider and self.selected_provider not in self._display_providers:
-            if self._display_providers:
-                self.selected_provider = self._display_providers[0]
-            else:
-                self.selected_provider = ""
-        # Case 3: No provider was selected (e.g., initial state or became empty), and there are available display providers
-        elif not self.selected_provider and self._display_providers: # Catches None or "" for self.selected_provider
-            self.selected_provider = self._display_providers[0]
-        # Case 4: Providers list becomes empty, and something was selected (clear selection)
+            self.selected_provider = default_provider_to_set
+        # Case 2: A previously selected provider is no longer valid (not in display list),
+        # or no provider was selected (initial state) and there are available providers.
+        elif (self.selected_provider and self.selected_provider not in self._display_providers) or \
+             (not self.selected_provider and self._display_providers): # Catches None or "" for self.selected_provider
+            self.selected_provider = default_provider_to_set
+        # Case 3: Providers list becomes empty, and something was selected (clear selection)
         elif not self._display_providers and self.selected_provider:
             self.selected_provider = ""
-        # Otherwise, the current selection is still valid or there's nothing to select.
+        # Otherwise, the current selection is valid (e.g. user already selected a valid provider,
+        # or selected_provider is already the desired default like 'gemini').
 
     # The following methods are examples if direct binding in __init__ is preferred
     # over relying solely on kv lang for property updates from UI to these properties.
