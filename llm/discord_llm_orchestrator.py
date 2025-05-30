@@ -2,21 +2,21 @@ import os
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 
-from .base_llm import BaseLLMOrchestrator 
+from .base_llm_orchestrator import BaseLLMOrchestrator 
 
 load_dotenv()
 
 # Define the tools allowed specifically for the Discord context
 DISCORD_ALLOWED_TOOLS = ['fetch_memory', 'search_web', 'get_current_time']
 
-class DiscordLLM(BaseLLMOrchestrator):
+class DiscordLLMOrchestrator(BaseLLMOrchestrator):
     """
     LLM Orchestrator specifically for the Discord interface.
     Inherits common logic from BaseLLMOrchestrator.
     """
     def __init__(self, provider: Optional[str] = None, model: Optional[str] = None, master_id: Optional[str] = None):
         """
-        Initializes the DiscordLLM orchestrator.
+        Initializes the DiscordLLMOrchestrator orchestrator.
 
         Args:
             provider: The LLM provider ('openai' or 'gemini'). Defaults handled by Base.
@@ -38,7 +38,7 @@ class DiscordLLM(BaseLLMOrchestrator):
         if effective_master_id_str:
             try:
                 self.master_id = int(effective_master_id_str)
-                print(f"DiscordLLM: Master ID set to {self.master_id} (from constructor).")
+                print(f"DiscordLLMOrchestrator: Master ID set to {self.master_id} (from constructor).")
             except ValueError:
                 print(f"Warning: Master Discord ID '{effective_master_id_str}' (from constructor) is not a valid integer. Master check will fail.")
                 self.master_id = None
@@ -47,7 +47,7 @@ class DiscordLLM(BaseLLMOrchestrator):
             print("Warning: Master Discord ID not provided to constructor. Master check will be based on None.")
             self.master_id = None # Explicitly set to None
         
-        print(f"DiscordLLM initialized with Provider: {discord_provider}, Model: {discord_model if discord_model else 'Default'}, Master ID: {self.master_id}")
+        print(f"DiscordLLMOrchestrator initialized with Provider: {discord_provider}, Model: {discord_model if discord_model else 'Default'}, Master ID: {self.master_id}")
 
 
     # --- Implement Abstract Methods and Hooks from Base Class ---
@@ -104,7 +104,7 @@ class DiscordLLM(BaseLLMOrchestrator):
 
     def _should_perform_final_memory_step(self) -> bool:
         """
-        DiscordLLM skips the final memory save/update step.
+        DiscordLLMOrchestrator skips the final memory save/update step.
         """
         return False
 

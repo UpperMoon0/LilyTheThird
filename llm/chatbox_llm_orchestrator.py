@@ -3,19 +3,19 @@ from typing import List, Dict, Optional
 from dotenv import load_dotenv
 
 # Import the base class and necessary components
-from .base_llm import BaseLLMOrchestrator
+from .base_llm_orchestrator import BaseLLMOrchestrator
 # HistoryManager, LLMClient, ToolExecutor, MongoHandler are initialized in Base
 
 load_dotenv()
 
-class ChatBoxLLM(BaseLLMOrchestrator):
+class ChatBoxLLMOrchestrator(BaseLLMOrchestrator):
     """
     LLM Orchestrator specifically for the ChatBox interface.
     Inherits common logic from BaseLLMOrchestrator.
     """
     def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
         """
-        Initializes the ChatBoxLLM orchestrator.
+        Initializes the ChatBoxLLMOrchestrator orchestrator.
 
         Args:
             provider: The LLM provider ('openai' or 'gemini'). Defaults handled by Base.
@@ -30,7 +30,7 @@ class ChatBoxLLM(BaseLLMOrchestrator):
 
         # Load personality specific to ChatBox (likely the master personality)
         self.personality = os.getenv('PERSONALITY_TO_MASTER', "You are a helpful AI assistant.")
-        print(f"ChatBoxLLM initialized. Personality loaded.")
+        print(f"ChatBoxLLMOrchestrator initialized. Personality loaded.")
 
     # --- Implement Abstract Methods from Base Class ---
 
@@ -75,7 +75,7 @@ class ChatBoxLLM(BaseLLMOrchestrator):
         print(f"--- Processing ChatBox message ---")
         # _process_message now returns (final_response, successful_tool_calls)
         final_response, successful_tools = await self._process_message(user_message)
-        print(f"ChatBoxLLM: Received response '{final_response[:50]}...' and tools: {successful_tools}")
+        print(f"ChatBoxLLMOrchestrator: Received response '{final_response[:50]}...' and tools: {successful_tools}")
         # Return the response and the list of tools
         return final_response, successful_tools
 

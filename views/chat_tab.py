@@ -8,7 +8,7 @@ from kivy.lang import Builder
 # Import settings manager functions
 from settings_manager import load_chat_settings, save_chat_settings # UPDATED
 # Import the ChatBoxLLM
-from llm.chatbox_llm import ChatBoxLLM
+from llm.chatbox_llm_orchestrator import ChatBoxLLMOrchestrator
 # Import the LLM Config Mixin
 from views.llm_config_mixin import LLMConfigMixin
 from tts import generate_speech_from_provider # Import the TTS function
@@ -46,7 +46,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     chat_box = ObjectProperty(None) # Reference to ChatBox instance
     actions_list = ObjectProperty(None) # ADDED reference to ActionsList instance
     action_details = ObjectProperty(None) # ADDED reference to ActionDetails instance
-    llm_instance: ChatBoxLLM = None # To hold the LLM instance
+    llm_instance: ChatBoxLLMOrchestrator = None # To hold the LLM instance
     selected_action_data = ObjectProperty(None, allownone=True) # ADDED property for selected action
 
     # Internal state for recording (if needed beyond UI)
@@ -260,8 +260,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         error_message = None
         try:
             # This is the blocking call
-            instance = ChatBoxLLM(provider=self.selected_provider, model_name=self.selected_model)
-            print("ChatTab: Backend ChatBoxLLM instance created successfully in thread.")
+            instance = ChatBoxLLMOrchestrator(provider=self.selected_provider, model_name=self.selected_model)
+            print("ChatTab: Backend ChatBoxLLMOrchestrator instance created successfully in thread.")
         except Exception as e:
             print(f"ChatTab: Error initializing backend LLM instance in thread: {e}")
             error_message = f"Error initializing backend: {e}"
@@ -340,7 +340,7 @@ class ChatTab(BoxLayout, LLMConfigMixin):
                 print("ChatTab: Previous LLM instance closed in update thread.")
 
             # Create the new instance (potentially blocking)
-            new_instance = ChatBoxLLM(provider=self.selected_provider, model_name=self.selected_model)
+            new_instance = ChatBoxLLMOrchestrator(provider=self.selected_provider, model_name=self.selected_model)
 
         except Exception as e:
             error_message = f"Error updating LLM: {e}"

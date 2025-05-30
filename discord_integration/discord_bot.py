@@ -12,7 +12,7 @@ from discord_integration.commands.voice.join import JoinCommand
 from discord_integration.commands.voice.play import PlayCommand
 from discord_integration.commands.voice.skip_song import SkipCommand
 
-from llm.discord_llm import DiscordLLM
+from llm.discord_llm_orchestrator import DiscordLLMOrchestrator
 from models.song_queue import SongQueue
 
 
@@ -35,9 +35,9 @@ class DiscordBot:
 
         try:
             # Pass provider, model, and master_id from config to DiscordLLM constructor
-            self.discordLLM = DiscordLLM(provider=llm_provider, model=llm_model, master_id=self.master_id)
+            self.discordLLM = DiscordLLMOrchestrator(provider=llm_provider, model=llm_model, master_id=self.master_id)
         except ValueError as e:
-            print(f"FATAL: Could not initialize DiscordLLM: {e}")
+            print(f"FATAL: Could not initialize DiscordLLMOrchestrator: {e}")
             self.discordLLM = None
 
         self.last_activity_time = None
