@@ -11,6 +11,7 @@ from .history_manager import HistoryManager
 from .llm_client import LLMClient
 from .tool_executor import ToolExecutor
 from .error_analyzer import ErrorAnalyzer, ErrorCategory
+from .tool_orchestrator import ToolOrchestrator # Import ToolOrchestrator
 from memory.mongo_handler import MongoHandler
 from tools.tools import find_tool
 
@@ -36,7 +37,11 @@ class BaseLLMOrchestrator(ABC):
     Abstract base class for LLM orchestration, handling common logic like
     history management, tool execution, memory retrieval, and response generation.
     """
-    def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
+    def __init__(self,
+                 provider: Optional[str] = None,
+                 model_name: Optional[str] = None,
+                 tool_use_enabled: bool = True,      # New parameter
+                 allowed_tools: Optional[List[str]] = None): # New parameter
         """
         Initializes common components. Subclasses might override provider/model defaults.
         """
@@ -52,6 +57,30 @@ class BaseLLMOrchestrator(ABC):
         self.llm_client = LLMClient(provider=provider, model_name=model_name)        # Initialize ToolExecutor, passing dependencies
         self.tool_executor = ToolExecutor(mongo_handler=self.mongo_handler, llm_client=self.llm_client)
         
+        # Store tool_use_enabled and allowed_tools
+        self.tool_use_enabled = tool_use_enabled
+        self.allowed_tools = allowed_tools # This is the list of tool *names* allowed.
+        self.tool_orchestrator = None
+
+        # Initialize ToolOrchestrator if enabled.
+        # ToolOrchestrator itself will handle the case where self.allowed_tools is None (meaning all tools known to ToolExecutor are considered, then filtered by its internal exclusion list).
+        if self.tool_use_enabled:
+            print(f"[{self.__class__.__name__}] Tool use enabled. Initializing ToolOrchestrator.")
+            self.tool_orchestrator = ToolOrchestrator(
+                llm_client=self.llm_client,
+                tool_executor=self.tool_executor,
+                history_manager=self.history_manager, # Shared history manager
+                allowed_tools=self.allowed_tools # Pass the list of allowed tool names
+            )
+            if self.allowed_tools:
+                print(f"[{self.__class__.__name__}] ToolOrchestrator initialized with specific allowed tools: {self.allowed_tools}")
+            else:
+                print(f"[{self.__class__.__name__}] ToolOrchestrator initialized. All tools known to ToolExecutor will be considered (before internal exclusions).")
+        elif self.tool_use_enabled and not self.allowed_tools: # This case is covered by the above, effectively.
+            print(f"[{self.__class__.__name__}] Tool use enabled, but no specific tools allowed by BaseLLMOrchestrator. ToolOrchestrator will consider all tools from ToolExecutor.")
+        else:
+            print(f"[{self.__class__.__name__}] Tool use disabled. ToolOrchestrator not initialized.")
+
         # Initialize error analyzer for enhanced retry logic
         self.error_analyzer = ErrorAnalyzer()
         self.recent_errors = []  # Track recent errors for pattern detection
@@ -310,238 +339,56 @@ class BaseLLMOrchestrator(ABC):
 
         # --- Tool Usage Flow ---
         successful_tool_calls = [] # Initialize list to track successful calls
-        allowed_tools_overall = self._get_allowed_tools() # Get all tools allowed in this context
-        max_tool_calls = self._get_max_tool_calls()
-        tool_calls_made = 0
+        # allowed_tools_overall = self._get_allowed_tools() # This is now self.allowed_tools from __init__
+        # max_tool_calls = self._get_max_tool_calls() # This is passed to ToolOrchestrator
+        # tool_calls_made = 0 # ToolOrchestrator will manage this internally
 
         # 4. Main Tool Interaction Loop (Excluding Memory Tools)
         print(f"--- Step 4: Main Tool Loop ---")
-        tools_to_exclude = self._get_tools_to_exclude_from_main_loop() # Use new hook
-        main_loop_allowed_tools = None
-        if allowed_tools_overall is not None:
-            main_loop_allowed_tools = [
-                tool for tool in allowed_tools_overall if tool not in tools_to_exclude
-            ]
-        # If allowed_tools_overall was None (meaning all tools allowed), we need to get all tool names and then filter.
-        elif allowed_tools_overall is None:
-             all_tool_names = self.tool_executor.get_all_tool_names() # Need a method in ToolExecutor for this
-             main_loop_allowed_tools = [
-                 tool for tool in all_tool_names if tool not in tools_to_exclude
-             ]
-
-
-        for _ in range(max_tool_calls):
-            if tool_calls_made >= max_tool_calls:
-                print(f"[{self.__class__.__name__}] Max tool calls ({max_tool_calls}) reached for main loop.")
-                break
-
-            # --- Tool Selection with Retry ---
-            select_retry_count = 0
-            action_decision = None # Initialize action_decision
-            while TOOL_SELECT_RETRY == -1 or select_retry_count <= TOOL_SELECT_RETRY:
-                current_history_loop = self.history_manager.get_history() # Get fresh history each retry
-                messages_for_loop = base_system_messages + current_history_loop
-
-                # Add retry context if needed
-                if select_retry_count > 0:
-                    retry_context = (
-                        f"RETRY CONTEXT: Previous attempt (attempt {select_retry_count}) to select a tool failed or returned an invalid format. "
-                        f"Please review the conversation history and available tools, then choose the next appropriate action (tool or null)."
-                    )
-                    messages_for_loop.append({'role': 'system', 'content': retry_context})
-                    print(f"[{self.__class__.__name__}] Added retry context for tool selection (Attempt {select_retry_count + 1}).")
-                    await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS) # Wait before retrying
-
-                # Ask LLM for next action from the filtered list
-                action_decision = await self.llm_client.get_next_action(
-                    messages_for_loop,
-                    allowed_tools=main_loop_allowed_tools, # Use filtered list
-                    context_type=self.context_name
-                    # No force_tool_options here
-                )                # Check if the decision is valid
-                if action_decision and action_decision.get("action_type") in ["tool_choice", "text_response"]:
-                    # Valid decision (either tool choice or text response), break the retry loop
-                    break
-                else:
-                    # Invalid decision or error
-                    print(f"[{self.__class__.__name__}] Error or invalid format in tool selection (Attempt {select_retry_count + 1}): {action_decision}.")
-
-                    # Check if retries are exhausted or disabled
-                    if TOOL_SELECT_RETRY != -1 and select_retry_count >= TOOL_SELECT_RETRY:
-                        print(f"[{self.__class__.__name__}] Tool selection failed after max retries ({TOOL_SELECT_RETRY}). Breaking loop.")
-                        action_decision = None # Ensure it's None to trigger break below
-                        break # Break the inner while loop
-                    elif TOOL_SELECT_RETRY == 0:
-                        print(f"[{self.__class__.__name__}] Tool selection failed (retries disabled). Breaking loop.")
-                        action_decision = None # Ensure it's None to trigger break below
-                        break # Break the inner while loop
-                    else:
-                        # Retry tool selection
-                        print(f"[{self.__class__.__name__}] Retrying tool selection (attempt {select_retry_count + 1}/{TOOL_SELECT_RETRY if TOOL_SELECT_RETRY != -1 else 'infinite'})...")
-                        select_retry_count += 1
-                        # Continue to the next iteration of the while loop            # --- End Tool Selection with Retry ---
-
-            # Check the final action_decision after the retry loop
-            if not action_decision:
-                # This handles cases where selection failed after retries or was invalid initially (if retries disabled)
-                print(f"[{self.__class__.__name__}] Failed to get a valid response after retries or retries disabled. Breaking main loop.")
-                break # Exit main loop on definitive failure
+        if self.tool_orchestrator and self.tool_use_enabled:
+            print(f"[{self.__class__.__name__}] Tool use is enabled and ToolOrchestrator is initialized. Executing tool cycle.")
+            # Construct the current prompt message for the tool orchestrator
+            # This typically includes base system messages, history, and the current user message.
+            # For simplicity, we'll pass the user_message directly for now, assuming ToolOrchestrator
+            # can access history via self.history_manager.
+            # A more robust approach might involve constructing a more complete prompt here.
             
-            # Handle text response - LLM decided to respond directly without tools
-            if action_decision.get("action_type") == "text_response":
-                print(f"[{self.__class__.__name__}] LLM provided direct text response: '{action_decision.get('text', '')[:50]}...'")
-                # Add the text response to history as assistant message and break main loop
-                self.history_manager.add_message('assistant', action_decision.get('text', ''))
-                break # Exit main loop - no tools needed
+            # The user_message_content_for_llm should be the actual content string.
+            # The history_manager already has the user message added.
+            # We need to prepare the full context for the LLM to decide on tool use.
             
-            # Handle tool choice
-            if action_decision.get("action_type") != "tool_choice":
-                print(f"[{self.__class__.__name__}] Unexpected action_type after validation: {action_decision.get('action_type')}. Breaking main loop.")
-                break # Exit main loop on unexpected format
+            # Call execute_tool_cycle with the correct parameters
+            # Note: ToolOrchestrator's execute_tool_cycle uses the shared history_manager,
+            # so it will see the user message already added at the start of _process_message.
+            # It also expects base_system_messages separately.
+            
+            # max_tool_calls was already defined earlier in _process_message
+            # max_tool_calls = self._get_max_tool_calls() # This line is already present above
 
-            tool_name = action_decision.get("tool_name")
+            tool_interaction_messages, executed_tool_calls_details = await self.tool_orchestrator.execute_tool_cycle(
+                base_system_messages=base_system_messages,
+                max_tool_calls=max_tool_calls, # Use the variable defined in this scope
+                context_name=self.context_name,
+                retrieved_facts_context_string=retrieved_facts_context_string
+            )
+            
+            # executed_tool_calls_details is a list of dicts, each representing a successful tool call.
+            # It should contain 'tool_name', 'arguments', 'result', 'timestamp'.
+            if executed_tool_calls_details:
+                successful_tool_calls.extend(executed_tool_calls_details)
+                print(f"[{self.__class__.__name__}] Added {len(executed_tool_calls_details)} tool calls from ToolOrchestrator to successful_tool_calls.")
+            
+            # tool_interaction_messages contains the history of the tool interactions (tool calls, results).
+            # This should already be managed by the history_manager within ToolOrchestrator.
+            # We need to ensure the main history_manager here reflects these.
+            # Assuming ToolOrchestrator uses the shared history_manager instance.
+            # If ToolOrchestrator returns a final assistant message, we might use that.
+            # For now, we assume history is updated and we proceed to final response generation if needed.
 
-            if tool_name is None:
-                print(f"[{self.__class__.__name__}] LLM decided no further tools needed in main loop.")
-                break # Exit main loop gracefully
-
-            # --- Argument Generation & Execution with General Retry ---
-            print(f"[{self.__class__.__name__}] Main loop: LLM chose tool: {tool_name}")
-            use_retry_count = 0 # Renamed from retry_count
-            arguments = None
-            tool_result = None
-            tool_definition = find_tool(tool_name)
-
-            if not tool_definition:
-                print(f"[{self.__class__.__name__}] Error: Tool '{tool_name}' definition not found.")
-                tool_result = f"Error: Could not find definition for tool '{tool_name}'."
-                # Add error result to history below and break outer loop
-            else:
-                # Loop indefinitely if TOOL_USE_RETRY is -1, otherwise loop up to TOOL_USE_RETRY times
-                while TOOL_USE_RETRY == -1 or use_retry_count <= TOOL_USE_RETRY:
-                    # Prepare messages for argument generation (get fresh history each time)
-                    messages_for_args = base_system_messages + self.history_manager.get_history()
-
-                    # Add retry context if this is a retry attempt
-                    if use_retry_count > 0:
-                        summarized_error_for_retry_ctx = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
-                        retry_context = (
-                            f"RETRY CONTEXT: Previous attempt (attempt {use_retry_count}) to use tool \'{tool_name}\' failed with the following error: "
-                            f"\'{summarized_error_for_retry_ctx}\'. Please analyze the error (also see system message for previous attempt) and the conversation history, then try generating "
-                            f"the arguments for \'{tool_name}\' again, correcting any potential issues."
-                        )
-                        # Add specific guidance for update_memory failure
-                        if tool_name == 'update_memory' and "memory_id" in str(tool_result) and retrieved_facts_context_string:
-                             retry_context += (
-                                 "\nIt seems the 'memory_id' might have been invalid. "
-                                 "Please select a valid ID from the retrieved facts below to update.\n"
-                                 f"{retrieved_facts_context_string}"
-                             )
-                        messages_for_args.append({'role': 'system', 'content': retry_context})
-                        print(f"[{self.__class__.__name__}] Added retry context for {tool_name} argument generation (Attempt {use_retry_count + 1}).")
-                        # Optional: Add a small delay before retrying argument generation
-                        await asyncio.sleep(1) # Consider if TOOL_RETRY_DELAY_SECONDS should be used here too
-
-                    # Get arguments
-                    argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_args)
-
-                    if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
-                        print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for {tool_name} (Attempt {use_retry_count + 1}): {argument_decision}.")
-                        # Use the specific error if available, otherwise a generic one
-                        tool_result = argument_decision.get("error", f"Error: Failed to get arguments for tool '{tool_name}'.")
-                        arguments = None # Ensure arguments is None if generation failed
-
-                        # Check if retries are exhausted or disabled
-                        if TOOL_USE_RETRY != -1 and use_retry_count >= TOOL_USE_RETRY:
-                            print(f"[{self.__class__.__name__}] Argument generation failed after max retries ({TOOL_USE_RETRY}) for {tool_name}. Aborting tool call.")
-                            break # Break the inner while loop
-                        elif TOOL_USE_RETRY == 0:
-                             print(f"[{self.__class__.__name__}] Argument generation failed for {tool_name} (retries disabled). Aborting tool call.")
-                             break # Break the inner while loop
-                        else:
-                            # Retry argument generation
-                            print(f"[{self.__class__.__name__}] Argument generation failed for {tool_name}. Retrying (attempt {use_retry_count + 1}/{TOOL_USE_RETRY if TOOL_USE_RETRY != -1 else 'infinite'})...")
-                            use_retry_count += 1
-                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
-                            continue # Retry argument generation
-
-                    arguments = argument_decision.get("arguments", {})
-
-                    # Execute the tool
-                    tool_result = await self.tool_executor.execute(tool_name, arguments)
-                    print(f"[{self.__class__.__name__}] Result from {tool_name} (Attempt {use_retry_count + 1}): {tool_result}")
-
-                    # Check for execution error condition for retry
-                    is_execution_error = isinstance(tool_result, str) and tool_result.startswith("Error:")
-
-                    if is_execution_error:
-                        # Check if retries are exhausted or disabled
-                        if TOOL_USE_RETRY != -1 and use_retry_count >= TOOL_USE_RETRY:
-                            print(f"[{self.__class__.__name__}] Tool execution failed after max retries ({TOOL_USE_RETRY}) for {tool_name}. Aborting tool call.")
-                            break # Break the inner while loop (max retries reached)
-                        elif TOOL_USE_RETRY == 0:
-                            print(f"[{self.__class__.__name__}] Tool execution failed for {tool_name} (retries disabled). Aborting tool call.")
-                            break # Break the inner while loop (retries disabled)
-                        else:
-                            print(f"[{self.__class__.__name__}] Tool execution failed for {tool_name}. Retrying (attempt {use_retry_count + 1}/{TOOL_USE_RETRY if TOOL_USE_RETRY != -1 else 'infinite'})...")
-                            # Add the error result to history immediately so the LLM sees it for the next argument generation attempt
-                            args_summary_retry = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
-                            error_summary_retry = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN) # tool_result is the error
-
-                            history_retry_error_summary = (
-                                f"System: Tool '{tool_name}' execution failed during attempt {use_retry_count + 1}. "
-                                f"Arguments: {args_summary_retry}. Error: {error_summary_retry}. "
-                                f"Preparing to retry argument generation."
-                            )
-                            self.history_manager.add_message('system', history_retry_error_summary)
-                            use_retry_count += 1
-                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
-                            continue # Go to next iteration of while loop (will regenerate args based on error)
-                    else:
-                        # Success!
-                        break # Exit the while loop
-
-            # --- After the while loop (handles success, definition error, arg error after max retries, or exec error after max retries) ---
-            # Add the final tool result (or error) to history
-            final_tool_status = "Success" # Assume success initially
-            if tool_result is None:
-                tool_result = "Error: Tool execution did not produce a result or failed during argument generation."
-                final_tool_status = f"Failed (Args/Definition - {use_retry_count + 1} attempts)"
-            elif isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                # This case means it failed after the final attempt (or retries were disabled)
-                final_tool_status = f"Failed (Execution - {use_retry_count + 1} attempts)" # Show final attempt count
-            elif final_tool_status == "Success": # Only append if it was actually successful
-                # Append full details dictionary instead of just the name
-                successful_tool_call_details = {
-                    "tool_name": tool_name,
-                    "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
-                    "result": tool_result, # Keep full result for this tracked list
-                    "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
-                }
-                successful_tool_calls.append(successful_tool_call_details)
-                print(f"[{self.__class__.__name__}] Added details for successful \'{tool_name}\' call to list.")
-
-            # Simplified history message for tool usage
-            args_summary = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
-            result_summary = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
-
-            if final_tool_status.startswith("Failed"):
-                history_tool_summary = f"System: Tool '{tool_name}' attempt failed. Status: {final_tool_status}. Arguments: {args_summary}. Details: {result_summary}"
-            else: # Success
-                history_tool_summary = f"System: Tool '{tool_name}' executed successfully. Arguments: {args_summary}. Result: {result_summary}"
-            self.history_manager.add_message('system', history_tool_summary)
-
-            # Increment tool calls *only* if execution was attempted (i.e., arguments were generated)
-            if arguments is not None:
-                tool_calls_made += 1
-                # If the tool ultimately failed after retries, break the outer loop.
-                if final_tool_status.startswith("Failed"):
-                     print(f"[{self.__class__.__name__}] Tool '{tool_name}' ultimately failed after {use_retry_count + 1} attempts. Breaking main loop.")
-                     break # Break outer for loop
-            else:
-                # Argument generation or definition finding failed definitively (or retries exhausted/disabled)
-                print(f"[{self.__class__.__name__}] Argument generation or definition finding failed definitively for {tool_name}. Breaking main loop.")
-                break # Break outer for loop
+        else:
+            print(f"[{self.__class__.__name__}] Tool use is disabled or ToolOrchestrator not initialized. Skipping tool cycle.")
+        # The main tool interaction loop has been moved to ToolOrchestrator.execute_tool_cycle()
+        # This section will be updated in a subsequent task to call ToolOrchestrator.
 
 
         # 5. Final Memory Operation Step (Optional: Save or Update)

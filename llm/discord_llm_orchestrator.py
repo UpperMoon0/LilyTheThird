@@ -14,7 +14,11 @@ class DiscordLLMOrchestrator(BaseLLMOrchestrator):
     LLM Orchestrator specifically for the Discord interface.
     Inherits common logic from BaseLLMOrchestrator.
     """
-    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None, master_id: Optional[str] = None):
+    def __init__(self,
+                 provider: Optional[str] = None,
+                 model: Optional[str] = None,
+                 master_id: Optional[str] = None,
+                 tool_use_enabled: bool = True): # Added tool_use_enabled
         """
         Initializes the DiscordLLMOrchestrator orchestrator.
 
@@ -22,14 +26,24 @@ class DiscordLLMOrchestrator(BaseLLMOrchestrator):
             provider: The LLM provider ('openai' or 'gemini'). Defaults handled by Base.
             model: The specific model name to use. Defaults handled by Base.
             master_id: The Master Discord ID. Must be provided if intended to be used.
+            tool_use_enabled: Whether tool use is enabled. Defaults to True.
         """
         # Determine provider and model strictly from passed arguments
         # Default to 'openai' for provider if None is passed, model can be None (LLMClient handles default)
         discord_provider = provider.lower() if provider else 'openai'
         discord_model = model # Let LLMClient handle default if None
 
+        # Allowed tools for Discord are predefined
+        # This was previously in _get_allowed_tools, moving logic here for __init__
+        allowed_tools_for_discord = DISCORD_ALLOWED_TOOLS
+
         # Call the parent constructor
-        super().__init__(provider=discord_provider, model_name=discord_model)
+        super().__init__(
+            provider=discord_provider,
+            model_name=discord_model,
+            tool_use_enabled=tool_use_enabled,
+            allowed_tools=allowed_tools_for_discord
+        )
 
         # Store master ID for personality check (Discord specific)
         # Use only the master_id passed to the constructor

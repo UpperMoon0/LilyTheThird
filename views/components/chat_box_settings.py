@@ -3,6 +3,7 @@ from kivy.properties import BooleanProperty, ListProperty, StringProperty, Numer
 from kivy.event import EventDispatcher
 from kivy.lang import Builder
 from kivy.clock import Clock # Added import
+from settings_manager import load_chat_settings, save_chat_settings, CHAT_TOOL_USE_ENABLED # Import settings
 
 # Load the KV file after the class definition
 Builder.load_file('views/components/chat_box_settings.kv')
@@ -13,6 +14,7 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
     Dispatches events: 'on_clear_history', 'on_selected_provider', 'on_selected_model', 'on_tts_model_changed_event'.
     """
     tts_enabled = BooleanProperty(False)
+    tool_use_enabled = BooleanProperty(True) # New property for tool use
     tts_models = ListProperty(["edge", "zonos"]) # Available TTS models
     selected_tts_model = StringProperty("edge") # Default selected TTS model
     selected_tts_speaker = NumericProperty(1) # ADDED TTS speaker ID property
@@ -32,6 +34,21 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
         self.register_event_type('on_llm_model_changed_event')
         self.register_event_type('on_tts_model_changed_event') # Register new event for TTS model
         self.register_event_type('on_tts_speaker_changed_event') # ADDED event for TTS speaker
+        self.load_settings() # Load settings on initialization
+
+    def load_settings(self):
+        """Loads settings from SettingsManager."""
+        settings = load_chat_settings()
+        self.tool_use_enabled = settings.get(CHAT_TOOL_USE_ENABLED, True)
+        # Other settings can be loaded here if needed, e.g., tts_enabled
+        self.tts_enabled = settings.get('tts_provider_enabled', False)
+        self.selected_tts_model = settings.get('selected_tts_model', "edge")
+        self.selected_tts_speaker = settings.get('selected_tts_speaker', 1)
+        # LLM settings are typically passed as properties by the parent (ChatTab)
+        # but if you want to load them here as defaults before parent updates them:
+        # self.selected_provider = settings.get('selected_provider', 'OpenAI')
+        # self.selected_model = settings.get('selected_model', None)
+
 
     def on_clear_history(self, *args):
         """
@@ -112,3 +129,12 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
             Clock.schedule_once(lambda dt, w=llm_selector_widget: print(f"DEBUG: ChatBoxSettings: internal LLMSelector's selected_model is: {w.selected_model}"), 0)
         else:
             print(f"DEBUG: ChatBoxSettings: llm_selector_in_settings not found in ids during on_selected_model (property observer).")
+
+    def on_tool_use_enabled(self, instance, value):
+        """Called by Kivy when self.tool_use_enabled KivyProperty changes."""
+        print(f"DEBUG: ChatBoxSettings: tool_use_enabled changed to: {value}")
+        settings = load_chat_settings()
+        settings[CHAT_TOOL_USE_ENABLED] = value
+        save_chat_settings(settings)
+        # Dispatch an event if other parts of the app need to react immediately
+        # self.dispatch('on_tool_use_setting_changed', value)

@@ -13,20 +13,34 @@ class ChatBoxLLMOrchestrator(BaseLLMOrchestrator):
     LLM Orchestrator specifically for the ChatBox interface.
     Inherits common logic from BaseLLMOrchestrator.
     """
-    def __init__(self, provider: Optional[str] = None, model_name: Optional[str] = None):
+    def __init__(self,
+                 provider: Optional[str] = None,
+                 model_name: Optional[str] = None,
+                 tool_use_enabled: bool = True): # Added tool_use_enabled
         """
         Initializes the ChatBoxLLMOrchestrator orchestrator.
 
         Args:
             provider: The LLM provider ('openai' or 'gemini'). Defaults handled by Base.
             model_name: The specific model name to use. Defaults handled by Base.
+            tool_use_enabled: Whether tool use is enabled. Defaults to True.
         """
         # Determine provider and model, falling back to env vars or defaults if not passed
         chatbox_provider = provider or os.getenv('CHATBOX_LLM_PROVIDER', 'openai')
         chatbox_model = model_name or os.getenv('CHATBOX_LLM_MODEL') # Let LLMClient handle default if None
 
-        # Call the parent constructor with the determined provider and model
-        super().__init__(provider=chatbox_provider, model_name=chatbox_model)
+        # Determine allowed tools for ChatBox (all tools by default)
+        # This logic was previously in _get_allowed_tools, moving it here for __init__
+        # In a more complex scenario, this might involve fetching from a config or ToolsManager
+        allowed_tools_for_chatbox = None # None means all tools
+
+        # Call the parent constructor with the determined provider, model, and tool settings
+        super().__init__(
+            provider=chatbox_provider,
+            model_name=chatbox_model,
+            tool_use_enabled=tool_use_enabled,
+            allowed_tools=allowed_tools_for_chatbox
+        )
 
         # Load personality specific to ChatBox (likely the master personality)
         self.personality = os.getenv('PERSONALITY_TO_MASTER', "You are a helpful AI assistant.")

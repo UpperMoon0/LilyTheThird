@@ -129,6 +129,23 @@
                 root.selected_model = self.selected_model
                 root.dispatch('on_llm_model_changed_event', root.selected_model)
 
+    # Enable Tool Use Checkbox Row
+    BoxLayout:
+        size_hint_y: None
+        height: dp(30)
+        MDCheckbox: # Changed from CheckBox to MDCheckbox as per instructions
+            id: tool_use_checkbox
+            active: root.tool_use_enabled
+            size_hint_x: None
+            width: dp(40)
+            on_active: root.tool_use_enabled = self.active
+        MDLabel: # Changed from Label to MDLabel
+            text: "Enable Tool Use"
+            size_hint_x: 1
+            # text_size: self.width, None # MDLabel handles this differently or might not be needed
+            halign: 'left'
+            valign: 'middle'
+
     # Clear History Button Row
     BoxLayout:
         size_hint_y: None

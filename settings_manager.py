@@ -34,6 +34,8 @@ DEFAULT_OPENAI_MODEL = None
 DEFAULT_GEMINI_MODEL = None 
 
 # --- Default Settings Definitions ---
+CHAT_TOOL_USE_ENABLED = "chat_tool_use_enabled"
+
 DEFAULT_CHAT_SETTINGS = {
     'tts_provider_enabled': False,
     'selected_tts_model': 'edge', # Default TTS model
@@ -41,6 +43,7 @@ DEFAULT_CHAT_SETTINGS = {
     'selected_provider': 'OpenAI', # Default provider for Chat Tab
     'selected_model': DEFAULT_OPENAI_MODEL,
     'temperature': 0.7,
+    CHAT_TOOL_USE_ENABLED: True,
 }
 
 DEFAULT_DISCORD_SETTINGS = {

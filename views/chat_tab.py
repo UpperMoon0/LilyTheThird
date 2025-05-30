@@ -35,7 +35,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     # record_button_icon = StringProperty("assets/mic_idle.png") # MOVED to ChatBox
     temperature = NumericProperty(0.7) # Default temperature
     selected_tts_speaker = NumericProperty(1) # ADDED TTS speaker ID property
-
+    tool_use_enabled_for_llm = BooleanProperty(False) # ADDED for LLM tool use setting
+ 
     # Flag to indicate if the backend LLM is ready
     backend_initialized = BooleanProperty(False)
     initialization_status = StringProperty("Initializing backend...") # Status message
@@ -91,7 +92,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         self.selected_tts_model = settings.get('selected_tts_model', 'edge') # Load selected TTS model
         self.selected_tts_speaker = settings.get('selected_tts_speaker', 1) # Load selected TTS speaker ID
         self.temperature = settings.get('temperature', 0.7) # Key from DEFAULT_CHAT_SETTINGS
-
+        self.tool_use_enabled_for_llm = settings.get('CHAT_TOOL_USE_ENABLED', False) # Load tool use setting
+ 
     def _post_init(self, dt):
         """Tasks to run after widgets are loaded."""
         # Link chat_box property FIRST
@@ -111,7 +113,15 @@ class ChatTab(BoxLayout, LLMConfigMixin):
              print("ChatTab FATAL Error: Could not find ActionDetails with id 'action_details'. Check chattab.kv naming and structure.")
              # Decide if this is fatal or just a warning
              # return # Stop initialization if fatal
-
+  
+        # Bind to ChatBoxSettings's tool_use_enabled property
+        chat_settings_widget = self.ids.get('chat_controls') # Assuming 'chat_controls' is the id
+        if chat_settings_widget:
+            print("ChatTab: Binding to chat_controls.tool_use_enabled")
+            chat_settings_widget.bind(tool_use_enabled=self._handle_chat_box_settings_tool_use_change)
+        else:
+            print("ChatTab Warning: Could not find ChatBoxSettings with id 'chat_controls' to bind tool_use_enabled.")
+  
         # Now that chat_box is linked, bind the backend_initialized property change
         self.bind(backend_initialized=self._update_chat_box_initialization)
         # Also, immediately update the chat_box's state if backend is already initialized (unlikely here, but safe)
@@ -135,61 +145,6 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     # and call the appropriate mixin methods for saving LLM config or chat-specific settings.
 
     # Note: The actual binding happens in __init__ to these specific methods.
-    # def on_selected_provider_changed_chat(self, instance, value): # MOVED to LLMConfigMixin as _handle_selected_provider_change
-    #     """Callback when provider changes. Updates models, then schedules save and LLM update."""
-    #     print(f"DEBUG: ChatTab: own on_selected_provider_changed_chat. New provider: {value}")
-    #     print(f"DEBUG: ChatTab: BEFORE update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
-        
-    #     # 1. Update models and set the default selected_model for the new provider
-    #     self.update_models() # This updates self.llm_models and self.selected_model on ChatTab
-        
-    #     print(f"DEBUG: ChatTab: AFTER update_models: self.llm_models={self.llm_models}, self.selected_model='{self.selected_model}', self.selected_provider='{self.selected_provider}'")
-
-    #     # Check ChatBoxSettings properties directly via ids
-    #     if hasattr(self, 'ids') and 'chat_controls' in self.ids:
-    #         chat_settings_widget = self.ids.chat_controls
-    #         print(f"DEBUG: ChatTab: Accessing chat_controls.llm_models: {chat_settings_widget.llm_models}")
-    #         print(f"DEBUG: ChatTab: Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
-    #         print(f"DEBUG: ChatTab: Accessing chat_controls.selected_provider: '{chat_settings_widget.selected_provider}'")
-    #     else:
-    #         print("DEBUG: ChatTab: chat_controls (ChatBoxSettings instance) not found in self.ids.")
-
-    #     # 2. Schedule save and update AFTER update_models finishes and clears its flag
-    #     Clock.schedule_once(self._save_and_update_llm_after_provider_change, 0.1) # Small delay
-
-    # def _save_and_update_llm_after_provider_change(self, dt): # Partially MOVED to mixin's _save_settings_and_notify_provider_change
-    #     """Helper function scheduled after provider change to save and update."""
-    #     # Save LLM settings (handled by mixin)
-    #     self._save_llm_settings()
-
-    #     # Specific ChatTab action: Trigger LLM instance update if ready
-    #     if self.backend_initialized:
-    #         self._start_llm_instance_update_thread()
-    #     else:
-    #         print("ChatTab: Provider changed, backend not ready. Settings saved.")
-
-    # def on_selected_model_changed_chat(self, instance, value): # MOVED to LLMConfigMixin as _handle_selected_model_change
-    #     """Callback when model changes (user interaction or default set). Saves and triggers LLM update."""
-    #     print(f"DEBUG: ChatTab: own on_selected_model_changed_chat. New model: {value}, _updating_models: {self._updating_models}")
-    #     if value and hasattr(self, 'llm_models') and value in self.llm_models:
-    #         print(f"DEBUG: ChatTab: User selected model: {value}. Saving and updating LLM.")
-    #         self._save_llm_settings() # Save LLM settings (handled by mixin)
-            
-    #         # Check ChatBoxSettings properties directly via ids
-    #         if hasattr(self, 'ids') and 'chat_controls' in self.ids:
-    #             chat_settings_widget = self.ids.chat_controls
-    #             print(f"DEBUG: ChatTab: (model change) Accessing chat_controls.selected_model: '{chat_settings_widget.selected_model}'")
-    #         else:
-    #             print("DEBUG: ChatTab: (model change) chat_controls (ChatBoxSettings instance) not found in self.ids.")
-
-    #         # Specific ChatTab action: Trigger LLM instance update if ready
-    #         if self.backend_initialized:
-    #             self._start_llm_instance_update_thread()
-    #         else:
-    #             print("ChatTab: Model changed by user, backend not ready. Settings saved.")
-    #     elif not value:
-    #          print(f"ChatTab: Model selection cleared or invalid by user.")
-
     # --- LLMConfigMixin Hooks Implementation ---
     def on_llm_provider_updated(self):
         """Called by LLMConfigMixin after provider is updated and saved."""
@@ -229,9 +184,19 @@ class ChatTab(BoxLayout, LLMConfigMixin):
     def on_selected_tts_speaker(self, instance, value): # ADDED Kivy property observer
         """Called when selected_tts_speaker changes."""
         self._save_chat_settings()
-
+ 
+    def on_tool_use_enabled_for_llm(self, instance, value):
+        """Callback when the LLM tool use setting changes."""
+        print(f"ChatTab: LLM Tool Use Enabled setting changed to: {value}")
+        self._save_chat_settings() # Persist this change
+        if self.backend_initialized:
+            print("ChatTab: LLM Tool Use setting changed, triggering LLM instance update.")
+            self._start_llm_instance_update_thread()
+        else:
+            print("ChatTab: LLM Tool Use setting changed, backend not ready. Settings saved.")
+ 
     def _save_chat_settings(self):
-        """Helper method to save only the ChatTab specific settings (TTS, temperature)."""
+        """Helper method to save only the ChatTab specific settings (TTS, temperature, tool_use)."""
         if not self.load_function or not self.save_function:
             print("ChatTab: Error - load_function or save_function not set. Cannot save chat-specific settings.")
             return
@@ -241,9 +206,10 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         settings['selected_tts_model'] = self.selected_tts_model # Save selected TTS model
         settings['selected_tts_speaker'] = self.selected_tts_speaker # Save selected TTS speaker ID
         settings['temperature'] = self.temperature
+        settings['CHAT_TOOL_USE_ENABLED'] = self.tool_use_enabled_for_llm # Save tool use setting
         self.save_function(settings) # Save updated chat settings
-        print(f"ChatTab: Chat-specific settings (TTS, temp, tts_model) saved using {self.save_function.__name__}.")
-
+        print(f"ChatTab: Chat-specific settings (TTS, temp, tts_model, tool_use) saved using {self.save_function.__name__}.")
+ 
     # _save_llm_settings is inherited from LLMConfigMixin and will use self.save_function
 
     # --- Action Handling ---
@@ -251,7 +217,12 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         """Handles the 'on_action_selected' event from ActionsList."""
         print(f"ChatTab: Received selected action data: {action_data.get('tool_name')}")
         self.selected_action_data = action_data
-
+ 
+    def _handle_chat_box_settings_tool_use_change(self, instance, value):
+        """Called when the tool_use_enabled property of ChatBoxSettings changes."""
+        print(f"ChatTab: Detected tool_use_enabled change from ChatBoxSettings: {value}")
+        self.tool_use_enabled_for_llm = value # This will trigger on_tool_use_enabled_for_llm
+ 
     # --- Backend Initialization and Update (Remains largely the same) ---
     def _initialize_backend_thread(self):
         """Runs LLM initialization in a background thread."""
@@ -260,7 +231,12 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         error_message = None
         try:
             # This is the blocking call
-            instance = ChatBoxLLMOrchestrator(provider=self.selected_provider, model_name=self.selected_model)
+            print(f"ChatTab: Initializing ChatBoxLLMOrchestrator with tool_use_enabled={self.tool_use_enabled_for_llm}")
+            instance = ChatBoxLLMOrchestrator(
+                provider=self.selected_provider,
+                model_name=self.selected_model,
+                tool_use_enabled=self.tool_use_enabled_for_llm
+            )
             print("ChatTab: Backend ChatBoxLLMOrchestrator instance created successfully in thread.")
         except Exception as e:
             print(f"ChatTab: Error initializing backend LLM instance in thread: {e}")
@@ -340,8 +316,13 @@ class ChatTab(BoxLayout, LLMConfigMixin):
                 print("ChatTab: Previous LLM instance closed in update thread.")
 
             # Create the new instance (potentially blocking)
-            new_instance = ChatBoxLLMOrchestrator(provider=self.selected_provider, model_name=self.selected_model)
-
+            print(f"ChatTab: Updating ChatBoxLLMOrchestrator with tool_use_enabled={self.tool_use_enabled_for_llm}")
+            new_instance = ChatBoxLLMOrchestrator(
+                provider=self.selected_provider,
+                model_name=self.selected_model,
+                tool_use_enabled=self.tool_use_enabled_for_llm
+            )
+ 
         except Exception as e:
             error_message = f"Error updating LLM: {e}"
             new_instance = None # Ensure instance is None on error
