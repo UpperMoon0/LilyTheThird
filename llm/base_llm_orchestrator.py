@@ -340,7 +340,7 @@ class BaseLLMOrchestrator(ABC):
         # --- Tool Usage Flow ---
         successful_tool_calls = [] # Initialize list to track successful calls
         # allowed_tools_overall = self._get_allowed_tools() # This is now self.allowed_tools from __init__
-        # max_tool_calls = self._get_max_tool_calls() # This is passed to ToolOrchestrator
+        max_tool_calls = self._get_max_tool_calls() # FIXED: Uncommented this critical line
         # tool_calls_made = 0 # ToolOrchestrator will manage this internally
 
         # 4. Main Tool Interaction Loop (Excluding Memory Tools)
