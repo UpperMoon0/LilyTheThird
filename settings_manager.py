@@ -1,6 +1,5 @@
 import os
 import json
-import sys
 from utils.file_utils import get_nstut_lilythethird_app_data_dir
 
 # --- Directory Setup ---

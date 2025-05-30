@@ -3,8 +3,8 @@ import json
 from itertools import cycle
 from pathlib import Path
 import logging
-import os # Added for APPDATA
-import datetime # Added for timestamps
+import os 
+import datetime 
 from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions

@@ -4,7 +4,7 @@ Categorizes errors and provides targeted guidance for LLM retries.
 """
 
 import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 from enum import Enum
 
 

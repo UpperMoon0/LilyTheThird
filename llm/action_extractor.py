@@ -1,5 +1,5 @@
 from pydantic import ValidationError
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # Assuming schemas and utils are in the same directory or adjust import path
 from .schemas import ActionExtractionSchema
