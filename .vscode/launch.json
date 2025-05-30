@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
-            "python": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+            "python": "/home/nstut/miniconda3/envs/LilyTheThird/bin/python",
             "justMyCode": true
         }
     ]
