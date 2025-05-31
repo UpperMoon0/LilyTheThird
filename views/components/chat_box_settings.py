@@ -132,9 +132,17 @@ class ChatBoxSettings(BoxLayout, EventDispatcher):
 
     def on_tool_use_enabled(self, instance, value):
         """Called by Kivy when self.tool_use_enabled KivyProperty changes."""
-        print(f"DEBUG: ChatBoxSettings: tool_use_enabled changed to: {value}")
+        print(f"DEBUG: ChatBoxSettings: tool_use_enabled changed to: {value} (type: {type(value)})")
+        print(f"DEBUG: ChatBoxSettings: CHAT_TOOL_USE_ENABLED constant = '{CHAT_TOOL_USE_ENABLED}'")
+        
         settings = load_chat_settings()
+        print(f"DEBUG: ChatBoxSettings: Settings before update: {settings}")
+        
         settings[CHAT_TOOL_USE_ENABLED] = value
+        print(f"DEBUG: ChatBoxSettings: Settings after update: {settings}")
+        
         save_chat_settings(settings)
+        print(f"DEBUG: ChatBoxSettings: Settings saved successfully")
+        
         # Dispatch an event if other parts of the app need to react immediately
         # self.dispatch('on_tool_use_setting_changed', value)

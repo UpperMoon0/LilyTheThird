@@ -87,12 +87,23 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         # LLM provider/model are handled by _load_llm_settings via the mixin.
         settings = self.load_function() # Uses load_chat_settings
         print(f"ChatTab: Loading non-LLM settings using {self.load_function.__name__}: {settings}")
+        
+        # DEBUG: Check both possible keys for tool use setting
+        from settings_manager import CHAT_TOOL_USE_ENABLED
+        print(f"ChatTab: DEBUG - Checking tool use setting:")
+        print(f"  CHAT_TOOL_USE_ENABLED constant = '{CHAT_TOOL_USE_ENABLED}'")
+        print(f"  settings.get(CHAT_TOOL_USE_ENABLED) = {settings.get(CHAT_TOOL_USE_ENABLED)}")
+        print(f"  settings.get('CHAT_TOOL_USE_ENABLED') = {settings.get('CHAT_TOOL_USE_ENABLED')}")
+        print(f"  settings.get('chat_tool_use_enabled') = {settings.get('chat_tool_use_enabled')}")
+        
         # Use .get() with defaults
         self.tts_enabled = settings.get('tts_provider_enabled', False) # Key from DEFAULT_CHAT_SETTINGS
         self.selected_tts_model = settings.get('selected_tts_model', 'edge') # Load selected TTS model
         self.selected_tts_speaker = settings.get('selected_tts_speaker', 1) # Load selected TTS speaker ID
         self.temperature = settings.get('temperature', 0.7) # Key from DEFAULT_CHAT_SETTINGS
-        self.tool_use_enabled_for_llm = settings.get('CHAT_TOOL_USE_ENABLED', False) # Load tool use setting
+        self.tool_use_enabled_for_llm = settings.get(CHAT_TOOL_USE_ENABLED, False) # Load tool use setting using constant
+        
+        print(f"ChatTab: DEBUG - Final tool_use_enabled_for_llm = {self.tool_use_enabled_for_llm} (type: {type(self.tool_use_enabled_for_llm)})")
  
     def _post_init(self, dt):
         """Tasks to run after widgets are loaded."""
@@ -206,7 +217,8 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         settings['selected_tts_model'] = self.selected_tts_model # Save selected TTS model
         settings['selected_tts_speaker'] = self.selected_tts_speaker # Save selected TTS speaker ID
         settings['temperature'] = self.temperature
-        settings['CHAT_TOOL_USE_ENABLED'] = self.tool_use_enabled_for_llm # Save tool use setting
+        from settings_manager import CHAT_TOOL_USE_ENABLED
+        settings[CHAT_TOOL_USE_ENABLED] = self.tool_use_enabled_for_llm # Save tool use setting using constant
         self.save_function(settings) # Save updated chat settings
         print(f"ChatTab: Chat-specific settings (TTS, temp, tts_model, tool_use) saved using {self.save_function.__name__}.")
  
@@ -231,13 +243,17 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         error_message = None
         try:
             # This is the blocking call
-            print(f"ChatTab: Initializing ChatBoxLLMOrchestrator with tool_use_enabled={self.tool_use_enabled_for_llm}")
+            print(f"ChatTab: DEBUG - Initializing ChatBoxLLMOrchestrator:")
+            print(f"  provider={self.selected_provider}")
+            print(f"  model_name={self.selected_model}")
+            print(f"  tool_use_enabled={self.tool_use_enabled_for_llm}")
+            print(f"  tool_use_enabled type={type(self.tool_use_enabled_for_llm)}")
             instance = ChatBoxLLMOrchestrator(
                 provider=self.selected_provider,
                 model_name=self.selected_model,
                 tool_use_enabled=self.tool_use_enabled_for_llm
             )
-            print("ChatTab: Backend ChatBoxLLMOrchestrator instance created successfully in thread.")
+            print("ChatTab: ✅ Backend ChatBoxLLMOrchestrator instance created successfully in thread.")
         except Exception as e:
             print(f"ChatTab: Error initializing backend LLM instance in thread: {e}")
             error_message = f"Error initializing backend: {e}"
@@ -316,7 +332,11 @@ class ChatTab(BoxLayout, LLMConfigMixin):
                 print("ChatTab: Previous LLM instance closed in update thread.")
 
             # Create the new instance (potentially blocking)
-            print(f"ChatTab: Updating ChatBoxLLMOrchestrator with tool_use_enabled={self.tool_use_enabled_for_llm}")
+            print(f"ChatTab: DEBUG - Updating ChatBoxLLMOrchestrator:")
+            print(f"  provider={self.selected_provider}")
+            print(f"  model_name={self.selected_model}")
+            print(f"  tool_use_enabled={self.tool_use_enabled_for_llm}")
+            print(f"  tool_use_enabled type={type(self.tool_use_enabled_for_llm)}")
             new_instance = ChatBoxLLMOrchestrator(
                 provider=self.selected_provider,
                 model_name=self.selected_model,
@@ -340,12 +360,17 @@ class ChatTab(BoxLayout, LLMConfigMixin):
             update_status = f"LLM switched to {self.selected_provider} - {self.selected_model}"
             print(f"ChatTab: {update_status}")
         else:
-            # Update failed, keep the old instance? Or set to None?
-            # Setting to None and marking backend as uninitialized might be safer.
-            self.llm_instance = None
-            self.backend_initialized = False # Mark as failed if update fails
-            update_status = error_message or "LLM update failed."
-            print(f"ChatTab: LLM update failed: {update_status}")
+            # Update failed, preserve the previous working instance and state
+            # Only set to None if there was no previous instance
+            if self.llm_instance is not None:
+                update_status = f"LLM update failed, keeping previous instance. Error: {error_message or 'Unknown error'}"
+                print(f"ChatTab: {update_status}")
+                # Keep backend_initialized as True since we have a working instance
+            else:
+                # No previous instance, mark as failed
+                self.backend_initialized = False
+                update_status = error_message or "LLM update failed and no previous instance available."
+                print(f"ChatTab: LLM update failed with no fallback: {update_status}")
 
         # Update the system message via add_message, replacing the "Switching..." message
         self.add_message("System", update_status, replace_last=True)

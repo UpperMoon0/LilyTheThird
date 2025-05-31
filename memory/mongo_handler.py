@@ -50,6 +50,11 @@ class MongoHandler:
             )
             # The ismaster command is cheap and does not require auth.
             self.client.admin.command('ismaster')
+
+            # Set pymongo logger to WARNING to suppress DEBUG messages
+            pymongo_logger = logging.getLogger('pymongo')
+            pymongo_logger.setLevel(logging.WARNING)
+
             # Get the database object (uses DB from URI or defaults to 'test')
             self.db = self.client.get_database()
             db_name = self.db.name # Get the actual name being used

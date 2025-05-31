@@ -77,18 +77,7 @@ class BaseLLMOrchestrator(ABC):
         # ToolOrchestrator itself will handle the case where self.allowed_tools is None (meaning all tools known to ToolExecutor are considered, then filtered by its internal exclusion list).
         if self.tool_use_enabled:
             print(f"[{self.__class__.__name__}] Tool use enabled. Initializing ToolOrchestrator.")
-            self.tool_orchestrator = ToolOrchestrator(
-                llm_client=self.llm_client,
-                tool_executor=self.tool_executor,
-                history_manager=self.history_manager, # Shared history manager
-                allowed_tools=self.allowed_tools # Pass the list of allowed tool names
-            )
-            if self.allowed_tools:
-                print(f"[{self.__class__.__name__}] ToolOrchestrator initialized with specific allowed tools: {self.allowed_tools}")
-            else:
-                print(f"[{self.__class__.__name__}] ToolOrchestrator initialized. All tools known to ToolExecutor will be considered (before internal exclusions).")
-        elif self.tool_use_enabled and not self.allowed_tools: # This case is covered by the above, effectively.
-            print(f"[{self.__class__.__name__}] Tool use enabled, but no specific tools allowed by BaseLLMOrchestrator. ToolOrchestrator will consider all tools from ToolExecutor.")
+            self._initialize_tool_orchestrator()
         else:
             print(f"[{self.__class__.__name__}] Tool use disabled. ToolOrchestrator not initialized.")
 
@@ -103,6 +92,48 @@ class BaseLLMOrchestrator(ABC):
         self.history_manager.set_llm_client(self.llm_client)
         
         print(f"BaseLLMOrchestrator initialized with Provider: {self.provider}, Model: {self.model}")
+
+    def _initialize_tool_orchestrator(self, retry_count=0):
+        """
+        Initialize ToolOrchestrator with retry logic and proper error handling.
+        """
+        max_retries = 3
+        try:
+            self.tool_orchestrator = ToolOrchestrator(
+                llm_client=self.llm_client,
+                tool_executor=self.tool_executor,
+                history_manager=self.history_manager, # Shared history manager
+                allowed_tools=self.allowed_tools # Pass the list of allowed tool names
+            )
+            print(f"[{self.__class__.__name__}] ✅ ToolOrchestrator successfully initialized.")
+            if self.allowed_tools:
+                print(f"[{self.__class__.__name__}] ToolOrchestrator initialized with specific allowed tools: {self.allowed_tools}")
+            else:
+                print(f"[{self.__class__.__name__}] ToolOrchestrator initialized. All tools known to ToolExecutor will be considered (before internal exclusions).")
+        except Exception as e:
+            print(f"[{self.__class__.__name__}] ❌ ToolOrchestrator initialization FAILED (attempt {retry_count + 1}): {e}")
+            self.tool_orchestrator = None
+            
+            # Retry logic for transient failures
+            if retry_count < max_retries:
+                print(f"[{self.__class__.__name__}] Retrying ToolOrchestrator initialization in 1 second...")
+                import time
+                time.sleep(1)
+                self._initialize_tool_orchestrator(retry_count + 1)
+            else:
+                print(f"[{self.__class__.__name__}] ❌ CRITICAL: ToolOrchestrator initialization FAILED after {max_retries + 1} attempts. Tool use will be disabled.")
+                # Log the issue for debugging but continue with initialization
+
+    def reinitialize_tool_orchestrator(self):
+        """
+        Public method to reinitialize ToolOrchestrator, useful after settings changes.
+        """
+        if self.tool_use_enabled:
+            print(f"[{self.__class__.__name__}] Reinitializing ToolOrchestrator...")
+            self._initialize_tool_orchestrator()
+        else:
+            print(f"[{self.__class__.__name__}] Tool use disabled, clearing ToolOrchestrator.")
+            self.tool_orchestrator = None
 
     @property
     @abstractmethod
@@ -360,8 +391,15 @@ class BaseLLMOrchestrator(ABC):
 
         # 4. Main Tool Interaction Loop (Excluding Memory Tools)
         print(f"--- Step 4: Main Tool Loop ---")
-        if self.tool_orchestrator and self.tool_use_enabled:
-            print(f"[{self.__class__.__name__}] Tool use is enabled and ToolOrchestrator is initialized. Executing tool cycle.")
+        # DEBUG: Add detailed logging for the condition check
+        print(f"[{self.__class__.__name__}] DEBUG - Tool use condition check:")
+        print(f"  self.tool_use_enabled = {self.tool_use_enabled}")
+        print(f"  self.tool_orchestrator = {self.tool_orchestrator}")
+        print(f"  self.tool_orchestrator is not None = {self.tool_orchestrator is not None}")
+        print(f"  Condition result = {self.tool_orchestrator and self.tool_use_enabled}")
+        
+        if self.tool_use_enabled and self.tool_orchestrator is not None:
+            print(f"[{self.__class__.__name__}] ✅ Tool use is enabled and ToolOrchestrator is initialized. Executing tool cycle.")
             # Construct the current prompt message for the tool orchestrator
             # This typically includes base system messages, history, and the current user message.
             # For simplicity, we'll pass the user_message directly for now, assuming ToolOrchestrator
@@ -401,7 +439,8 @@ class BaseLLMOrchestrator(ABC):
             # For now, we assume history is updated and we proceed to final response generation if needed.
 
         else:
-            print(f"[{self.__class__.__name__}] Tool use is disabled or ToolOrchestrator not initialized. Skipping tool cycle.")
+            print(f"[{self.__class__.__name__}] ❌ Tool use is disabled or ToolOrchestrator not initialized. Skipping tool cycle.")
+            print(f"  Reason: tool_use_enabled={self.tool_use_enabled}, tool_orchestrator_exists={self.tool_orchestrator is not None}")
         # The main tool interaction loop has been moved to ToolOrchestrator.execute_tool_cycle()
         # This section will be updated in a subsequent task to call ToolOrchestrator.
 

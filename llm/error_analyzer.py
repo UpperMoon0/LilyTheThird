@@ -18,7 +18,7 @@ class ErrorCategory(Enum):
     MEMORY_ID_ERROR = "memory_id_error"
     NETWORK_ERROR = "network_error"
     RATE_LIMIT = "rate_limit"
-    CODE_ERROR = "code_error"  # New category for API/signature mismatches
+    CODE_ERROR = "code_error"  
     UNKNOWN = "unknown"
 
 
@@ -27,6 +27,16 @@ class ErrorAnalyzer:
     
     def __init__(self):
         self.error_patterns = {
+            ErrorCategory.CODE_ERROR: [
+                r"takes \d+ positional arguments? but \d+ were given",
+                r"takes \d+ arguments? but \d+ were given",
+                r".*\.execute\(\) takes \d+ positional arguments? but \d+ were given",
+                r"unexpected keyword argument",
+                r"got multiple values for argument",
+                r"typeerror.*arguments?",
+                r"method signature.*mismatch",
+                r"attributeerror.*method"
+            ],
             ErrorCategory.INVALID_ARGUMENT: [
                 r"invalid argument",
                 r"invalid value",
@@ -69,15 +79,6 @@ class ErrorAnalyzer:
                 r"too many requests",
                 r"quota exceeded"
             ],
-            ErrorCategory.CODE_ERROR: [
-                r"takes \d+ positional arguments? but \d+ were given",
-                r"takes \d+ arguments? but \d+ were given",
-                r"got multiple values for argument",
-                r"unexpected keyword argument",
-                r"typeerror.*arguments?",
-                r"method signature.*mismatch",
-                r"attributeerror.*method"
-            ]
         }
     
     def analyze_error(self, error_message: str, tool_name: str, arguments: dict) -> Tuple[ErrorCategory, str]:
