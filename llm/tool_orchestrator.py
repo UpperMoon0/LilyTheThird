@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from tools.tools import find_tool # find_tool is used
 from .error_analyzer import ErrorAnalyzer, ErrorCategory
 from .schemas import ToolCallDetails
+from .logging_config import get_logging_manager
 
 # Constants for retry logic (copied from BaseLLMOrchestrator)
 TOOL_SELECT_RETRY = 5       # Max retries for LLM failing to choose a tool (0=disable, -1=infinite)
@@ -33,6 +34,19 @@ class ToolOrchestrator:
         self.error_analyzer = ErrorAnalyzer()
         self.tool_failure_counts = {}  # Track failures per tool
         self.recent_errors = []  # Track recent error patterns
+        
+        # Initialize comprehensive logging
+        self.logging_manager = get_logging_manager()
+        self.orchestrator_logger = self.logging_manager.get_logger('tool_orchestrator')
+        self.execution_logger = self.logging_manager.get_logger('tool_execution')
+        self.error_logger = self.logging_manager.get_logger('error_analysis')
+        self.decision_logger = self.logging_manager.get_logger('llm_decisions')
+        self.retry_logger = self.logging_manager.get_logger('retry_logic')
+        
+        self.orchestrator_logger.info("ToolOrchestrator initialized", extra={
+            'allowed_tools': allowed_tools,
+            'context_name': 'initialization'
+        })
 
     def _summarize_for_history(self, data: any, max_len: int) -> str:
         """Helper to summarize data for concise history logging."""
@@ -54,6 +68,7 @@ class ToolOrchestrator:
         """Track tool failures and return the current failure count for this tool."""
         # Update failure count
         self.tool_failure_counts[tool_name] = self.tool_failure_counts.get(tool_name, 0) + 1
+        failure_count = self.tool_failure_counts[tool_name]
         
         # Track recent errors for pattern detection
         error_record = {
@@ -68,8 +83,28 @@ class ToolOrchestrator:
         # Keep only recent errors (last 10)
         if len(self.recent_errors) > 10:
             self.recent_errors.pop(0)
+        
+        # Log the failure tracking
+        self.error_logger.warning("Tool failure tracked", extra={
+            'tool_name': tool_name,
+            'error_category': error_category.value,
+            'failure_count': failure_count,
+            'arguments': arguments,
+            'error_message': error_message[:200]  # Truncated for readability
+        })
+        
+        # Check for patterns and log if detected
+        same_pattern_count = sum(1 for error in self.recent_errors
+                               if error["tool_name"] == tool_name and
+                                  error["error_category"] == error_category)
+        
+        if same_pattern_count >= 3:
+            self.logging_manager.log_error_pattern(
+                'error_analysis', tool_name, error_category.value,
+                same_pattern_count, self.recent_errors[-5:]
+            )
             
-        return self.tool_failure_counts[tool_name]
+        return failure_count
 
     def _get_tool_schema_info(self, tool_name: str) -> str:
         """Get detailed schema information for a tool to help with argument correction."""
@@ -113,6 +148,22 @@ class ToolOrchestrator:
         same_pattern_count = sum(1 for error in self.recent_errors
                                if error["tool_name"] == tool_name and
                                   error["error_category"] == error_category)
+        
+        # Log the retry message generation
+        self.logging_manager.log_retry_attempt(
+            'retry_logic', tool_name, retry_count, error_category.value,
+            error_message, arguments
+        )
+        
+        self.retry_logger.debug("Generating enhanced retry message", extra={
+            'tool_name': tool_name,
+            'retry_count': retry_count,
+            'error_category': error_category.value,
+            'failure_count': failure_count,
+            'same_pattern_count': same_pattern_count,
+            'specific_guidance': specific_guidance[:100],  # Truncated
+            'has_retrieved_facts': retrieved_facts is not None
+        })
         
         # Build enhanced message
         retry_message = (
@@ -208,6 +259,11 @@ class ToolOrchestrator:
     def _should_abort_retry(self, tool_name: str, error_message: str, retry_count: int) -> bool:
         """Determine if retry should be aborted based on error analysis."""
         if retry_count >= TOOL_EXECUTION_RETRY:
+            self.retry_logger.info("Aborting retry: max attempts reached", extra={
+                'tool_name': tool_name,
+                'retry_count': retry_count,
+                'max_retries': TOOL_EXECUTION_RETRY
+            })
             return True
             
         # Check for exact same errors
@@ -216,14 +272,27 @@ class ToolOrchestrator:
                                 error.get("error_message") == error_message)
         
         if exact_same_count >= 3:
-            print(f"[{self.__class__.__name__}] Aborting retry: same error repeated {exact_same_count} times")
+            self.retry_logger.warning("Aborting retry: identical error repeated", extra={
+                'tool_name': tool_name,
+                'exact_same_count': exact_same_count,
+                'error_message': error_message[:100]  # Truncated
+            })
             return True
         
         # Use error analyzer to determine if retry is worthwhile
         error_category, _ = self.error_analyzer.analyze_error(error_message, tool_name, {})
         retry_strategy = self.error_analyzer.get_retry_strategy(error_category, retry_count)
         
-        return not retry_strategy.get("should_retry", True)
+        should_abort = not retry_strategy.get("should_retry", True)
+        if should_abort:
+            self.retry_logger.info("Aborting retry: error analyzer recommendation", extra={
+                'tool_name': tool_name,
+                'error_category': error_category.value,
+                'retry_count': retry_count,
+                'retry_strategy': retry_strategy
+            })
+        
+        return should_abort
 
     async def execute_tool_cycle(self, 
                                  base_system_messages: List[Dict[str, str]], 
@@ -253,18 +322,36 @@ class ToolOrchestrator:
                  tool for tool in all_tool_names if tool not in tools_to_exclude_from_main_loop
              ]
         
-        print(f"[{self.__class__.__name__}] Starting tool cycle. Max calls: {max_tool_calls}. Allowed in loop: {main_loop_allowed_tools}")
+        # Log the start of tool cycle with comprehensive context
+        self.orchestrator_logger.info("Starting tool execution cycle", extra={
+            'context_name': context_name,
+            'max_tool_calls': max_tool_calls,
+            'allowed_tools': main_loop_allowed_tools,
+            'has_retrieved_facts': retrieved_facts_context_string is not None,
+            'current_tool_calls': tool_calls_made
+        })
 
-        for _ in range(max_tool_calls):
+        for cycle_iteration in range(max_tool_calls):
             if tool_calls_made >= max_tool_calls:
-                print(f"[{self.__class__.__name__}] Max tool calls ({max_tool_calls}) reached for main loop.")
+                self.orchestrator_logger.info("Tool cycle terminated: max calls reached", extra={
+                    'max_tool_calls': max_tool_calls,
+                    'tools_called': tool_calls_made,
+                    'context_name': context_name
+                })
                 break
 
             # --- Tool Selection with Retry ---
             select_retry_count = 0
-            action_decision = None 
+            action_decision = None
+            
+            self.orchestrator_logger.debug("Starting tool selection phase", extra={
+                'cycle_iteration': cycle_iteration,
+                'available_tools': main_loop_allowed_tools,
+                'context_name': context_name
+            })
+            
             while TOOL_SELECT_RETRY == -1 or select_retry_count <= TOOL_SELECT_RETRY:
-                current_history_loop = self.history_manager.get_history() 
+                current_history_loop = self.history_manager.get_history()
                 messages_for_loop = base_system_messages + current_history_loop
 
                 if select_retry_count > 0:
@@ -278,80 +365,166 @@ class ToolOrchestrator:
                     # Also add to tool_interaction_messages for transparency
                     tool_interaction_messages.append(retry_context_message)
                     await self.history_manager.add_message('system', retry_context_content) # Keep history manager updated too
-                    print(f"[{self.__class__.__name__}] Added retry context for tool selection (Attempt {select_retry_count + 1}).")
+                    
+                    self.decision_logger.warning("Tool selection retry required", extra={
+                        'select_retry_count': select_retry_count,
+                        'cycle_iteration': cycle_iteration,
+                        'context_name': context_name,
+                        'available_tools': main_loop_allowed_tools
+                    })
                     await asyncio.sleep(1) # Keep a small delay for retries
+
+                # Log the LLM decision request
+                self.decision_logger.debug("Requesting LLM action decision", extra={
+                    'attempt': select_retry_count + 1,
+                    'message_count': len(messages_for_loop),
+                    'available_tools': main_loop_allowed_tools,
+                    'context_name': context_name
+                })
 
                 action_decision = await self.llm_client.get_next_action(
                     messages_for_loop,
                     allowed_tools=main_loop_allowed_tools,
                     context_type=context_name
                 )
-                if action_decision and action_decision.get("action_type") in ["tool_call", "text_response"]:
+                
+                # Log the LLM's decision
+                if action_decision:
+                    decision_type = action_decision.get("action_type", "unknown")
+                    tool_name = action_decision.get("tool_name", "null")
+                    
+                    self.logging_manager.log_tool_decision(
+                        'llm_decisions', tool_name,
+                        f"Action type: {decision_type}", context_name,
+                        action_decision.get("tool_args")
+                    )
+                    
+                    if decision_type in ["tool_call", "text_response"]:
+                        self.decision_logger.info("Valid LLM decision received", extra={
+                            'decision_type': decision_type,
+                            'tool_name': tool_name,
+                            'attempt': select_retry_count + 1,
+                            'context_name': context_name
+                        })
+                        break
+                    else:
+                        self.decision_logger.warning("Invalid LLM decision format", extra={
+                            'decision_type': decision_type,
+                            'attempt': select_retry_count + 1,
+                            'full_decision': action_decision,
+                            'context_name': context_name
+                        })
+                else:
+                    self.decision_logger.error("LLM returned null decision", extra={
+                        'attempt': select_retry_count + 1,
+                        'context_name': context_name
+                    })
+                
+                # Handle retry logic
+                if TOOL_SELECT_RETRY != -1 and select_retry_count >= TOOL_SELECT_RETRY:
+                    self.orchestrator_logger.error("Tool selection failed: max retries exceeded", extra={
+                        'max_retries': TOOL_SELECT_RETRY,
+                        'context_name': context_name,
+                        'cycle_iteration': cycle_iteration
+                    })
+                    action_decision = None
+                    break
+                elif TOOL_SELECT_RETRY == 0:
+                    self.orchestrator_logger.error("Tool selection failed: retries disabled", extra={
+                        'context_name': context_name,
+                        'cycle_iteration': cycle_iteration
+                    })
+                    action_decision = None
                     break
                 else:
-                    print(f"[{self.__class__.__name__}] Error or invalid format in tool selection (Attempt {select_retry_count + 1}): {action_decision}.")
-                    if TOOL_SELECT_RETRY != -1 and select_retry_count >= TOOL_SELECT_RETRY:
-                        print(f"[{self.__class__.__name__}] Tool selection failed after max retries ({TOOL_SELECT_RETRY}). Breaking loop.")
-                        action_decision = None 
-                        break 
-                    elif TOOL_SELECT_RETRY == 0:
-                        print(f"[{self.__class__.__name__}] Tool selection failed (retries disabled). Breaking loop.")
-                        action_decision = None 
-                        break 
-                    else:
-                        print(f"[{self.__class__.__name__}] Retrying tool selection (attempt {select_retry_count + 1}/{TOOL_SELECT_RETRY if TOOL_SELECT_RETRY != -1 else 'infinite'})...")
-                        select_retry_count += 1
+                    self.orchestrator_logger.debug("Retrying tool selection", extra={
+                        'retry_attempt': select_retry_count + 1,
+                        'max_retries': TOOL_SELECT_RETRY if TOOL_SELECT_RETRY != -1 else 'infinite',
+                        'context_name': context_name
+                    })
+                    select_retry_count += 1
             
             if not action_decision:
-                print(f"[{self.__class__.__name__}] Failed to get a valid response after retries or retries disabled. Breaking main tool loop.")
-                break 
+                self.orchestrator_logger.error("Tool cycle terminated: no valid decision received", extra={
+                    'context_name': context_name,
+                    'cycle_iteration': cycle_iteration,
+                    'select_retries_attempted': select_retry_count
+                })
+                break
             
             if action_decision.get("action_type") == "text_response":
-                print(f"[{self.__class__.__name__}] LLM provided direct text response: '{action_decision.get('text', '')[:50]}...'")
-                # Add to history_manager, but this is not a "tool interaction" per se for tool_interaction_messages
-                # The main orchestrator will handle adding this to history if it's the final response.
-                # For now, we break, and the orchestrator will pick up this text_response.
-                # We can add it to tool_interaction_messages if we want to signify the loop terminated due to text response.
-                text_response_message = {'role': 'assistant', 'content': action_decision.get('text', '')}
-                # tool_interaction_messages.append(text_response_message) # Optional: if you want to track this termination
-                await self.history_manager.add_message('assistant', action_decision.get('text', '')) # Ensure history is up-to-date
-                break 
+                text_content = action_decision.get('text', '')
+                self.logging_manager.log_llm_response(
+                    'llm_decisions', context_name, 'text_response',
+                    text_content, len(base_system_messages) + len(current_history_loop)
+                )
+                
+                text_response_message = {'role': 'assistant', 'content': text_content}
+                await self.history_manager.add_message('assistant', text_content)
+                
+                self.orchestrator_logger.info("Tool cycle terminated: LLM provided direct text response", extra={
+                    'response_length': len(text_content),
+                    'context_name': context_name,
+                    'cycle_iteration': cycle_iteration
+                })
+                break
             
             # action_type "tool_choice" is now "tool_call"
             if action_decision.get("action_type") != "tool_call":
-                print(f"[{self.__class__.__name__}] Unexpected action_type after validation: {action_decision.get('action_type')}. Breaking main tool loop.")
+                self.orchestrator_logger.error("Tool cycle terminated: unexpected action type", extra={
+                    'action_type': action_decision.get('action_type'),
+                    'context_name': context_name,
+                    'cycle_iteration': cycle_iteration,
+                    'full_decision': action_decision
+                })
                 break
 
             tool_name = action_decision.get("tool_name")
-            # Arguments are now part of action_decision if action_type is "tool_call"
             arguments = action_decision.get("tool_args")
-            # tool_call_id might be provided by OpenAI, otherwise, we'll generate one
             tool_call_id = action_decision.get("tool_call_id")
 
-            if tool_name is None: # Should not happen if action_type is "tool_call"
-                print(f"[{self.__class__.__name__}] LLM decided no further tools needed (tool_name is None despite action_type tool_call). Breaking.")
+            if tool_name is None:
+                self.orchestrator_logger.error("Tool cycle terminated: tool_name is None despite tool_call action_type", extra={
+                    'action_decision': action_decision,
+                    'context_name': context_name,
+                    'cycle_iteration': cycle_iteration
+                })
                 break
-            if arguments is None: # Should not happen if action_type is "tool_call" and tool_name is present
-                print(f"[{self.__class__.__name__}] LLM chose tool {tool_name} but arguments are missing. Breaking.")
-                # Add an error message to history?
+                
+            if arguments is None:
                 error_content = f"System: Tool '{tool_name}' was chosen by the LLM, but arguments were missing in the decision."
                 await self.history_manager.add_message('system', error_content)
                 tool_interaction_messages.append({'role': 'system', 'content': error_content})
+                
+                self.orchestrator_logger.error("Tool cycle terminated: arguments missing for tool", extra={
+                    'tool_name': tool_name,
+                    'action_decision': action_decision,
+                    'context_name': context_name,
+                    'cycle_iteration': cycle_iteration
+                })
                 break
 
-            # Get tool name and arguments from action_decision
-            tool_name = action_decision.get("tool_name")
-            arguments = action_decision.get("tool_args")
-            
             # Setup for timing
             tool_start_time = time.monotonic()
             
-            print(f"[{self.__class__.__name__}] Tool Orchestrator: Attempting tool call for '{tool_name}'.")
+            self.orchestrator_logger.info("Starting tool execution", extra={
+                'tool_name': tool_name,
+                'arguments': arguments,
+                'tool_call_id': tool_call_id,
+                'context_name': context_name,
+                'cycle_iteration': cycle_iteration
+            })
             tool_definition = find_tool(tool_name)
             
             if tool_definition is None:
                 error_message = f"System: Error - Tool '{tool_name}' not found by ToolOrchestrator."
-                print(f"[{self.__class__.__name__}] {error_message}")
+                
+                self.orchestrator_logger.error("Tool definition not found", extra={
+                    'tool_name': tool_name,
+                    'context_name': context_name,
+                    'cycle_iteration': cycle_iteration
+                })
+                
                 await self.history_manager.add_message("system", error_message)
                 tool_interaction_messages.append({'role': 'system', 'content': error_message})
                 final_tool_status = "error"
@@ -360,6 +533,13 @@ class ToolOrchestrator:
                 final_tool_status = "error"  # Default to error
                 tool_result = None
                 tool_retry_count = 0
+                
+                self.execution_logger.info("Starting tool execution with retry logic", extra={
+                    'tool_name': tool_name,
+                    'max_retries': TOOL_EXECUTION_RETRY,
+                    'arguments': arguments,
+                    'context_name': context_name
+                })
                 
                 while tool_retry_count <= TOOL_EXECUTION_RETRY:
                     # Add system message indicating the tool call attempt
@@ -372,22 +552,49 @@ class ToolOrchestrator:
                     await self.history_manager.add_message("system", call_message)
                     tool_interaction_messages.append({'role': 'system', 'content': call_message})
                     
+                    # Log the execution attempt
+                    self.execution_logger.debug("Tool execution attempt", extra={
+                        'tool_name': tool_name,
+                        'attempt': tool_retry_count + 1,
+                        'arguments': arguments,
+                        'context_name': context_name
+                    })
+                    
                     try:
                         # Execute the tool
+                        execution_start = time.monotonic()
                         tool_result = await self.tool_executor.execute(
                             tool_name,
                             arguments,
                             self.history_manager,
                             None  # settings_manager not available in this context
                         )
+                        execution_time = time.monotonic() - execution_start
                         
                         # Check if the tool_result indicates an error
                         if isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                            print(f"[{self.__class__.__name__}] Tool '{tool_name}' execution resulted in an error: {tool_result}")
+                            # Log the tool execution error
+                            self.logging_manager.log_tool_execution(
+                                'tool_execution', tool_name, arguments,
+                                tool_result, execution_time, success=False
+                            )
+                            
+                            self.execution_logger.warning("Tool execution error", extra={
+                                'tool_name': tool_name,
+                                'attempt': tool_retry_count + 1,
+                                'execution_time': execution_time,
+                                'error_result': tool_result[:200],  # Truncated
+                                'context_name': context_name
+                            })
                             
                             # Check if we should abort or retry
                             if self._should_abort_retry(tool_name, tool_result, tool_retry_count):
-                                print(f"[{self.__class__.__name__}] Aborting retry for tool '{tool_name}' after {tool_retry_count + 1} attempts")
+                                self.retry_logger.warning("Aborting tool retry sequence", extra={
+                                    'tool_name': tool_name,
+                                    'attempts_made': tool_retry_count + 1,
+                                    'reason': 'abort_retry_condition_met',
+                                    'context_name': context_name
+                                })
                                 break
                             
                             # Generate enhanced retry message
@@ -407,6 +614,13 @@ class ToolOrchestrator:
                             # For argument-related errors, we need to get new arguments from the LLM
                             error_category, _ = self.error_analyzer.analyze_error(tool_result, tool_name, arguments)
                             if error_category in [ErrorCategory.INVALID_ARGUMENT, ErrorCategory.MISSING_ARGUMENT]:
+                                self.retry_logger.info("Attempting argument regeneration for tool", extra={
+                                    'tool_name': tool_name,
+                                    'error_category': error_category.value,
+                                    'attempt': tool_retry_count + 1,
+                                    'context_name': context_name
+                                })
+                                
                                 # Get current history for argument regeneration
                                 current_history = self.history_manager.get_history()
                                 messages_for_retry = base_system_messages + current_history
@@ -419,36 +633,76 @@ class ToolOrchestrator:
                                 )
                                 
                                 if retry_action and retry_action.get("action_type") == "tool_call":
+                                    old_arguments = arguments
                                     arguments = retry_action.get("tool_args", arguments)
-                                    print(f"[{self.__class__.__name__}] Regenerated arguments for '{tool_name}': {arguments}")
+                                    
+                                    self.retry_logger.info("Arguments regenerated successfully", extra={
+                                        'tool_name': tool_name,
+                                        'old_arguments': old_arguments,
+                                        'new_arguments': arguments,
+                                        'context_name': context_name
+                                    })
                                 else:
-                                    print(f"[{self.__class__.__name__}] Failed to regenerate arguments for '{tool_name}'")
+                                    self.retry_logger.error("Failed to regenerate arguments", extra={
+                                        'tool_name': tool_name,
+                                        'retry_action': retry_action,
+                                        'context_name': context_name
+                                    })
                                     break
                             
                             continue  # Retry with same or new arguments
                         else:
                             # Success!
+                            execution_time = time.monotonic() - tool_start_time
+                            
+                            # Log successful execution
+                            self.logging_manager.log_tool_execution(
+                                'tool_execution', tool_name, arguments,
+                                tool_result, execution_time, success=True
+                            )
+                            
                             successful_tool_calls_details.append(
                                 ToolCallDetails(
                                     tool_name=tool_name,
                                     arguments=arguments,
                                     result=tool_result,
-                                    execution_time=time.monotonic() - tool_start_time
+                                    execution_time=execution_time
                                 )
                             )
                             final_tool_status = "success"
-                            print(f"[{self.__class__.__name__}] Tool '{tool_name}' executed successfully.")
+                            
+                            self.execution_logger.info("Tool execution successful", extra={
+                                'tool_name': tool_name,
+                                'execution_time': execution_time,
+                                'result_length': len(str(tool_result)),
+                                'context_name': context_name,
+                                'attempt': tool_retry_count + 1
+                            })
                             break  # Exit retry loop on success
                             
                     except Exception as e:
                         # Handle exceptions during tool execution
                         exception_message = f"System: An unexpected error occurred during execution of tool '{tool_name}': {str(e)}"
-                        print(f"[{self.__class__.__name__}] Exception during execution of tool '{tool_name}': {e}")
+                        
+                        self.execution_logger.error("Tool execution exception", extra={
+                            'tool_name': tool_name,
+                            'attempt': tool_retry_count + 1,
+                            'exception_type': type(e).__name__,
+                            'exception_message': str(e),
+                            'context_name': context_name
+                        }, exc_info=True)
                         
                         # Check if we should retry the exception
                         if self._should_abort_retry(tool_name, str(e), tool_retry_count):
                             await self.history_manager.add_message("system", exception_message)
                             tool_interaction_messages.append({'role': 'system', 'content': exception_message})
+                            
+                            self.retry_logger.warning("Aborting retry due to exception", extra={
+                                'tool_name': tool_name,
+                                'attempts_made': tool_retry_count + 1,
+                                'exception_type': type(e).__name__,
+                                'context_name': context_name
+                            })
                             break
                         
                         # Generate enhanced retry message for exception
@@ -477,14 +731,37 @@ class ToolOrchestrator:
                     failure_message = f"System: Tool '{tool_name}' failed after {tool_retry_count} attempts. Final error: {failure_summary}"
                     await self.history_manager.add_message("system", failure_message)
                     tool_interaction_messages.append({'role': 'system', 'content': failure_message})
+                    
+                    # Log the final failure
+                    self.execution_logger.error("Tool execution failed permanently", extra={
+                        'tool_name': tool_name,
+                        'total_attempts': tool_retry_count,
+                        'final_status': final_tool_status,
+                        'final_error': failure_summary,
+                        'context_name': context_name
+                    })
             
             # Increment tool_calls_made for this attempt
             tool_calls_made += 1
             
             # If this was an error, break the loop
             if final_tool_status == "error":
-                print(f"[{self.__class__.__name__}] Tool '{tool_name}' failed. Breaking main tool loop.")
+                self.orchestrator_logger.warning("Tool cycle terminated due to tool failure", extra={
+                    'tool_name': tool_name,
+                    'context_name': context_name,
+                    'cycle_iteration': cycle_iteration,
+                    'tools_called': tool_calls_made
+                })
                 break
 
-        print(f"[{self.__class__.__name__}] Tool cycle finished. Interactions: {len(tool_interaction_messages)}, Successful calls: {len(successful_tool_calls_details)}")
+        # Log completion of tool cycle
+        self.orchestrator_logger.info("Tool execution cycle completed", extra={
+            'context_name': context_name,
+            'total_interactions': len(tool_interaction_messages),
+            'successful_calls': len(successful_tool_calls_details),
+            'tools_called': tool_calls_made,
+            'max_tool_calls': max_tool_calls,
+            'cycle_completed_normally': tool_calls_made < max_tool_calls
+        })
+        
         return tool_interaction_messages, successful_tool_calls_details

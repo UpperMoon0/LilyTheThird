@@ -12,6 +12,7 @@ from .llm_client import LLMClient
 from .tool_executor import ToolExecutor
 from .error_analyzer import ErrorAnalyzer, ErrorCategory
 from .tool_orchestrator import ToolOrchestrator # Import ToolOrchestrator
+from .logging_config import setup_logging, get_logging_manager
 from memory.mongo_handler import MongoHandler
 from tools.tools import find_tool
 
@@ -45,12 +46,22 @@ class BaseLLMOrchestrator(ABC):
         """
         Initializes common components. Subclasses might override provider/model defaults.
         """
-        print(f"Initializing BaseLLMOrchestrator...")
+        # Initialize logging system first
+        self.logging_manager = setup_logging()
+        self.orchestrator_logger = self.logging_manager.get_logger('tool_orchestrator')
+        
+        self.orchestrator_logger.info("Initializing BaseLLMOrchestrator", extra={
+            'provider': provider,
+            'model_name': model_name,
+            'tool_use_enabled': tool_use_enabled,
+            'allowed_tools': allowed_tools
+        })
+        
         # Initialize shared components
         self.history_manager = HistoryManager()  # Will set LLM client later
         self.mongo_handler = MongoHandler() # Needed for ToolExecutor
         if not self.mongo_handler.is_connected():
-            print(f"Warning [{self.__class__.__name__}]: MongoDB connection failed. Memory tools will not function.")
+            self.orchestrator_logger.warning("MongoDB connection failed. Memory tools will not function.")
 
         # LLMClient handles provider/model logic and client initialization
         # Subclasses can influence provider/model before calling super().__init__ or pass them here
