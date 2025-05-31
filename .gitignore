@@ -6,3 +6,7 @@
 /downloads
 *.pyc
 pyvts_token.txt
+
+# Log files
+logs/
+*.log

@@ -18,6 +18,7 @@ class ErrorCategory(Enum):
     MEMORY_ID_ERROR = "memory_id_error"
     NETWORK_ERROR = "network_error"
     RATE_LIMIT = "rate_limit"
+    CODE_ERROR = "code_error"  # New category for API/signature mismatches
     UNKNOWN = "unknown"
 
 
@@ -67,6 +68,15 @@ class ErrorAnalyzer:
                 r"rate limit",
                 r"too many requests",
                 r"quota exceeded"
+            ],
+            ErrorCategory.CODE_ERROR: [
+                r"takes \d+ positional arguments? but \d+ were given",
+                r"takes \d+ arguments? but \d+ were given",
+                r"got multiple values for argument",
+                r"unexpected keyword argument",
+                r"typeerror.*arguments?",
+                r"method signature.*mismatch",
+                r"attributeerror.*method"
             ]
         }
     
@@ -139,12 +149,19 @@ class ErrorAnalyzer:
                    f"Target: {arguments.get('url', arguments.get('query', 'unknown target'))}")
         
         elif category == ErrorCategory.RATE_LIMIT:
-            return (base_guidance + 
+            return (base_guidance +
                    "Rate limit exceeded. This is a temporary issue with the external service. "
                    "Consider waiting or using alternative approaches.")
         
+        elif category == ErrorCategory.CODE_ERROR:
+            return (base_guidance +
+                   "Code-level error detected (likely method signature mismatch or API error). "
+                   "This is a systematic issue that requires code fixes, not retry logic. "
+                   f"Error details: {error_message}. "
+                   "This type of error indicates a programming issue that cannot be resolved by retrying.")
+        
         else:  # UNKNOWN or TOOL_EXECUTION
-            return (base_guidance + 
+            return (base_guidance +
                    f"Execution error: {error_message}. "
                    "Review the error message carefully and adjust your approach accordingly. "
                    f"Arguments used: {arguments}")
@@ -169,10 +186,11 @@ class ErrorAnalyzer:
         """Determine if retrying with the same arguments might succeed."""
         non_retryable = {
             ErrorCategory.INVALID_ARGUMENT,
-            ErrorCategory.MISSING_ARGUMENT, 
+            ErrorCategory.MISSING_ARGUMENT,
             ErrorCategory.MEMORY_ID_ERROR,
             ErrorCategory.RESOURCE_NOT_FOUND,
-            ErrorCategory.PERMISSION_DENIED
+            ErrorCategory.PERMISSION_DENIED,
+            ErrorCategory.CODE_ERROR  # Code errors are systematic and won't be fixed by retry
         }
         return category not in non_retryable
     
@@ -203,5 +221,9 @@ class ErrorAnalyzer:
             strategy["specific_instructions"].append("Must use valid memory_id from retrieved facts")
             if retry_count >= 2:
                 strategy["should_retry"] = False  # ID issue unlikely to resolve
+        
+        elif category == ErrorCategory.CODE_ERROR:
+            strategy["should_retry"] = False  # Never retry code-level errors
+            strategy["specific_instructions"].append("Code-level error - requires systematic fix, not retry")
         
         return strategy

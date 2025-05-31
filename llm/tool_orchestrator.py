@@ -4,11 +4,6 @@ import time
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timezone
 
-# Assuming components are in the same directory or adjust imports
-# from .llm_client import LLMClient # Not directly used in this snippet, but likely needed for full class
-# from .tool_executor import ToolExecutor # Not directly used in this snippet
-# from .history_manager import HistoryManager # Not directly used in this snippet
-
 from tools.tools import find_tool # find_tool is used
 from .error_analyzer import ErrorAnalyzer, ErrorCategory
 from .schemas import ToolCallDetails
@@ -141,6 +136,20 @@ class ToolOrchestrator:
         # Analyze the error
         error_category, specific_guidance = self.error_analyzer.analyze_error(error_message, tool_name, arguments)
         
+        # For code-level errors, provide immediate termination guidance
+        if error_category == ErrorCategory.CODE_ERROR:
+            return (
+                f"CRITICAL CODE-LEVEL ERROR DETECTED:\n\n"
+                f"Tool '{tool_name}' failed due to a systematic code issue:\n"
+                f"Error: {error_message}\n\n"
+                f"ANALYSIS: {specific_guidance}\n\n"
+                f"⚠️ This is NOT a retry-able error. It indicates a programming issue\n"
+                f"that requires code fixes, not argument adjustments.\n"
+                f"Common causes: API signature mismatches, method call errors, missing dependencies.\n\n"
+                f"IMMEDIATE ACTION REQUIRED: Review and fix the underlying code issue.\n"
+                f"No further retry attempts will be made for this systematic error."
+            )
+        
         # Track this failure
         failure_count = self._track_tool_failure(tool_name, error_message, arguments, error_category)
         
@@ -258,6 +267,19 @@ class ToolOrchestrator:
 
     def _should_abort_retry(self, tool_name: str, error_message: str, retry_count: int) -> bool:
         """Determine if retry should be aborted based on error analysis."""
+        # First, analyze the error to check for code-level issues
+        error_category, _ = self.error_analyzer.analyze_error(error_message, tool_name, {})
+        
+        # Immediately abort for code-level errors (TypeError, API mismatches, etc.)
+        if error_category == ErrorCategory.CODE_ERROR:
+            self.retry_logger.warning("Aborting retry: code-level error detected", extra={
+                'tool_name': tool_name,
+                'error_category': error_category.value,
+                'error_message': error_message[:200],  # Truncated
+                'reason': 'systematic_code_issue'
+            })
+            return True
+        
         if retry_count >= TOOL_EXECUTION_RETRY:
             self.retry_logger.info("Aborting retry: max attempts reached", extra={
                 'tool_name': tool_name,
@@ -280,7 +302,6 @@ class ToolOrchestrator:
             return True
         
         # Use error analyzer to determine if retry is worthwhile
-        error_category, _ = self.error_analyzer.analyze_error(error_message, tool_name, {})
         retry_strategy = self.error_analyzer.get_retry_strategy(error_category, retry_count)
         
         should_abort = not retry_strategy.get("should_retry", True)
@@ -565,9 +586,7 @@ class ToolOrchestrator:
                         execution_start = time.monotonic()
                         tool_result = await self.tool_executor.execute(
                             tool_name,
-                            arguments,
-                            self.history_manager,
-                            None  # settings_manager not available in this context
+                            arguments
                         )
                         execution_time = time.monotonic() - execution_start
                         
