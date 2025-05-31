@@ -1,0 +1,45 @@
+name: Test Suite
+
+on:
+  push:
+    branches: ['*']
+  pull_request:
+    branches: ['*']
+
+jobs:
+  test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Miniconda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        auto-update-conda: true
+        python-version: 3.12
+        miniforge-variant: Mambaforge
+        use-mamba: true
+        
+    - name: Create conda environment from environment.yml
+      run: |
+        mamba env create -f environment.yml
+        
+    - name: Activate environment and run tests
+      run: |
+        source $CONDA/etc/profile.d/conda.sh
+        conda activate LilyTheThird
+        pytest tests/ -v
+      shell: bash
+      
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          .pytest_cache/
+          test-results.xml
+        retention-days: 7
