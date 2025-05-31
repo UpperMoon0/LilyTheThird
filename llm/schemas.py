@@ -36,6 +36,14 @@ class SearchWebArgs(BaseModel):
 
 # --- End Pydantic Schemas for Tool Arguments ---
 
+# --- Tool Call Details Schema ---
+class ToolCallDetails(BaseModel):
+    """Schema for tracking successful tool call details."""
+    tool_name: str = Field(..., description="Name of the tool that was called")
+    arguments: Dict = Field(..., description="Arguments that were passed to the tool")
+    result: str = Field(..., description="Result returned by the tool")
+    execution_time: float = Field(..., description="Time taken to execute the tool in seconds")
+
 # --- Schema for Tool Selection ---
 class ToolSelectionSchema(BaseModel):
     tool_name: Optional[str] = Field(default=None, description="The name of the tool to be called, or null/None if no tool is needed.")

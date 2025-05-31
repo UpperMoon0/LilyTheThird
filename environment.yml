@@ -256,4 +256,6 @@ dependencies:
       - websockets==15.0.1
       - yarl==1.20.0
       - yt-dlp==2025.5.22
+      - pytest==8.3.3
+      - pytest-asyncio==0.25.0
 prefix: /home/nstut/miniconda3/envs/LilyTheThird

@@ -73,3 +73,58 @@ This document describes the tool system used by the LLM orchestrator, including 
     *   **Arguments**: `{"query": "web search query"}`
     *   **Implementation**: `tools.web_search_tool.perform_web_search` (uses `duckduckgo_search` library, `requests`, and `BeautifulSoup`).
     *   **Post-processing**: The raw search results (fetched content or snippets) are summarized by the `LLMClient` within the `ToolExecutor` before being returned.
+    
+    ## Enhanced Error Handling & Tool Orchestration
+    
+    The tool system has been significantly enhanced with intelligent error handling capabilities through the [`ToolOrchestrator`](llm/tool_orchestrator.py) and [`ErrorAnalyzer`](llm/error_analyzer.py) components. These improvements provide:
+    
+    ### Key Features
+    
+    *   **Intelligent Error Categorization**: Errors are automatically classified into specific categories (invalid arguments, missing parameters, memory ID errors, network issues, etc.) for targeted guidance.
+    *   **Progressive Learning**: The system tracks tool failures and provides increasingly detailed guidance for repeated errors.
+    *   **Schema-Aware Guidance**: Detailed tool schema information is extracted and provided to help LLMs understand parameter requirements.
+    *   **Enhanced Retry Messages**: Instead of generic "tool failed" messages, LLMs receive comprehensive context including error analysis, tool schemas, valid examples, and specific correction guidance.
+    *   **Pattern Detection**: The system detects and prevents infinite retry loops by identifying repeated error patterns.
+    *   **Context-Specific Examples**: Concrete examples are provided for commonly failing tools like `update_memory` and `write_file`.
+    
+    ### Error Categories
+    
+    The [`ErrorAnalyzer`](llm/error_analyzer.py:11) classifies errors into these categories:
+    *   **Invalid Argument**: Wrong data types, format issues, constraint violations
+    *   **Missing Argument**: Required parameters not provided
+    *   **Memory ID Error**: Invalid memory fact IDs in update operations
+    *   **Resource Not Found**: File paths, URLs, or other resources that don't exist
+    *   **Permission Denied**: Access rights issues
+    *   **Network Error**: Connection, timeout, or network-related failures
+    *   **Rate Limit**: API quota or rate limiting from external services
+    *   **Tool Execution**: General execution errors
+    *   **Unknown**: Unclassified errors with fallback guidance
+    
+    ### Enhanced Retry Process
+    
+    When a tool fails, the enhanced system:
+    
+    1. **Analyzes the Error**: Categorizes the failure and generates specific guidance
+    2. **Provides Schema Information**: Shows exact parameter requirements with types and constraints
+    3. **Tracks Failure Patterns**: Counts failures and detects repeated errors
+    4. **Generates Contextual Examples**: Provides correct usage examples for the failing tool
+    5. **Escalates Guidance**: Offers progressively more detailed help for repeated failures
+    6. **Makes Intelligent Retry Decisions**: Determines whether retry is worthwhile based on error type
+    
+    ### Integration
+    
+    The enhanced error handling integrates seamlessly with existing components:
+    *   **LLM Client**: Enhanced messages use standard message format
+    *   **Tool Executor**: Error capture works with existing execution flow
+    *   **History Manager**: All enhanced context is preserved in conversation history
+    *   **Memory System**: Special handling for memory ID validation with context from retrieved facts
+    
+    For detailed information about the improvements, implementation details, before/after comparisons, and troubleshooting guidance, see: **[Tool Orchestrator Improvements Documentation](tool_orchestrator_improvements.md)**
+    
+    ## Configuration
+    
+    Tool execution behavior can be configured through constants in [`tool_orchestrator.py`](llm/tool_orchestrator.py:16):
+    
+    *   `TOOL_SELECT_RETRY = 5`: Maximum retries when LLM fails to select a tool
+    *   `TOOL_EXECUTION_RETRY = 3`: Maximum retries for tool execution failures
+    *   `TOOL_RETRY_DELAY_SECONDS = 2`: Delay between retry attempts

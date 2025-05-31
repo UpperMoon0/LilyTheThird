@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timezone
 
@@ -9,10 +10,13 @@ from datetime import datetime, timezone
 # from .history_manager import HistoryManager # Not directly used in this snippet
 
 from tools.tools import find_tool # find_tool is used
+from .error_analyzer import ErrorAnalyzer, ErrorCategory
+from .schemas import ToolCallDetails
 
 # Constants for retry logic (copied from BaseLLMOrchestrator)
 TOOL_SELECT_RETRY = 5       # Max retries for LLM failing to choose a tool (0=disable, -1=infinite)
-# TOOL_USE_RETRY and TOOL_RETRY_DELAY_SECONDS are obsolete as argument generation is now part of get_next_action.
+TOOL_EXECUTION_RETRY = 3    # Max retries for tool execution failures
+TOOL_RETRY_DELAY_SECONDS = 2 # Delay between tool retries
 
 # Constants for history summarization (copied from BaseLLMOrchestrator)
 MAX_ARG_SUMMARY_LEN = 150
@@ -24,6 +28,11 @@ class ToolOrchestrator:
         self.tool_executor = tool_executor
         self.history_manager = history_manager
         self.allowed_tools = allowed_tools # This is the overall list of allowed tools for the orchestrator context
+        
+        # Initialize error analyzer for intelligent error handling
+        self.error_analyzer = ErrorAnalyzer()
+        self.tool_failure_counts = {}  # Track failures per tool
+        self.recent_errors = []  # Track recent error patterns
 
     def _summarize_for_history(self, data: any, max_len: int) -> str:
         """Helper to summarize data for concise history logging."""
@@ -40,6 +49,181 @@ class ToolOrchestrator:
         if len(s_data) > max_len:
             return s_data[:max_len-3] + "..."
         return s_data
+
+    def _track_tool_failure(self, tool_name: str, error_message: str, arguments: dict, error_category: ErrorCategory) -> int:
+        """Track tool failures and return the current failure count for this tool."""
+        # Update failure count
+        self.tool_failure_counts[tool_name] = self.tool_failure_counts.get(tool_name, 0) + 1
+        
+        # Track recent errors for pattern detection
+        error_record = {
+            "tool_name": tool_name,
+            "error_category": error_category,
+            "error_message": error_message,
+            "arguments": arguments,
+            "timestamp": datetime.now(timezone.utc)
+        }
+        
+        self.recent_errors.append(error_record)
+        # Keep only recent errors (last 10)
+        if len(self.recent_errors) > 10:
+            self.recent_errors.pop(0)
+            
+        return self.tool_failure_counts[tool_name]
+
+    def _get_tool_schema_info(self, tool_name: str) -> str:
+        """Get detailed schema information for a tool to help with argument correction."""
+        tool_definition = find_tool(tool_name)
+        if not tool_definition or not tool_definition.argument_schema:
+            return f"Tool '{tool_name}' schema information not available."
+        
+        schema_info = f"Tool '{tool_name}' expected arguments:\n"
+        
+        # Get schema from Pydantic model
+        try:
+            schema = tool_definition.argument_schema.model_json_schema()
+            properties = schema.get('properties', {})
+            required = schema.get('required', [])
+            
+            for field_name, field_info in properties.items():
+                field_type = field_info.get('type', 'unknown')
+                field_desc = field_info.get('description', 'No description')
+                is_required = field_name in required
+                
+                schema_info += f"  - {field_name} ({field_type})"
+                if is_required:
+                    schema_info += " [REQUIRED]"
+                schema_info += f": {field_desc}\n"
+                
+        except Exception as e:
+            schema_info += f"Error extracting schema details: {e}"
+            
+        return schema_info
+
+    def _generate_retry_message(self, tool_name: str, error_message: str, arguments: dict,
+                                retry_count: int, retrieved_facts: Optional[str] = None) -> str:
+        """Generate enhanced retry message with detailed guidance."""
+        # Analyze the error
+        error_category, specific_guidance = self.error_analyzer.analyze_error(error_message, tool_name, arguments)
+        
+        # Track this failure
+        failure_count = self._track_tool_failure(tool_name, error_message, arguments, error_category)
+        
+        # Check for repeated patterns using the same error category that was just tracked
+        same_pattern_count = sum(1 for error in self.recent_errors
+                               if error["tool_name"] == tool_name and
+                                  error["error_category"] == error_category)
+        
+        # Build enhanced message
+        retry_message = (
+            f"ENHANCED RETRY CONTEXT (Attempt {retry_count}):\n\n"
+            f"Tool '{tool_name}' failed with error category: {error_category.value.upper()}\n"
+            f"Tool failure count: {failure_count} (Recent similar errors: {same_pattern_count})\n\n"
+            f"ERROR ANALYSIS: {specific_guidance}\n\n"
+        )
+        
+        # Add tool schema information
+        schema_info = self._get_tool_schema_info(tool_name)
+        retry_message += f"TOOL SCHEMA:\n{schema_info}\n"
+        
+        # Add escalating guidance based on retry count and pattern
+        if same_pattern_count >= 3:
+            retry_message += (
+                "⚠️ REPEATED ERROR PATTERN DETECTED!\n"
+                "You have made this same type of error multiple times. Please:\n"
+                "1. Carefully review the schema above\n"
+                "2. Double-check your argument format and values\n"
+                "3. Ensure all required fields are provided\n"
+                "4. Verify data types match exactly\n\n"
+            )
+        
+        if retry_count >= 2:
+            retry_message += (
+                "PROGRESSIVE GUIDANCE:\n"
+                "This is your second or later attempt. Focus on:\n"
+                "- Exact argument format as shown in the schema\n"
+                "- Proper data types (string, number, boolean, etc.)\n"
+                "- All required fields must be present\n"
+                "- Values must meet any constraints mentioned\n\n"
+            )
+        
+        # Add context-specific guidance
+        if error_category == ErrorCategory.MEMORY_ID_ERROR and retrieved_facts:
+            retry_message += (
+                "MEMORY ID REFERENCE:\n"
+                "Available memory facts with valid IDs:\n"
+                f"{retrieved_facts}\n\n"
+                "CRITICAL: Only use memory_id values that appear exactly in the facts above.\n\n"
+            )
+        
+        # Add examples for commonly failing tools
+        if retry_count >= 2 and tool_name in ["update_memory", "save_memory", "write_file"]:
+            retry_message += self._get_tool_examples(tool_name)
+        
+        return retry_message
+
+    def _get_tool_examples(self, tool_name: str) -> str:
+        """Provide concrete examples for tools that frequently fail."""
+        examples = {
+            "update_memory": (
+                "CORRECT EXAMPLE for update_memory:\n"
+                '{\n'
+                '  "memory_id": "507f1f77bcf86cd799439011",\n'
+                '  "new_content": "Updated information here"\n'
+                '}\n'
+                "The memory_id MUST be exactly as shown in retrieved facts.\n\n"
+            ),
+            "save_memory": (
+                "CORRECT EXAMPLE for save_memory:\n"
+                '{\n'
+                '  "content": "New information to remember for future reference"\n'
+                '}\n'
+                "Content should be descriptive and self-contained.\n\n"
+            ),
+            "write_file": (
+                "CORRECT EXAMPLE for write_file:\n"
+                '{\n'
+                '  "file_path": "/full/path/to/file.txt",\n'
+                '  "content": "File content here"\n'
+                '}\n'
+                "Use absolute paths and ensure directories exist.\n\n"
+            ),
+            "read_file": (
+                "CORRECT EXAMPLE for read_file:\n"
+                '{\n'
+                '  "file_path": "/full/path/to/file.txt"\n'
+                '}\n'
+                "Use absolute paths to existing files.\n\n"
+            ),
+            "search_web": (
+                "CORRECT EXAMPLE for search_web:\n"
+                '{\n'
+                '  "query": "specific search terms"\n'
+                '}\n'
+                "Use clear, specific search terms.\n\n"
+            )
+        }
+        return examples.get(tool_name, "")
+
+    def _should_abort_retry(self, tool_name: str, error_message: str, retry_count: int) -> bool:
+        """Determine if retry should be aborted based on error analysis."""
+        if retry_count >= TOOL_EXECUTION_RETRY:
+            return True
+            
+        # Check for exact same errors
+        exact_same_count = sum(1 for error in self.recent_errors[-5:]
+                             if error.get("tool_name") == tool_name and
+                                error.get("error_message") == error_message)
+        
+        if exact_same_count >= 3:
+            print(f"[{self.__class__.__name__}] Aborting retry: same error repeated {exact_same_count} times")
+            return True
+        
+        # Use error analyzer to determine if retry is worthwhile
+        error_category, _ = self.error_analyzer.analyze_error(error_message, tool_name, {})
+        retry_strategy = self.error_analyzer.get_retry_strategy(error_category, retry_count)
+        
+        return not retry_strategy.get("should_retry", True)
 
     async def execute_tool_cycle(self, 
                                  base_system_messages: List[Dict[str, str]], 
@@ -159,9 +343,7 @@ class ToolOrchestrator:
             tool_name = action_decision.get("tool_name")
             arguments = action_decision.get("tool_args")
             
-            # Import time module and setup for timing
-            import time
-            from llm.schemas import ToolCallDetails
+            # Setup for timing
             tool_start_time = time.monotonic()
             
             print(f"[{self.__class__.__name__}] Tool Orchestrator: Attempting tool call for '{tool_name}'.")
@@ -174,51 +356,127 @@ class ToolOrchestrator:
                 tool_interaction_messages.append({'role': 'system', 'content': error_message})
                 final_tool_status = "error"
             else:
-                # Add system message indicating the tool call
-                args_summary = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
-                call_message = f"System: Calling tool '{tool_name}' with arguments: {args_summary}"
-                await self.history_manager.add_message("system", call_message)
-                tool_interaction_messages.append({'role': 'system', 'content': call_message})
+                # Execute tool with retry logic
+                final_tool_status = "error"  # Default to error
+                tool_result = None
+                tool_retry_count = 0
                 
-                try:
-                    # Execute the tool
-                    tool_result = await self.tool_executor.execute(
-                        tool_name,
-                        arguments,
-                        self.history_manager,
-                        None  # settings_manager not available in this context
-                    )
+                while tool_retry_count <= TOOL_EXECUTION_RETRY:
+                    # Add system message indicating the tool call attempt
+                    args_summary = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
+                    if tool_retry_count == 0:
+                        call_message = f"System: Calling tool '{tool_name}' with arguments: {args_summary}"
+                    else:
+                        call_message = f"System: Retrying tool '{tool_name}' (attempt {tool_retry_count + 1}) with arguments: {args_summary}"
                     
-                    # Add system message summarizing the tool's result
+                    await self.history_manager.add_message("system", call_message)
+                    tool_interaction_messages.append({'role': 'system', 'content': call_message})
+                    
+                    try:
+                        # Execute the tool
+                        tool_result = await self.tool_executor.execute(
+                            tool_name,
+                            arguments,
+                            self.history_manager,
+                            None  # settings_manager not available in this context
+                        )
+                        
+                        # Check if the tool_result indicates an error
+                        if isinstance(tool_result, str) and tool_result.startswith("Error:"):
+                            print(f"[{self.__class__.__name__}] Tool '{tool_name}' execution resulted in an error: {tool_result}")
+                            
+                            # Check if we should abort or retry
+                            if self._should_abort_retry(tool_name, tool_result, tool_retry_count):
+                                print(f"[{self.__class__.__name__}] Aborting retry for tool '{tool_name}' after {tool_retry_count + 1} attempts")
+                                break
+                            
+                            # Generate enhanced retry message
+                            enhanced_retry_message = self._generate_retry_message(
+                                tool_name, tool_result, arguments, tool_retry_count + 1, retrieved_facts_context_string
+                            )
+                            
+                            await self.history_manager.add_message("system", enhanced_retry_message)
+                            tool_interaction_messages.append({'role': 'system', 'content': enhanced_retry_message})
+                            
+                            # Wait before retry
+                            if tool_retry_count < TOOL_EXECUTION_RETRY:
+                                await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
+                                
+                            tool_retry_count += 1
+                            
+                            # For argument-related errors, we need to get new arguments from the LLM
+                            error_category, _ = self.error_analyzer.analyze_error(tool_result, tool_name, arguments)
+                            if error_category in [ErrorCategory.INVALID_ARGUMENT, ErrorCategory.MISSING_ARGUMENT]:
+                                # Get current history for argument regeneration
+                                current_history = self.history_manager.get_history()
+                                messages_for_retry = base_system_messages + current_history
+                                
+                                # Request new action with enhanced context
+                                retry_action = await self.llm_client.get_next_action(
+                                    messages_for_retry,
+                                    allowed_tools=[tool_name],  # Force same tool
+                                    context_type=context_name
+                                )
+                                
+                                if retry_action and retry_action.get("action_type") == "tool_call":
+                                    arguments = retry_action.get("tool_args", arguments)
+                                    print(f"[{self.__class__.__name__}] Regenerated arguments for '{tool_name}': {arguments}")
+                                else:
+                                    print(f"[{self.__class__.__name__}] Failed to regenerate arguments for '{tool_name}'")
+                                    break
+                            
+                            continue  # Retry with same or new arguments
+                        else:
+                            # Success!
+                            successful_tool_calls_details.append(
+                                ToolCallDetails(
+                                    tool_name=tool_name,
+                                    arguments=arguments,
+                                    result=tool_result,
+                                    execution_time=time.monotonic() - tool_start_time
+                                )
+                            )
+                            final_tool_status = "success"
+                            print(f"[{self.__class__.__name__}] Tool '{tool_name}' executed successfully.")
+                            break  # Exit retry loop on success
+                            
+                    except Exception as e:
+                        # Handle exceptions during tool execution
+                        exception_message = f"System: An unexpected error occurred during execution of tool '{tool_name}': {str(e)}"
+                        print(f"[{self.__class__.__name__}] Exception during execution of tool '{tool_name}': {e}")
+                        
+                        # Check if we should retry the exception
+                        if self._should_abort_retry(tool_name, str(e), tool_retry_count):
+                            await self.history_manager.add_message("system", exception_message)
+                            tool_interaction_messages.append({'role': 'system', 'content': exception_message})
+                            break
+                        
+                        # Generate enhanced retry message for exception
+                        enhanced_exception_message = self._generate_retry_message(
+                            tool_name, str(e), arguments, tool_retry_count + 1, retrieved_facts_context_string
+                        )
+                        
+                        await self.history_manager.add_message("system", enhanced_exception_message)
+                        tool_interaction_messages.append({'role': 'system', 'content': enhanced_exception_message})
+                        
+                        # Wait before retry
+                        if tool_retry_count < TOOL_EXECUTION_RETRY:
+                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
+                            
+                        tool_retry_count += 1
+                        continue
+                
+                # Add final result message
+                if final_tool_status == "success":
                     result_summary = self._summarize_for_history(str(tool_result), MAX_RESULT_SUMMARY_LEN)
-                    result_message = f"System: Tool '{tool_name}' executed. Result: {result_summary}"
+                    result_message = f"System: Tool '{tool_name}' executed successfully. Result: {result_summary}"
                     await self.history_manager.add_message("system", result_message)
                     tool_interaction_messages.append({'role': 'system', 'content': result_message})
-                    
-                    # Check if the tool_result indicates an error
-                    if isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                        print(f"[{self.__class__.__name__}] Tool '{tool_name}' execution resulted in an error: {tool_result}")
-                        final_tool_status = "error"
-                    else:
-                        # Add details to successful_tool_calls_details
-                        successful_tool_calls_details.append(
-                            ToolCallDetails(
-                                tool_name=tool_name,
-                                arguments=arguments,
-                                result=tool_result,
-                                execution_time=time.monotonic() - tool_start_time
-                            )
-                        )
-                        final_tool_status = "success"
-                        print(f"[{self.__class__.__name__}] Tool '{tool_name}' executed successfully.")
-                        
-                except Exception as e:
-                    # Handle exceptions during tool execution
-                    error_message = f"System: An unexpected error occurred during execution of tool '{tool_name}': {str(e)}"
-                    print(f"[{self.__class__.__name__}] Exception during execution of tool '{tool_name}': {e}")
-                    await self.history_manager.add_message("system", error_message)
-                    tool_interaction_messages.append({'role': 'system', 'content': error_message})
-                    final_tool_status = "error"
+                else:
+                    failure_summary = self._summarize_for_history(str(tool_result), MAX_RESULT_SUMMARY_LEN)
+                    failure_message = f"System: Tool '{tool_name}' failed after {tool_retry_count} attempts. Final error: {failure_summary}"
+                    await self.history_manager.add_message("system", failure_message)
+                    tool_interaction_messages.append({'role': 'system', 'content': failure_message})
             
             # Increment tool_calls_made for this attempt
             tool_calls_made += 1

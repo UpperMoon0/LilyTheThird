@@ -963,21 +963,18 @@ class LLMClient:
         """
         # --- Check if the tool requires arguments ---
         # If the schema defines no properties and no required fields, assume no arguments needed.
-        if not tool.json_schema.get("properties") and not tool.json_schema.get("required"):
-            print(f"Tool '{tool.name}' requires no arguments. Returning empty dict.")
-            return {"action_type": "tool_arguments", "arguments": {}}
+        
+        # Generate schema from Pydantic model
+        schema = tool.argument_schema.model_json_schema() if tool.argument_schema else {}
 
-        # --- If arguments are needed, prompt the LLM ---
-        required_args = tool.json_schema.get("required", [])
-        properties = tool.json_schema.get("properties", {})
+        if not schema.get("properties") and not schema.get("required"):
+            print(f"Tool '{tool.name}' requires no arguments. Returning empty dict.")
+            return {"action_type": "tool_arguments", "arguments": {}}        # --- If arguments are needed, prompt the LLM ---
+        required_args = schema.get("required", [])
+        properties = schema.get("properties", {})
         arg_descriptions = [f"- '{prop}': {details.get('description', 'No description')}" for prop, details in properties.items() if prop in required_args]
-        # Try to extract the example from the tool's instruction string
-        example_json_str = "{}" # Default empty JSON
-        if "Example: " in tool.instruction:
-            try:
-                example_json_str = tool.instruction.split("Example: ")[-1]
-            except Exception:
-                pass # Keep default if split fails
+        # Default empty JSON for example
+        example_json_str = "{}"
 
         system_prompt = (
             f"You MUST use the tool '{tool.name}'.\n"
