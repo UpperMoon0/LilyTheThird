@@ -34,37 +34,38 @@ class LLMSelector(BoxLayout):
     def on_llm_providers(self, instance, new_providers_list):
         """
         Called when the llm_providers list changes.
-        Updates _display_providers by filtering out 'openai'.
-        Also adjusts selected_provider if it becomes invalid or needs initialization.
+        Updates _display_providers and adjusts selected_provider if it
+        becomes invalid or needs initialization.
         """
         # Ensure new_providers_list is iterable and items are strings for comparison
         safe_new_providers_list = [str(p) for p in new_providers_list if p is not None]
 
-        self._display_providers = [p for p in safe_new_providers_list if p.lower() != "openai"]
+        self._display_providers = safe_new_providers_list[:] # Use all available providers
 
-        current_selected_provider_str = str(self.selected_provider) if self.selected_provider is not None else ""
+        current_selected_provider = str(self.selected_provider) if self.selected_provider is not None else ""
+        new_selected_provider_to_set = ""
 
-        # Determine the default provider, prioritizing "gemini"
-        default_provider_to_set = ""
-        if "gemini" in self._display_providers:
-            default_provider_to_set = "gemini"
-        elif self._display_providers: # If "gemini" not available, use the first in the list
-            default_provider_to_set = self._display_providers[0]
-        # If no display providers, default_provider_to_set remains ""
+        if self._display_providers:
+            # Priority 1: Keep current selection if it's valid and available in the new list
+            if current_selected_provider and current_selected_provider in self._display_providers:
+                new_selected_provider_to_set = current_selected_provider
+            # Priority 2: Default to "Gemini" if available
+            elif "Gemini" in self._display_providers: # Case-sensitive match
+                new_selected_provider_to_set = "Gemini"
+            # Priority 3: Default to "OpenAI" if available
+            elif "OpenAI" in self._display_providers: # Case-sensitive match
+                new_selected_provider_to_set = "OpenAI"
+            # Priority 4: Default to the first provider in the list
+            else:
+                new_selected_provider_to_set = self._display_providers[0]
+        else:
+            # No providers available, clear selection
+            new_selected_provider_to_set = ""
 
-        # Case 1: 'openai' was selected and is now hidden
-        if current_selected_provider_str.lower() == "openai":
-            self.selected_provider = default_provider_to_set
-        # Case 2: A previously selected provider is no longer valid (not in display list),
-        # or no provider was selected (initial state) and there are available providers.
-        elif (self.selected_provider and self.selected_provider not in self._display_providers) or \
-             (not self.selected_provider and self._display_providers): # Catches None or "" for self.selected_provider
-            self.selected_provider = default_provider_to_set
-        # Case 3: Providers list becomes empty, and something was selected (clear selection)
-        elif not self._display_providers and self.selected_provider:
-            self.selected_provider = ""
-        # Otherwise, the current selection is valid (e.g. user already selected a valid provider,
-        # or selected_provider is already the desired default like 'gemini').
+        # Only update the property if the determined provider is different from the current one.
+        # This avoids unnecessary updates if the current selection is already optimal.
+        if self.selected_provider != new_selected_provider_to_set:
+            self.selected_provider = new_selected_provider_to_set
 
     # The following methods are examples if direct binding in __init__ is preferred
     # over relying solely on kv lang for property updates from UI to these properties.

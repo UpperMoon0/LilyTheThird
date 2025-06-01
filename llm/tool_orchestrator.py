@@ -9,6 +9,13 @@ from .error_analyzer import ErrorAnalyzer, ErrorCategory
 from .schemas import ToolCallDetails
 from .logging_config import get_logging_manager
 
+
+# Instructional prompt for LLM regarding tool schema adherence
+INSTRUCTIONAL_PROMPT_FOR_SCHEMA = """You will be provided with a list of available tools, including their names, descriptions, and detailed argument schemas.
+When you decide to use a tool, you MUST strictly adhere to its provided argument schema.
+Ensure all required parameters are included, and all parameter values precisely match the specified types and formats.
+Pay close attention to data types (e.g., string, number, boolean, list, object) and any constraints mentioned in the schema."""
+
 # Constants for retry logic (copied from BaseLLMOrchestrator)
 TOOL_SELECT_RETRY = 5       # Max retries for LLM failing to choose a tool (0=disable, -1=infinite)
 TOOL_EXECUTION_RETRY = 3    # Max retries for tool execution failures
@@ -330,24 +337,52 @@ class ToolOrchestrator:
         tool_calls_made = 0
 
         # Define tools to exclude from this specific loop (e.g., memory tools handled elsewhere)
-        tools_to_exclude_from_main_loop = ['fetch_memory', 'save_memory'] 
+        tools_to_exclude_from_main_loop = ['fetch_memory', 'save_memory']
         
-        main_loop_allowed_tools = None
+        main_loop_allowed_tool_names = None # Will hold list of tool names
         if self.allowed_tools is not None:
-            main_loop_allowed_tools = [
+            main_loop_allowed_tool_names = [
                 tool for tool in self.allowed_tools if tool not in tools_to_exclude_from_main_loop
             ]
         elif self.allowed_tools is None: # All tools configured for the orchestrator are allowed
-             all_tool_names = self.tool_executor.get_all_tool_names() 
-             main_loop_allowed_tools = [
+             all_tool_names = self.tool_executor.get_all_tool_names()
+             main_loop_allowed_tool_names = [
                  tool for tool in all_tool_names if tool not in tools_to_exclude_from_main_loop
              ]
+
+        # Prepare structured tool information for the LLM
+        structured_tools_for_llm = []
+        if main_loop_allowed_tool_names:
+            for tool_name in main_loop_allowed_tool_names:
+                tool_definition = find_tool(tool_name)
+                if tool_definition and hasattr(tool_definition, 'argument_schema') and tool_definition.argument_schema:
+                    try:
+                        schema = tool_definition.argument_schema.model_json_schema()
+                        description = getattr(tool_definition, 'description', "No description available.")
+                        if description is None: # Ensure description is a string
+                            description = "No description available."
+                        
+                        structured_tools_for_llm.append({
+                            "name": tool_name,
+                            "description": description,
+                            "parameters": schema
+                        })
+                    except Exception as e:
+                        self.orchestrator_logger.error(
+                            f"Failed to get/process schema for tool {tool_name}: {e}",
+                            extra={'tool_name': tool_name, 'context_name': context_name, 'error': str(e)}
+                        )
+                else:
+                    self.orchestrator_logger.warning(
+                        f"Tool '{tool_name}' definition or argument_schema not found or invalid. Skipping for LLM.",
+                        extra={'tool_name': tool_name, 'context_name': context_name}
+                    )
         
         # Log the start of tool cycle with comprehensive context
         self.orchestrator_logger.info("Starting tool execution cycle", extra={
             'context_name': context_name,
             'max_tool_calls': max_tool_calls,
-            'allowed_tools': main_loop_allowed_tools,
+            'allowed_tool_names': main_loop_allowed_tool_names, # Log names for brevity
             'has_retrieved_facts': retrieved_facts_context_string is not None,
             'current_tool_calls': tool_calls_made
         })
@@ -367,7 +402,7 @@ class ToolOrchestrator:
             
             self.orchestrator_logger.debug("Starting tool selection phase", extra={
                 'cycle_iteration': cycle_iteration,
-                'available_tools': main_loop_allowed_tools,
+                'available_tool_names': main_loop_allowed_tool_names, # Log names
                 'context_name': context_name
             })
             
@@ -375,10 +410,17 @@ class ToolOrchestrator:
                 current_history_loop = self.history_manager.get_history()
                 messages_for_loop = base_system_messages + current_history_loop
 
+                # Add instructional prompt about schema adherence
+                instructional_message_for_schema = {
+                    'role': 'system',
+                    'content': INSTRUCTIONAL_PROMPT_FOR_SCHEMA
+                }
+                messages_for_loop.append(instructional_message_for_schema)
+
                 if select_retry_count > 0:
                     retry_context_content = (
                         f"RETRY CONTEXT: Previous attempt (attempt {select_retry_count}) to select a tool failed or returned an invalid format. "
-                        f"Please review the conversation history and available tools, then choose the next appropriate action (tool or null)."
+                        f"Please review the conversation history and available tools (schemas provided), then choose the next appropriate action (tool or null)."
                     )
                     # Create the message dictionary
                     retry_context_message = {'role': 'system', 'content': retry_context_content}
@@ -391,21 +433,21 @@ class ToolOrchestrator:
                         'select_retry_count': select_retry_count,
                         'cycle_iteration': cycle_iteration,
                         'context_name': context_name,
-                        'available_tools': main_loop_allowed_tools
+                        'available_tool_names': main_loop_allowed_tool_names # Log names
                     })
                     await asyncio.sleep(1) # Keep a small delay for retries
-
+ 
                 # Log the LLM decision request
                 self.decision_logger.debug("Requesting LLM action decision", extra={
                     'attempt': select_retry_count + 1,
                     'message_count': len(messages_for_loop),
-                    'available_tools': main_loop_allowed_tools,
+                    'available_tool_count': len(structured_tools_for_llm), # Log count of structured tools
                     'context_name': context_name
                 })
-
+ 
                 action_decision = await self.llm_client.get_next_action(
                     messages_for_loop,
-                    allowed_tools=main_loop_allowed_tools,
+                    allowed_tools=structured_tools_for_llm, # Pass structured tools with schemas
                     context_type=context_name
                 )
                 

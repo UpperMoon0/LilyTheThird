@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 import os 
 import datetime 
-from tools.tools import ToolDefinition, get_tool_list_for_prompt, get_tool_names
+from tools.tools import ToolDefinition # get_tool_list_for_prompt, get_tool_names removed
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 from openai import OpenAI, RateLimitError as OpenAIRateLimitError
@@ -717,8 +717,8 @@ class LLMClient:
 
     async def get_next_action(
         self,
-        messages: List[Dict],
-        allowed_tools: Optional[List[str]] = None,
+        messages: List[Dict[str, Any]],
+        allowed_tools: Optional[List[Dict[str, Any]]] = None, # Changed type
         context_type: Optional[str] = None,
         force_tool_options: Optional[List[str]] = None
     ) -> Optional[Dict[str, Any]]:
@@ -728,7 +728,8 @@ class LLMClient:
 
         Args:
             messages: The current conversation history in OpenAI format.
-            allowed_tools: List of tool names allowed in the *overall* context. If None, all tools are allowed.
+            allowed_tools: List of tool definitions (dictionaries with "name", "description", "parameters" schema).
+                           If None, all tools are allowed (though current implementation relies on this list).
             context_type: Optional string identifying the context (e.g., 'chatbox', 'discord').
             force_tool_options: Optional list of tool names. If provided, the LLM MUST choose one of these or null.
 
@@ -737,77 +738,73 @@ class LLMClient:
             {"action_type": "text_response", "text": "..."} if the LLM responds with text,
             or an error dictionary if all retries fail.
         """
-        from tools.tools import find_tool # Local import to avoid circular dependency issues at module level
+        # from tools.tools import find_tool # No longer needed
 
-        # Determine the actual tools the LLM can choose from in this specific call
-        if force_tool_options is not None:
-            all_available_context_tools = set(get_tool_names(allowed_tools=allowed_tools))
-            valid_forced_options = [tool for tool in force_tool_options if tool in all_available_context_tools]
-            if not valid_forced_options:
-                print(f"Warning: Forced tool options {force_tool_options} are not available/allowed. No tool call possible.")
-                return {"action_type": "text_response", "text": "(Internal: No valid forced tools available)"} # No valid tools to force
-            choosable_tool_names = valid_forced_options
+        # Determine the actual tools the LLM can choose from
+        final_choosable_tool_definitions: List[Dict[str, Any]] = []
+        choosable_names_for_prompt: List[str] = []
+
+        if not allowed_tools:
+            print("No tools allowed or available in this context. LLM will respond with text.")
         else:
-            choosable_tool_names = get_tool_names(allowed_tools=allowed_tools)
-            if not choosable_tool_names:
-                print("No tools allowed or available in this context. LLM will respond with text.")
-                # No tools, so LLM must respond with text. We don't need to call it for tool choice.
-                # However, the current structure expects an LLM call. For now, let it proceed but Gemini will get no tools.
-                pass # Let it proceed, Gemini will get an empty tool list if provider is Gemini
+            if force_tool_options:
+                all_available_tool_names = {tool_data["name"] for tool_data in allowed_tools}
+                valid_forced_names = [name for name in force_tool_options if name in all_available_tool_names]
+
+                if not valid_forced_names:
+                    print(f"Warning: Forced tool options {force_tool_options} are not available/allowed among the provided tools. No tool call possible.")
+                    return {"action_type": "text_response", "text": "(Internal: No valid forced tools available)"}
+                
+                final_choosable_tool_definitions = [
+                    tool_data for tool_data in allowed_tools if tool_data["name"] in valid_forced_names
+                ]
+            else:
+                final_choosable_tool_definitions = allowed_tools
+            
+            if not final_choosable_tool_definitions: # Could be empty if allowed_tools was non-empty but force_tool_options filtered all out (already handled) or if allowed_tools was empty initially.
+                 print("No tools effectively choosable after filtering. LLM will respond with text.")
+
+
+        choosable_names_for_prompt = [td["name"] for td in final_choosable_tool_definitions]
 
         # --- Provider-Specific Logic for Tool Choice & Argument Generation ---
 
         if self.provider == 'gemini':
-            # Prepare tools for Gemini Function Calling
             gemini_function_declarations = []
-            if choosable_tool_names: # Only prepare tools if there are any to choose from
-                for tool_name in choosable_tool_names:
-                    tool_def = find_tool(tool_name)
-                    if tool_def and tool_def.argument_schema:
-                        # Convert Pydantic schema to JSON schema for FunctionDeclaration
-                        # Pydantic v2: tool_def.argument_schema.model_json_schema()
-                        # Pydantic v1: tool_def.argument_schema.schema()                        
-                        try:
-                            json_schema = tool_def.argument_schema.model_json_schema()
-                        except AttributeError:
-                            json_schema = tool_def.argument_schema.schema() # Fallback for Pydantic v1 if necessary
-                        
-                        # Remove 'title' field from the schema as Gemini doesn't accept it
-                        clean_schema = {k: v for k, v in json_schema.items() if k != 'title'}
-                        # Also clean 'title' from properties if they exist
-                        if 'properties' in clean_schema:
-                            for prop_name, prop_schema in clean_schema['properties'].items():
-                                if isinstance(prop_schema, dict) and 'title' in prop_schema:
-                                    clean_schema['properties'][prop_name] = {k: v for k, v in prop_schema.items() if k != 'title'}
-                        
-                        gemini_function_declarations.append(
-                            FunctionDeclaration(
-                                name=tool_def.name,
-                                description=tool_def.description,
-                                parameters=clean_schema
-                            )
+            if final_choosable_tool_definitions:
+                for tool_data in final_choosable_tool_definitions:
+                    name = tool_data["name"]
+                    description = tool_data["description"]
+                    # parameters_schema is already a JSON schema dict
+                    parameters_schema = tool_data.get("parameters", {"type": "object", "properties": {}}) # Default if missing, though prompt implies it's there
+
+                    # Clean schema for Gemini (remove 'title' at root and in properties)
+                    clean_schema = {k: v for k, v in parameters_schema.items() if k != 'title'}
+                    if 'properties' in clean_schema and isinstance(clean_schema['properties'], dict):
+                        cleaned_props = {}
+                        for prop_name, prop_schema in clean_schema['properties'].items():
+                            if isinstance(prop_schema, dict):
+                                cleaned_props[prop_name] = {k: v for k, v in prop_schema.items() if k != 'title'}
+                            else:
+                                cleaned_props[prop_name] = prop_schema # Preserve non-dict property schemas
+                        clean_schema['properties'] = cleaned_props
+                    
+                    gemini_function_declarations.append(
+                        FunctionDeclaration(
+                            name=name,
+                            description=description,
+                            parameters=clean_schema if clean_schema else {"type": "object", "properties": {}} # Ensure valid schema
                         )
-                    elif tool_def: # Tool with no arguments
-                         gemini_function_declarations.append(
-                            FunctionDeclaration(
-                                name=tool_def.name,
-                                description=tool_def.description,
-                                parameters={ # Gemini requires a parameters schema, even if empty
-                                    "type": "object",
-                                    "properties": {},
-                                }
-                            )
-                        )
+                    )
 
             gemini_tool_config = GeminiTool(function_declarations=gemini_function_declarations) if gemini_function_declarations else None
             
-            # System prompt for Gemini (can be simpler as tool structure is formally defined)
             system_prompt_lines = [
                 "You are an AI assistant. Analyze the conversation and decide if using one of your available functions (tools) is the best way to respond.",
                 "If a function is appropriate, call it with the necessary arguments. Otherwise, respond directly to the user."
             ]
-            if force_tool_options:
-                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_tool_names)}.")
+            if force_tool_options and choosable_names_for_prompt: # Only add if there are tools to suggest
+                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_names_for_prompt)}.")
             
             if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
                  system_prompt_lines.append(
@@ -825,59 +822,51 @@ class LLMClient:
             )
 
             if gemini_response and "error" not in gemini_response:
-                if "name" in gemini_response: # Function call was made
+                if "name" in gemini_response:
                     return {
                         "action_type": "tool_call",
                         "tool_name": gemini_response["name"],
                         "tool_args": gemini_response["args"]
                     }
-                elif "text_response" in gemini_response: # LLM decided to respond with text
+                elif "text_response" in gemini_response:
                     return {"action_type": "text_response", "text": gemini_response["text_response"]}
-                else: # Should not happen if _get_gemini_function_call is correct
+                else:
                     return {"action_type": "error", "error": "Invalid response from _get_gemini_function_call"}
             else:
-                error_detail = gemini_response["error"] if gemini_response else "Unknown error from Gemini function call"
+                error_detail = gemini_response.get("error", "Unknown error from Gemini function call") if isinstance(gemini_response, dict) else "Unknown error structure from Gemini"
                 return {"action_type": "error", "error": error_detail}
 
         elif self.provider == 'openai':
-            # OpenAI: Current logic for tool selection (simplified here, needs to align with your existing OpenAI flow)
-            # This part would use the existing _call_llm_for_json with a schema asking for tool_name
-            # and then potentially another call for arguments if a tool is chosen.
-            # For brevity, I'm showing a conceptual adaptation. You'll need to integrate this with your
-            # actual OpenAI tool calling logic (which might involve multiple LLM calls or a more complex single call).
-
-            # --- OpenAI Native Function Calling Path ---
             openai_tools_definitions = []
-            if choosable_tool_names:
-                for tool_name in choosable_tool_names:
-                    tool_def = find_tool(tool_name)
-                    if tool_def:
-                        param_schema = {}
-                        if tool_def.argument_schema:
-                            try: # Pydantic v2
-                                param_schema = tool_def.argument_schema.model_json_schema()
-                            except AttributeError: # Pydantic v1
-                                param_schema = tool_def.argument_schema.schema()
-                            # OpenAI schema doesn't like 'title' at the top level of parameters,
-                            # but it's fine within properties. Remove if present at top.
-                            if 'title' in param_schema:
-                                del param_schema['title']
-                        
-                        openai_tools_definitions.append({
-                            "type": "function",
-                            "function": {
-                                "name": tool_def.name,
-                                "description": tool_def.description,
-                                "parameters": param_schema if tool_def.argument_schema else {"type": "object", "properties": {}},
-                            }
-                        })
+            if final_choosable_tool_definitions:
+                for tool_data in final_choosable_tool_definitions:
+                    name = tool_data["name"]
+                    description = tool_data["description"]
+                    # parameters_schema is already a JSON schema dict
+                    parameters_schema = tool_data.get("parameters", {"type": "object", "properties": {}})
+
+                    # OpenAI schema doesn't like 'title' at the top level of parameters,
+                    # but it's fine within properties. Remove if present at top.
+                    # Create a copy to modify
+                    final_params_schema = dict(parameters_schema)
+                    if 'title' in final_params_schema:
+                        del final_params_schema['title']
+                    
+                    openai_tools_definitions.append({
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "description": description,
+                            "parameters": final_params_schema if final_params_schema else {"type": "object", "properties": {}},
+                        }
+                    })
             
             system_prompt_lines = [
                 "You are an AI assistant. Analyze the conversation and decide if using one of your available functions (tools) is the best way to respond.",
                 "If a function is appropriate, call it with the necessary arguments. Otherwise, respond directly to the user."
             ]
-            if force_tool_options:
-                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_tool_names)}.")
+            if force_tool_options and choosable_names_for_prompt: # Only add if there are tools to suggest
+                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_names_for_prompt)}.")
             
             if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
                  system_prompt_lines.append(
@@ -887,14 +876,11 @@ class LLMClient:
             request_messages = [{"role": "system", "content": system_prompt}] + messages
 
             tool_choice_openai = "auto"
-            if force_tool_options and len(force_tool_options) == 1 and force_tool_options[0] in choosable_tool_names:
-                # If exactly one tool is forced and valid, tell OpenAI to use it.
+            # Use choosable_names_for_prompt for checking if the forced tool is valid in the current context
+            if force_tool_options and len(force_tool_options) == 1 and force_tool_options[0] in choosable_names_for_prompt:
                 tool_choice_openai = {"type": "function", "function": {"name": force_tool_options[0]}}
             elif force_tool_options:
-                # If multiple tools are forced, OpenAI doesn't have a direct way to force *one of a list*.
-                # "auto" with a strong prompt is the best approach.
-                # Or, if only specific tools are allowed (not just preferred), the `tools` list itself restricts.
-                pass
+                pass # "auto" with strong prompt is the best for multiple preferred tools
 
 
             openai_response_obj = await self._call_openai_with_tools(
