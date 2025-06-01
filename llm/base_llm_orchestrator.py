@@ -674,8 +674,9 @@ class BaseLLMOrchestrator(ABC):
         print(f"--- Step 6: Final Response Generation ---")
         final_history = self.history_manager.get_history() # Get history *after* all tool steps
 
-        # Always perform final response generation to ensure context cleaning occurs
+        # ALWAYS perform final response generation to ensure context cleaning occurs
         # This removes tool instruction scaffolding and applies proper filtering
+        # NOTE: This replaces any previous logic that might skip final response generation
         print(f"[{self.__class__.__name__}] Generating final response with context cleaning...")
 
         # Prepare messages for final response generation with filtered/cleaned history

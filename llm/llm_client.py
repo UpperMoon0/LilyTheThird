@@ -270,8 +270,20 @@ class LLMClient:
                 # For Gemini, client is typically the model instance.
                 # Configuration is global or per-model.
                 genai.configure(api_key=initial_api_key)
-                self.client = genai.GenerativeModel(self.model) # Store model instance as client
-                print(f"Gemini client (GenerativeModel) initialized with model {self.model} and key ending ...{initial_api_key[-4:]}")
+                
+                # Configure safety settings to disable all content filtering (uncensored mode)
+                safety_settings = {
+                    genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                    genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                    genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                    genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                }
+                
+                self.client = genai.GenerativeModel(
+                    self.model,
+                    safety_settings=safety_settings
+                ) # Store model instance as client with disabled safety settings
+                print(f"Gemini client (GenerativeModel) initialized with model {self.model}, UNCENSORED mode (all safety filters disabled), and key ending ...{initial_api_key[-4:]}")
             else:
                 print(f"Error: Unknown provider '{self.provider}'. Client not initialized.")
                 self.client = None
@@ -361,10 +373,19 @@ class LLMClient:
                     # Re-configure genai globally for this attempt
                     genai.configure(api_key=api_key)
                     
+                    # Configure safety settings to disable all content filtering (uncensored mode)
+                    safety_settings = {
+                        genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                        genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                        genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                        genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                    }
+                    
                     # Re-fetch the model instance using the explicit model_name parameter
                     current_client = genai.GenerativeModel(
-                        model_name=self.model
-                    ) # Explicitly use model_name
+                        model_name=self.model,
+                        safety_settings=safety_settings
+                    ) # Explicitly use model_name with disabled safety settings
 
                     # Adapt messages
                     system_prompts = [msg['content'] for msg in messages if msg['role'] == 'system']
@@ -524,10 +545,19 @@ class LLMClient:
                     print("Warning: No system prompt found at the start of messages for _get_gemini_function_call.")
                     conversation_messages = messages
                 
-                # Initialize the model instance with system_instruction
+                # Configure safety settings to disable all content filtering (uncensored mode)
+                safety_settings = {
+                    genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                    genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                    genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                    genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                }
+                
+                # Initialize the model instance with system_instruction and disabled safety settings
                 current_client = genai.GenerativeModel(
                     model_name=self.model,
-                    system_instruction=system_instruction_text
+                    system_instruction=system_instruction_text,
+                    safety_settings=safety_settings
                 )
 
                 # Convert remaining OpenAI message format to Gemini's content format
@@ -1115,9 +1145,18 @@ class LLMClient:
             history_contents.append({"role": role, "parts": [{"text": content_text}]})
 
         try:
+            # Configure safety settings to disable all content filtering (uncensored mode)
+            safety_settings = {
+                genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+                genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: genai.types.HarmBlockThreshold.BLOCK_NONE,
+            }
+            
             model_instance = genai.GenerativeModel(
                 model_name=self.model, # Use model_name parameter
-                system_instruction=system_instruction_text
+                system_instruction=system_instruction_text,
+                safety_settings=safety_settings
             )
             
             generation_config = genai.types.GenerationConfig(
