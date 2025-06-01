@@ -424,424 +424,221 @@ class BaseLLMOrchestrator(ABC):
 
     # Removed _execute_tool_step as its logic is integrated into _process_message loops
 
-    async def _process_message(self, user_message: str, **kwargs) -> Tuple[str, List[Dict]]: # Changed return type hint
+    async def _process_message(self, user_message: str, **kwargs) -> Tuple[str, List[Dict]]:
         """
-        Core logic for processing a user message, handling memory retrieval,
-        tool interactions (initial fetch, main loop, final save), and final response generation.
-        Returns the final text response and a list of successfully executed tool call dictionaries.
-        kwargs are passed to hook methods like _get_base_system_messages.
+        OPTIMIZED Core logic for processing a user message with smart tool usage detection.
+        Dramatically reduces LLM calls by early detection and simplified workflow.
         """
         # 1. Get context-specific base system messages
         base_system_messages = self._get_base_system_messages(**kwargs)
 
-        # 2. Retrieve relevant memories automatically based on the raw user message
-        retrieved_facts_context_string = await self._retrieve_and_add_memory_context(user_message)
-
-        # 3. Prepare and add user message to history
+        # 2. Prepare and add user message to history
         prepared_user_message = self._prepare_user_message_for_history(user_message, **kwargs)
         await self.history_manager.add_message('user', prepared_user_message)
 
-        # --- Tool Usage Flow ---
-        successful_tool_calls = [] # Initialize list to track successful calls
-        # allowed_tools_overall = self._get_allowed_tools() # This is now self.allowed_tools from __init__
-        max_tool_calls = self._get_max_tool_calls() # FIXED: Uncommented this critical line
-        # tool_calls_made = 0 # ToolOrchestrator will manage this internally
+        # 3. SMART EARLY DETECTION: Check if tools are likely needed
+        needs_tools = self._smart_tool_detection(user_message)
+        successful_tool_calls = []
 
-        # 4. Main Tool Interaction Loop (Excluding Memory Tools)
-        print(f"--- Step 4: Main Tool Loop ---")
-        # DEBUG: Add detailed logging for the condition check
-        print(f"[{self.__class__.__name__}] DEBUG - Tool use condition check:")
-        print(f"  self.tool_use_enabled = {self.tool_use_enabled}")
-        print(f"  self.tool_orchestrator = {self.tool_orchestrator}")
-        print(f"  self.tool_orchestrator is not None = {self.tool_orchestrator is not None}")
-        print(f"  Condition result = {self.tool_orchestrator and self.tool_use_enabled}")
-        
-        if self.tool_use_enabled and self.tool_orchestrator is not None:
-            print(f"[{self.__class__.__name__}] ✅ Tool use is enabled and ToolOrchestrator is initialized. Executing tool cycle.")
-            # Construct the current prompt message for the tool orchestrator
-            # This typically includes base system messages, history, and the current user message.
-            # For simplicity, we'll pass the user_message directly for now, assuming ToolOrchestrator
-            # can access history via self.history_manager.
-            # A more robust approach might involve constructing a more complete prompt here.
+        if needs_tools and self.tool_use_enabled and self.tool_orchestrator is not None:
+            # 4. Retrieve relevant memories only when tools are needed
+            retrieved_facts_context_string = await self._retrieve_and_add_memory_context(user_message)
             
-            # The user_message_content_for_llm should be the actual content string.
-            # The history_manager already has the user message added.
-            # We need to prepare the full context for the LLM to decide on tool use.
-            
-            # Call execute_tool_cycle with the correct parameters
-            # Note: ToolOrchestrator's execute_tool_cycle uses the shared history_manager,
-            # so it will see the user message already added at the start of _process_message.
-            # It also expects base_system_messages separately.
-            
-            # max_tool_calls was already defined earlier in _process_message
-            # max_tool_calls = self._get_max_tool_calls() # This line is already present above
-
+            # 5. Execute streamlined tool cycle (max 2 LLM calls total)
+            max_tool_calls = self._get_max_tool_calls()
             tool_interaction_messages, executed_tool_calls_details = await self.tool_orchestrator.execute_tool_cycle(
                 base_system_messages=base_system_messages,
-                max_tool_calls=max_tool_calls, # Use the variable defined in this scope
+                max_tool_calls=max_tool_calls,
                 context_name=self.context_name,
                 retrieved_facts_context_string=retrieved_facts_context_string
             )
             
-            # executed_tool_calls_details is a list of dicts, each representing a successful tool call.
-            # It should contain 'tool_name', 'arguments', 'result', 'timestamp'.
             if executed_tool_calls_details:
                 successful_tool_calls.extend(executed_tool_calls_details)
-                print(f"[{self.__class__.__name__}] Added {len(executed_tool_calls_details)} tool calls from ToolOrchestrator to successful_tool_calls.")
             
-            # tool_interaction_messages contains the history of the tool interactions (tool calls, results).
-            # This should already be managed by the history_manager within ToolOrchestrator.
-            # We need to ensure the main history_manager here reflects these.
-            # Assuming ToolOrchestrator uses the shared history_manager instance.
-            # If ToolOrchestrator returns a final assistant message, we might use that.
-            # For now, we assume history is updated and we proceed to final response generation if needed.
+            # 6. Skip redundant final memory operation if tools already executed
+            if not executed_tool_calls_details and self._should_perform_final_memory_step():
+                await self._execute_final_memory_operation(base_system_messages, retrieved_facts_context_string, successful_tool_calls)
 
-        else:
-            print(f"[{self.__class__.__name__}] ❌ Tool use is disabled or ToolOrchestrator not initialized. Skipping tool cycle.")
-            print(f"  Reason: tool_use_enabled={self.tool_use_enabled}, tool_orchestrator_exists={self.tool_orchestrator is not None}")
-        # The main tool interaction loop has been moved to ToolOrchestrator.execute_tool_cycle()
-        # This section will be updated in a subsequent task to call ToolOrchestrator.
+        # 7. ALWAYS generate final response with context cleaning
+        final_message = await self._generate_optimized_final_response(base_system_messages, successful_tool_calls)
+        
+        return final_message, successful_tool_calls
 
-
-        # 5. Final Memory Operation Step (Optional: Save or Update)
-        print(f"--- Step 5: Final Memory Save/Update Check ---")
-        if self._should_perform_final_memory_step(): # Use new hook
-            current_history_save = self.history_manager.get_history() # Get history before save/update check
-            messages_for_save = base_system_messages + current_history_save
-
-            # Add guidance for choosing save vs update
-            memory_guidance_prompt = (
-                "Based on the conversation history and retrieved facts (if any), decide if a final memory operation is needed. "
-                "Use 'save_memory' for new information not previously stored. "
-                "Use 'update_memory' to modify existing information, ensuring you provide a valid 'memory_id' from the retrieved facts. "
-                "If no memory operation is needed, choose null."
-            )
-            if retrieved_facts_context_string:
-                memory_guidance_prompt += f"\n\nRetrieved facts that might be relevant for updating:\n{retrieved_facts_context_string}"
-            messages_for_save.append({'role': 'system', 'content': memory_guidance_prompt})
-            print(f"[{self.__class__.__name__}] Added guidance prompt for final memory operation.")
+    def _smart_tool_detection(self, user_message: str) -> bool:
+        """
+        Smart early detection of whether user message likely needs tools.
+        Prevents unnecessary tool orchestration for simple conversational messages.
+        """
+        # Quick keyword-based detection
+        tool_indicators = [
+            'search', 'find', 'look up', 'get', 'fetch', 'retrieve', 'save', 'remember',
+            'file', 'write', 'create', 'update', 'delete', 'web', 'internet', 'current',
+            'time', 'date', 'weather', 'calculate', 'compute', 'run', 'execute'
+        ]
+        
+        # Question words that often indicate information retrieval needs
+        question_indicators = ['what', 'when', 'where', 'who', 'how', 'why', 'which']
+        
+        message_lower = user_message.lower()
+        
+        # Check for direct tool indicators
+        if any(indicator in message_lower for indicator in tool_indicators):
+            return True
             
-            save_or_update_decision = await self.llm_client.get_next_action(
-                messages_for_save,
-                allowed_tools=self.allowed_tools, # Use instance attribute for allowed tools
-                context_type=self.context_name, # Pass context for potential encouragement
-                force_tool_options=['save_memory', 'update_memory'] # Force choice: save, update, or null
-            )
+        # Check for questions that might need tools
+        if any(q in message_lower for q in question_indicators) and ('?' in user_message or len(user_message.split()) > 3):
+            return True
+            
+        # Simple conversational messages likely don't need tools
+        simple_patterns = [
+            'hi', 'hello', 'hey', 'thanks', 'thank you', 'bye', 'goodbye',
+            'ok', 'okay', 'yes', 'no', 'sure', 'sounds good'
+        ]
+        
+        if len(user_message.split()) <= 3 and any(pattern in message_lower for pattern in simple_patterns):
+            return False
+            
+        # Default to needing tools for complex messages
+        return len(user_message.split()) > 5
 
-            # Handle empty or error responses from final memory check gracefully
-            if not save_or_update_decision or "error" in save_or_update_decision:
-                print(f"[{self.__class__.__name__}] Final memory check returned empty/error response. Treating as 'no memory operation needed'.")
-                chosen_tool_name = None
-            else:
-                chosen_tool_name = save_or_update_decision.get("tool_name")
+    async def _execute_final_memory_operation(self, base_system_messages: List[Dict],
+                                            retrieved_facts_context_string: Optional[str],
+                                            successful_tool_calls: List[Dict]):
+        """Streamlined final memory operation without redundant LLM calls."""
+        current_history = self.history_manager.get_history()
+        messages_for_save = base_system_messages + current_history
 
-            if chosen_tool_name in ['save_memory', 'update_memory']:
-                print(f"[{self.__class__.__name__}] LLM decided final memory operation: {chosen_tool_name}")
-                # --- Argument Generation & Execution for save_memory or update_memory (with Retry) ---
-                final_mem_retry_count = 0
-                arguments = None
-                tool_result = None
-                tool_definition = find_tool(chosen_tool_name)
+        if retrieved_facts_context_string:
+            messages_for_save.append({'role': 'system', 'content': retrieved_facts_context_string})
 
-                if not tool_definition:
-                    print(f"[{self.__class__.__name__}] Error: Tool '{chosen_tool_name}' definition not found.")
-                    tool_result = f"Error: Could not find definition for tool '{chosen_tool_name}'."
-                else:
-                    # Loop for retries
-                    while FINAL_MEMORY_RETRY == -1 or final_mem_retry_count <= FINAL_MEMORY_RETRY:
-                        # Prepare messages for argument generation (use history *before* save/update check, including guidance)
-                        messages_for_args = messages_for_save # Use the already prepared list
+        save_or_update_decision = await self.llm_client.get_next_action(
+            messages_for_save,
+            allowed_tools=self.allowed_tools,
+            context_type=self.context_name,
+            force_tool_options=['save_memory', 'update_memory']
+        )
 
-                        # Add retry context if needed
-                        if final_mem_retry_count > 0:
-                            summarized_error_for_mem_retry_ctx = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
-                            retry_context = (
-                                f"RETRY CONTEXT: Previous attempt (attempt {final_mem_retry_count}) to use final memory tool \'{chosen_tool_name}\' failed with the following error: "
-                                f"\'{summarized_error_for_mem_retry_ctx}\'. Please analyze the error and the conversation history, then try generating "
-                                f"the arguments for \'{chosen_tool_name}\' again, correcting any potential issues."
-                            )
-                            # Add specific guidance for update_memory failure if ID was the issue
-                            if chosen_tool_name == 'update_memory' and "memory_id" in str(tool_result) and retrieved_facts_context_string:
-                                 retry_context += (
-                                     "\nIt seems the 'memory_id' might have been invalid. "
-                                     "Please select a valid ID from the retrieved facts below to update.\n"
-                                     f"{retrieved_facts_context_string}"
-                                 )
-                            # Use a temporary list to avoid modifying messages_for_save directly if it's reused
-                            messages_for_args_retry = messages_for_args + [{'role': 'system', 'content': retry_context}]
-                            print(f"[{self.__class__.__name__}] Added retry context for final {chosen_tool_name} argument generation (Attempt {final_mem_retry_count + 1}).")
-                            await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS) # Wait before retrying
-                        else:
-                            messages_for_args_retry = messages_for_args # Use original messages on first attempt
+        chosen_tool_name = save_or_update_decision.get("tool_name") if save_or_update_decision else None
+        
+        if chosen_tool_name in ['save_memory', 'update_memory']:
+            tool_definition = find_tool(chosen_tool_name)
+            if tool_definition:
+                argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_save)
+                if argument_decision and argument_decision.get("action_type") == "tool_arguments":
+                    arguments = argument_decision.get("arguments", {})
+                    tool_result = await self.tool_executor.execute(chosen_tool_name, arguments)
+                    
+                    if not (isinstance(tool_result, str) and tool_result.startswith("Error:")):
+                        successful_tool_call_details_obj = ToolCallDetails(
+                            tool_name=chosen_tool_name,
+                            arguments=arguments,
+                            result=str(tool_result),
+                            execution_time=0.0,
+                            tool_call_id=None
+                        )
+                        successful_tool_calls.append(successful_tool_call_details_obj)
 
-                        # Get arguments
-                        argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_args_retry)
-
-                        if not argument_decision or argument_decision.get("action_type") != "tool_arguments":
-                            print(f"[{self.__class__.__name__}] Error or invalid format getting arguments for final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {argument_decision}.")
-                            tool_result = argument_decision.get("error", f"Error: Failed to get arguments for final tool '{chosen_tool_name}'.")
-                            arguments = None # Ensure arguments is None
-
-                            # Check retry limits
-                            if FINAL_MEMORY_RETRY != -1 and final_mem_retry_count >= FINAL_MEMORY_RETRY:
-                                print(f"[{self.__class__.__name__}] Final memory argument generation failed after max retries ({FINAL_MEMORY_RETRY}). Aborting.")
-                                break # Break the inner while loop
-                            elif FINAL_MEMORY_RETRY == 0:
-                                print(f"[{self.__class__.__name__}] Final memory argument generation failed (retries disabled). Aborting.")
-                                break # Break the inner while loop
-                            else:
-                                print(f"[{self.__class__.__name__}] Final memory argument generation failed. Retrying (attempt {final_mem_retry_count + 1}/{FINAL_MEMORY_RETRY if FINAL_MEMORY_RETRY != -1 else 'infinite'})...")
-                                final_mem_retry_count += 1
-                                continue # Retry argument generation
-
-                        arguments = argument_decision.get("arguments", {})
-                        print(f"[{self.__class__.__name__}] Arguments prepared for final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {arguments}") # Log arguments before execution
-
-                        # Execute the tool
-                        tool_result = await self.tool_executor.execute(chosen_tool_name, arguments)
-                        print(f"[{self.__class__.__name__}] Result from final {chosen_tool_name} (Attempt {final_mem_retry_count + 1}): {tool_result}")
-
-                        # Check for execution error condition for retry
-                        is_execution_error = isinstance(tool_result, str) and tool_result.startswith("Error:")
-
-                        if is_execution_error:
-                            # Check retry limits
-                            if FINAL_MEMORY_RETRY != -1 and final_mem_retry_count >= FINAL_MEMORY_RETRY:
-                                print(f"[{self.__class__.__name__}] Final memory execution failed after max retries ({FINAL_MEMORY_RETRY}). Aborting.")
-                                break # Break the inner while loop
-                            elif FINAL_MEMORY_RETRY == 0:
-                                print(f"[{self.__class__.__name__}] Final memory execution failed (retries disabled). Aborting.")
-                                break # Break the inner while loop
-                            else:
-                                print(f"[{self.__class__.__name__}] Final memory execution failed. Retrying (attempt {final_mem_retry_count + 1}/{FINAL_MEMORY_RETRY if FINAL_MEMORY_RETRY != -1 else 'infinite'})...")
-                                # Add the error result to history immediately so the LLM sees it for the next argument generation attempt (if applicable)
-                                # Note: This might not be strictly necessary if the retry only re-runs execution, but good for logging.
-                                temp_error_message = {
-                                    "tool_used": chosen_tool_name,
-                                    "arguments": arguments,
-                                    "result": tool_result,
-                                    "status": f"Final Memory Execution Failed (Attempt {final_mem_retry_count + 1})"
-                                }
-                                # Avoid adding duplicate errors if arg gen fails again
-                                # self.history_manager.add_message('system', json.dumps(temp_error_message))
-                                final_mem_retry_count += 1
-                                await asyncio.sleep(TOOL_RETRY_DELAY_SECONDS)
-                                continue # Go to next iteration of while loop (will regenerate args based on error)
-                        else:
-                            # Success!
-                            break # Exit the while loop
-
-                # --- After the final memory while loop ---
-                # Add the final tool result (or error) to history
-                final_mem_status = "Success" # Assume success initially
-                if tool_result is None:
-                    tool_result = "Error: Final memory tool execution did not produce a result or failed during argument generation."
-                    final_mem_status = f"Failed (Args/Definition - {final_mem_retry_count + 1} attempts)"
-                elif isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                    final_mem_status = f"Failed (Execution - {final_mem_retry_count + 1} attempts)"
-                elif final_mem_status == "Success": # Only append if it was actually successful
-                     # Append full details dictionary instead of just the name
-                    # Ensure consistent use of ToolCallDetails object
-                    successful_tool_call_details_obj = ToolCallDetails(
-                        tool_name=chosen_tool_name,
-                        arguments=arguments if arguments is not None else {},
-                        result=str(tool_result), # Ensure result is a string
-                        execution_time=0.0, # Placeholder, final memory ops not timed like main tools
-                        tool_call_id=None # Final memory ops don't have an LLM tool_call_id
-                    )
-                    successful_tool_calls.append(successful_tool_call_details_obj)
-                    print(f"[{self.__class__.__name__}] Added details for successful final memory op \'{chosen_tool_name}\' call to list.")
-
-
-                # Simplified history message for final memory tool usage
-                args_summary_mem = self._summarize_for_history(arguments, MAX_ARG_SUMMARY_LEN)
-                result_summary_mem = self._summarize_for_history(tool_result, MAX_RESULT_SUMMARY_LEN)
-                status_for_history = f"Final Memory Op ({final_mem_status})"
-
-                if final_mem_status.startswith("Failed"):
-                    history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' attempt failed. Status: {status_for_history}. Arguments: {args_summary_mem}. Details: {result_summary_mem}"
-                else: # Success
-                    history_mem_tool_summary = f"System: Final memory tool '{chosen_tool_name}' executed successfully. Status: {status_for_history}. Arguments: {args_summary_mem}. Result: {result_summary_mem}"
-                # Add result here so LLM knows it happened before final response generation.
-                await self.history_manager.add_message('system', history_mem_tool_summary)
-                # Note: We don\'t increment tool_calls_made for this final optional step.
-            else:
-                print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
-        else:
-            print(f"--- Step 5: Final Memory Save/Update Check SKIPPED (due to _should_perform_final_memory_step() returning False) ---")
-
-        # 6. Final Response Generation
-        print(f"--- Step 6: Final Response Generation ---")
-        final_history = self.history_manager.get_history() # Get history *after* all tool steps
-
-        # ALWAYS perform final response generation to ensure context cleaning occurs
-        # This removes tool instruction scaffolding and applies proper filtering
-        # NOTE: This replaces any previous logic that might skip final response generation
-        print(f"[{self.__class__.__name__}] Generating final response with context cleaning...")
-
-        # Prepare messages for final response generation with filtered/cleaned history
+    async def _generate_optimized_final_response(self, base_system_messages: List[Dict],
+                                               successful_tool_calls: List[Dict]) -> str:
+        """
+        Optimized final response generation with smart context cleaning.
+        Reduces context bloat and eliminates tool instruction scaffolding.
+        """
+        final_history = self.history_manager.get_history()
+        
+        # Start with clean messages
         messages_for_final_response = []
-
-        # Add primary personality (first message from base_system_messages)
+        
+        # Add primary personality only
         if base_system_messages:
             messages_for_final_response.append(base_system_messages[0])
         else:
-            # Fallback personality if none provided by subclass
             messages_for_final_response.append({'role': 'system', 'content': "You are a helpful assistant."})
 
-        # Add the rest of the base system messages (excluding the primary personality and excluding tool schema instructions)
-        if len(base_system_messages) > 1:
-            for msg in base_system_messages[1:]:
-                # Filter out tool schema instructions that were meant for tool selection phase
-                if msg.get('content') != INSTRUCTIONAL_PROMPT_FOR_SCHEMA:
-                    messages_for_final_response.append(msg)
-
-        # Add the retrieved facts context *before* the main history, if it exists
-        if retrieved_facts_context_string:
-            messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
-            print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt before history.")
-
-        # Filter and transform the main conversation history
-        print(f"[{self.__class__.__name__}] Filtering and transforming history for final response generation...")
-        
-        # Create a mapping of tool call IDs to summarized results for successful tool calls
-        tool_call_summaries = {}
-        if successful_tool_calls:
-            for tool_call_detail in successful_tool_calls:
-                # Handle both ToolCallDetails objects and dict formats for backward compatibility
-                if hasattr(tool_call_detail, 'tool_call_id'):
-                    tool_call_id = tool_call_detail.tool_call_id
-                    tool_name = tool_call_detail.tool_name
-                    tool_result = tool_call_detail.result
-                elif isinstance(tool_call_detail, dict):
-                    tool_call_id = tool_call_detail.get('tool_call_id')
-                    tool_name = tool_call_detail.get('tool_name', 'unknown_tool')
-                    tool_result = tool_call_detail.get('result', '')
-                else:
-                    continue
-                
-                if tool_call_id and tool_result:
-                    # Generate summary for this tool result
-                    summary = await self._summarize_tool_result_for_final_response(tool_name, str(tool_result))
-                    tool_call_summaries[tool_call_id] = {
-                        'tool_name': tool_name,
-                        'summary': summary
-                    }
-
-        # Process history messages, filtering and transforming as needed
-        filtered_history = []
-        i = 0
-        while i < len(final_history):
-            msg = final_history[i]
-            msg_role = msg.get('role', '')
-            msg_content = msg.get('content', '')
-            
-            # Keep user messages as-is
-            if msg_role == 'user':
-                filtered_history.append(msg)
-                i += 1
-                continue
-            
-            # Handle assistant messages
-            if msg_role == 'assistant':
-                # Check if this assistant message has tool_calls
-                if 'tool_calls' in msg:
-                    # This is an assistant message with tool calls - keep it to show the LLM's plan
-                    filtered_history.append(msg)
-                    
-                    # Look ahead to find corresponding tool results and replace them with summaries
-                    j = i + 1
-                    while j < len(final_history):
-                        next_msg = final_history[j]
-                        if next_msg.get('role') == 'tool':
-                            tool_call_id = next_msg.get('tool_call_id')
-                            if tool_call_id and tool_call_id in tool_call_summaries:
-                                # Replace the raw tool result with a summarized assistant message
-                                summary_info = tool_call_summaries[tool_call_id]
-                                summary_msg = {
-                                    'role': 'assistant',
-                                    'content': f"I found out that {summary_info['summary']}"
-                                }
-                                filtered_history.append(summary_msg)
-                            j += 1
-                        else:
-                            # Stop when we hit a non-tool message
-                            break
-                    
-                    # Skip ahead past the tool messages we just processed
-                    i = j
-                    continue
-                else:
-                    # Regular assistant message without tool calls - keep as-is
-                    filtered_history.append(msg)
-                    i += 1
-                    continue
-            
-            # Handle system messages - filter out tool execution mechanics
-            if msg_role == 'system':
-                # Filter out tool instruction/schema messages
-                if msg_content == INSTRUCTIONAL_PROMPT_FOR_SCHEMA:
-                    i += 1
-                    continue
-                
-                # Filter out tool execution status messages
-                if (msg_content.startswith("System: Calling tool") or
-                    msg_content.startswith("System: Retrying tool") or
-                    msg_content.startswith("System: Tool ") and ("executed successfully" in msg_content or "failed after" in msg_content) or
-                    msg_content.startswith("RETRY CONTEXT") or
-                    msg_content.startswith("ENHANCED RETRY CONTEXT")):
-                    i += 1
-                    continue
-                
-                # Keep other system messages (like memory operation summaries, error messages, etc.)
-                filtered_history.append(msg)
-                i += 1
-                continue
-            
-            # Handle tool role messages - skip them as they're replaced by summaries above
-            if msg_role == 'tool':
-                i += 1
-                continue
-            
-            # For any other message types, keep them
-            filtered_history.append(msg)
-            i += 1
-
-        # Add the filtered history to the final response messages
+        # Add optimally filtered history
+        filtered_history = self._filter_history_optimally(final_history, successful_tool_calls)
         messages_for_final_response.extend(filtered_history)
 
-        # Remove the explicit date/time message if present from base_system_messages for BaseLLMOrchestrator
-        # This is a more general fix. DiscordLLM specific fix is also applied.
-        messages_for_final_response = [m for m in messages_for_final_response if not ("role" in m and m["role"] == "system" and m["content"].startswith("Current date and time:"))]
-
-        # Add a general grounding instruction
-        grounding_instruction = (
-            "IMPORTANT: Generate your response based on the information available in the preceding conversation history, "
-            "tool outputs, and provided facts. If the answer cannot be found in the provided context, "
-            "use the search tools to find relevant information or state that you cannot answer based on the current context. "
-        )
-        messages_for_final_response.append({'role': 'system', 'content': grounding_instruction})
-        print(f"[{self.__class__.__name__}] Added general grounding instruction to final prompt.")
-        print(f"[{self.__class__.__name__}] Final response history contains {len(filtered_history)} messages (filtered from {len(final_history)} original messages)")
-
-
-        # Extract original personality prompt (still needed for Gemini adaptation potentially)
+        # Extract personality prompt
         final_personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
 
         final_message = await self.llm_client.generate_final_response(
-            messages_for_final_response, # Pass the fully constructed list
-            personality_prompt=final_personality_prompt # Pass original personality separately
+            messages_for_final_response,
+            personality_prompt=final_personality_prompt
         )
 
-        # Handle potential errors
         if final_message is None or final_message.startswith("Error:"):
-            print(f"[{self.__class__.__name__}] Failed to get final response: {final_message}")
             final_message = final_message if final_message else "Sorry, I encountered an error generating the final response."
         else:
-            # Update history with the final assistant message
             await self.history_manager.add_message('assistant', final_message)
 
-        return final_message, successful_tool_calls # Return both response and list
+        return final_message
+
+    async def _summarize_tool_result_for_final_response(self, tool_name: str, tool_result: str) -> str:
+        """Generate a concise summary of tool result for final response context."""
+        # Simple rule-based summarization for common tools
+        if tool_name == 'search_web':
+            return f"searched the web and found relevant information"
+        elif tool_name == 'read_file':
+            return f"read file contents"
+        elif tool_name == 'write_file':
+            return f"wrote to file"
+        elif tool_name == 'save_memory':
+            return f"saved information to memory"
+        elif tool_name == 'update_memory':
+            return f"updated stored information"
+        else:
+            # For other tools, create a simple summary
+            result_snippet = tool_result[:100] + "..." if len(tool_result) > 100 else tool_result
+            return f"used {tool_name} and got: {result_snippet}"
+
+    def _filter_history_optimally(self, final_history: List[Dict], successful_tool_calls: List[Dict]) -> List[Dict]:
+        """
+        Optimally filter history to remove tool scaffolding while preserving essential context.
+        Dramatically reduces context size.
+        """
+        filtered_history = []
+        
+        # Create tool summaries for successful calls only
+        tool_summaries = {}
+        for tool_call_detail in successful_tool_calls:
+            if hasattr(tool_call_detail, 'tool_call_id') and tool_call_detail.tool_call_id:
+                tool_summaries[tool_call_detail.tool_call_id] = f"Used {tool_call_detail.tool_name} successfully"
+        
+        for msg in final_history:
+            msg_role = msg.get('role', '')
+            msg_content = msg.get('content', '')
+            
+            # Keep user messages always
+            if msg_role == 'user':
+                filtered_history.append(msg)
+                continue
+            
+            # Keep clean assistant messages
+            if msg_role == 'assistant' and 'tool_calls' not in msg:
+                filtered_history.append(msg)
+                continue
+                
+            # Skip all tool scaffolding and system tool messages
+            if (msg_role == 'system' and
+                (msg_content.startswith("System: Calling tool") or
+                 msg_content.startswith("System: Tool ") or
+                 msg_content.startswith("RETRY CONTEXT") or
+                 msg_content.startswith("ENHANCED RETRY CONTEXT") or
+                 "tool" in msg_content.lower())):
+                continue
+                
+            # Skip tool role messages
+            if msg_role == 'tool':
+                continue
+                
+            # Keep other essential system messages (memory summaries, etc.)
+            if msg_role == 'system' and not any(skip_word in msg_content.lower()
+                                               for skip_word in ['tool', 'retry', 'calling', 'schema']):
+                filtered_history.append(msg)
+        
+        return filtered_history
 
     def close(self):
         """Closes resources, like the MongoDB connection."""

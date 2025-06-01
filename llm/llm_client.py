@@ -748,52 +748,33 @@ class LLMClient:
     async def get_next_action(
         self,
         messages: List[Dict[str, Any]],
-        allowed_tools: Optional[List[Dict[str, Any]]] = None, # Changed type
+        allowed_tools: Optional[List[Dict[str, Any]]] = None,
         context_type: Optional[str] = None,
         force_tool_options: Optional[List[str]] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Prompts the LLM to decide the next action: use a tool or respond directly.
-        Can be forced to consider only specific tools.
-
-        Args:
-            messages: The current conversation history in OpenAI format.
-            allowed_tools: List of tool definitions (dictionaries with "name", "description", "parameters" schema).
-                           If None, all tools are allowed (though current implementation relies on this list).
-            context_type: Optional string identifying the context (e.g., 'chatbox', 'discord').
-            force_tool_options: Optional list of tool names. If provided, the LLM MUST choose one of these or null.
-
-        Returns:
-            A dictionary like {"action_type": "tool_call", "tool_name": "tool_name_here", "tool_args": {...}} if a tool is chosen,
-            {"action_type": "text_response", "text": "..."} if the LLM responds with text,
-            or an error dictionary if all retries fail.
+        OPTIMIZED action decision with smart early returns and reduced verbosity.
         """
-        # from tools.tools import find_tool # No longer needed
-
-        # Determine the actual tools the LLM can choose from
-        final_choosable_tool_definitions: List[Dict[str, Any]] = []
-        choosable_names_for_prompt: List[str] = []
-
+        # Quick early return for no tools
         if not allowed_tools:
-            print("No tools allowed or available in this context. LLM will respond with text.")
-        else:
-            if force_tool_options:
-                all_available_tool_names = {tool_data["name"] for tool_data in allowed_tools}
-                valid_forced_names = [name for name in force_tool_options if name in all_available_tool_names]
+            return {"action_type": "text_response", "text": ""}
 
-                if not valid_forced_names:
-                    print(f"Warning: Forced tool options {force_tool_options} are not available/allowed among the provided tools. No tool call possible.")
-                    return {"action_type": "text_response", "text": "(Internal: No valid forced tools available)"}
-                
-                final_choosable_tool_definitions = [
-                    tool_data for tool_data in allowed_tools if tool_data["name"] in valid_forced_names
-                ]
-            else:
-                final_choosable_tool_definitions = allowed_tools
+        # Efficiently determine choosable tools
+        if force_tool_options:
+            available_names = {tool_data["name"] for tool_data in allowed_tools}
+            valid_forced_names = [name for name in force_tool_options if name in available_names]
             
-            if not final_choosable_tool_definitions: # Could be empty if allowed_tools was non-empty but force_tool_options filtered all out (already handled) or if allowed_tools was empty initially.
-                 print("No tools effectively choosable after filtering. LLM will respond with text.")
-
+            if not valid_forced_names:
+                return {"action_type": "text_response", "text": ""}
+            
+            final_choosable_tool_definitions = [
+                tool_data for tool_data in allowed_tools if tool_data["name"] in valid_forced_names
+            ]
+        else:
+            final_choosable_tool_definitions = allowed_tools
+        
+        if not final_choosable_tool_definitions:
+            return {"action_type": "text_response", "text": ""}
 
         choosable_names_for_prompt = [td["name"] for td in final_choosable_tool_definitions]
 
@@ -1018,25 +999,49 @@ class LLMClient:
                  return {"action_type": "tool_arguments", "arguments": json_response}
 
 
+    def _should_skip_final_response(self, messages: List[Dict]) -> bool:
+        """Smart detection of when final response generation can be skipped."""
+        if len(messages) < 2:
+            return False
+            
+        # Check if last message is a recent assistant response
+        last_msg = messages[-1]
+        if (last_msg.get('role') == 'assistant' and
+            len(last_msg.get('content', '')) > 10 and
+            not last_msg.get('content', '').startswith('(')):  # Skip internal messages
+            return True
+            
+        # Check if second-to-last is assistant response after tool use
+        if len(messages) >= 2:
+            second_last = messages[-2]
+            if (second_last.get('role') == 'assistant' and
+                len(second_last.get('content', '')) > 20):
+                return True
+                
+        return False
+    
+    def _extract_recent_assistant_response(self, messages: List[Dict]) -> str:
+        """Extract the most recent assistant response to reuse."""
+        for msg in reversed(messages):
+            if (msg.get('role') == 'assistant' and
+                len(msg.get('content', '')) > 10 and
+                not msg.get('content', '').startswith('(')):
+                return msg.get('content', '')
+        return ""
+
     # --- Final Response Generation ---
     async def generate_final_response(self, messages: List[Dict], personality_prompt: str) -> Optional[str]:
         """
-        Generates the final conversational response after tool use (or if no tool was needed).
-
-        Args:
-            messages: The complete list of messages (including history, tool calls/results,
-                      and the final user message) in OpenAI format.
-            personality_prompt: The system prompt defining the chatbot's personality.
-
-        Returns:
-            The generated message string, or an error string if the single attempt fails.
+        OPTIMIZED final response generation with smart skipping logic.
         """
+        # Smart detection: Skip final response if recent assistant message exists
+        if self._should_skip_final_response(messages):
+            return self._extract_recent_assistant_response(messages)
+            
         self.ensure_initialized()
         if self.client is None:
             error_msg = f"LLMClient for {self.provider} not initialized. Cannot generate final response."
-            print(f"Error in generate_final_response: {error_msg}")
-            self._log_request_data("llm_final_request_failure_not_initialized", {"error": error_msg})
-            return error_msg # Return the error message string
+            return error_msg
 
         # Ensure personality prompt is included, followed by the full history
         final_messages_for_llm = []

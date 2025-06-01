@@ -6,10 +6,11 @@ import asyncio
 if TYPE_CHECKING:
     from .llm_client import LLMClient
 
-# Constants for summarization
-SUMMARIZATION_TRIGGER_COUNT = 10  # Trigger summarization every 10 messages
+# Constants for summarization - OPTIMIZED for better performance
+SUMMARIZATION_TRIGGER_COUNT = 15  # Increased to reduce frequent summarization overhead
 MESSAGE_TYPE_MESSAGE = "message"
 MESSAGE_TYPE_SUMMARY = "summary"
+MAX_CONTEXT_SIZE = 8000  # Smart context limit to prevent truncation
 
 class HistoryManager:
     """
@@ -52,16 +53,14 @@ class HistoryManager:
 
     async def add_message(self, role: str, content: str):
         """
-        Adds a single message with the specified role to the history.
-        Automatically triggers summarization every 10 messages.
-
-        Args:
-            role: The role of the message ('user', 'assistant', 'system', 'tool', etc.).
-            content: The content of the message.
+        OPTIMIZED message addition with smart context management and reduced logging.
         """
         if not isinstance(content, str):
-            print(f"Warning: Message content for role '{role}' was not a string: {type(content)}. Converting.")
             content = str(content)
+        
+        # Filter out verbose tool system messages to reduce context bloat
+        if role == 'system' and self._is_verbose_tool_message(content):
+            return  # Skip adding verbose tool messages
         
         # Add the message with type distinction
         message_entry = {
@@ -74,44 +73,131 @@ class HistoryManager:
         self.message_history.append(message_entry)
         self.message_count += 1
         
-        print(f"Added message #{self.message_count}: {role} - {content[:50]}{'...' if len(content) > 50 else ''}")
-        
-        # Check if we need to trigger summarization
-        if self.message_count % SUMMARIZATION_TRIGGER_COUNT == 0:
-            print(f"Triggering summarization at message #{self.message_count}")
+        # Smart summarization based on context size, not just count
+        estimated_context_size = self._estimate_context_size()
+        if (self.message_count % SUMMARIZATION_TRIGGER_COUNT == 0 or
+            estimated_context_size > MAX_CONTEXT_SIZE):
             await self._trigger_summarization()
+
+    def _is_verbose_tool_message(self, content: str) -> bool:
+        """Check if a system message is verbose tool scaffolding that can be filtered."""
+        verbose_patterns = [
+            "System: Calling tool",
+            "System: Retrying tool",
+            "RETRY CONTEXT:",
+            "ENHANCED RETRY CONTEXT:",
+            "Tool executed successfully",
+            "failed after",
+            "Arguments prepared for"
+        ]
+        return any(pattern in content for pattern in verbose_patterns)
+    
+    def _estimate_context_size(self) -> int:
+        """Estimate total context size to trigger smart summarization."""
+        total_chars = sum(len(msg.get('content', '')) for msg in self.message_history)
+        return total_chars // 4  # Rough token estimation (4 chars per token)
 
 
     async def _trigger_summarization(self):
         """
-        Triggers summarization of the last 10 messages and resets history with summary.
+        OPTIMIZED summarization with smart filtering and reduced overhead.
         """
         try:
             if not self.llm_client:
-                print("Warning: No LLM client available for summarization. Skipping summarization.")
+                return  # Silently skip if no client
+            
+            # Get messages for summarization, excluding verbose tool messages
+            messages_to_summarize = self._get_messages_for_summarization()
+            
+            if len(messages_to_summarize) < 5:  # Need minimum messages for meaningful summary
                 return
             
-            # Get the last 10 messages for summarization
-            messages_to_summarize = self._get_last_n_messages(SUMMARIZATION_TRIGGER_COUNT, include_summaries=False)
-            
-            if len(messages_to_summarize) < SUMMARIZATION_TRIGGER_COUNT:
-                print(f"Warning: Only {len(messages_to_summarize)} messages available for summarization, expected {SUMMARIZATION_TRIGGER_COUNT}")
-            
-            # Generate summary
-            summary = await self._generate_summary(messages_to_summarize)
+            # Generate summary only for substantial content
+            summary = await self._generate_summary_optimized(messages_to_summarize)
             
             if summary:
-                # Reset history but preserve existing summaries and add new summary
                 await self._reset_history_with_summary(summary)
                 self.summarization_count += 1
                 self.last_summarization_at = datetime.now(timezone.utc)
-                print(f"Summarization #{self.summarization_count} completed successfully")
-            else:
-                print("Warning: Failed to generate summary, keeping current history")
                 
-        except Exception as e:
-            print(f"Error during summarization: {e}")
-            print("Continuing with current history (no summarization performed)")
+        except Exception:
+            pass  # Silently handle summarization errors to avoid disrupting main flow
+
+    def _get_messages_for_summarization(self) -> List[Dict[str, str]]:
+        """Get meaningful messages for summarization, filtering out noise."""
+        meaningful_messages = []
+        
+        for msg in self.message_history:
+            if msg.get('type') == MESSAGE_TYPE_MESSAGE:
+                role = msg.get('role', '')
+                content = msg.get('content', '')
+                
+                # Include user and assistant messages always
+                if role in ['user', 'assistant']:
+                    meaningful_messages.append(msg)
+                # Include only meaningful system messages
+                elif role == 'system' and not self._is_verbose_tool_message(content):
+                    # Only include system messages with substantial content
+                    if len(content) > 50 and 'memory' in content.lower():
+                        meaningful_messages.append(msg)
+        
+        # Return last N meaningful messages
+        return meaningful_messages[-SUMMARIZATION_TRIGGER_COUNT:]
+
+    async def _generate_summary_optimized(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """
+        Optimized summary generation with concise prompts.
+        """
+        if not messages:
+            return None
+            
+        try:
+            # Create more concise conversation text
+            conversation_text = self._format_messages_concisely(messages)
+            
+            # Shorter, more focused summarization prompt
+            summarization_prompt = [
+                {
+                    "role": "system",
+                    "content": (
+                        "Summarize this conversation in 2-3 sentences. Focus on: "
+                        "key facts, user preferences, important decisions, and ongoing context. "
+                        "Be concise but preserve essential information for conversation continuity."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Conversation:\n{conversation_text}"
+                }
+            ]
+            
+            summary_response = await self.llm_client.generate_final_response(
+                messages=summarization_prompt,
+                personality_prompt="You are a conversation summarizer."
+            )
+            
+            if summary_response and not summary_response.startswith("Error:"):
+                return summary_response
+            else:
+                return None
+                
+        except Exception:
+            return None
+
+    def _format_messages_concisely(self, messages: List[Dict[str, str]]) -> str:
+        """Format messages more concisely for summarization."""
+        formatted_lines = []
+        for msg in messages:
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')
+            
+            # Truncate very long messages for summarization
+            if len(content) > 200:
+                content = content[:200] + "..."
+            
+            formatted_lines.append(f"{role.title()}: {content}")
+            
+        return "\n".join(formatted_lines)
 
     def _get_last_n_messages(self, n: int, include_summaries: bool = False) -> List[Dict[str, str]]:
         """
