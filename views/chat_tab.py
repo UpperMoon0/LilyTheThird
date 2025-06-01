@@ -460,8 +460,19 @@ class ChatTab(BoxLayout, LLMConfigMixin):
         if self.actions_list and successful_tool_details_list:
             print(f"ChatTab: Adding successful tool details to ActionsList...")
             for tool_details in successful_tool_details_list:
-                # Pass the entire dictionary to add_action
-                self.actions_list.add_action(tool_details)
+                # Convert ToolCallDetails Pydantic model to dict before passing to ActionsList
+                action_data_for_list = None
+                if hasattr(tool_details, 'model_dump'):  # Pydantic V2+
+                    action_data_for_list = tool_details.model_dump()
+                elif hasattr(tool_details, 'dict'):  # Pydantic V1
+                    action_data_for_list = tool_details.dict()
+                elif isinstance(tool_details, dict):
+                    action_data_for_list = tool_details # Already a dict
+                else:
+                    print(f"ChatTab: Warning - tool_details has unexpected type {type(tool_details)}. Cannot add to ActionsList. Data: {tool_details}")
+                    continue # Skip this item
+
+                self.actions_list.add_action(action_data_for_list)
         elif not self.actions_list:
             print("ChatTab Warning: actions_list widget not found, cannot add tool calls.")
         

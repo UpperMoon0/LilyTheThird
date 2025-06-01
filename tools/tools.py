@@ -50,12 +50,12 @@ AVAILABLE_TOOLS = [
     ),
     ToolDefinition(
         name="update_memory",
-        description="Updates the content of an existing memory fact using its unique ID. Prioritize using this over 'save_memory' for existing facts.",
+        description="Use this tool to update or replace an existing piece of information in memory. You MUST provide the 'memory_id' of the existing memory item you want to change. If the information is new or you don't have a memory_id for it, use 'save_memory' instead.",
         argument_schema=UpdateMemoryArgs # Use Pydantic model
     ),
     ToolDefinition(
         name="save_memory",
-        description="Saves a piece of information to long-term memory for future recall. This is only for new facts.",
+        description="Use this tool to save a new piece of information to memory. This is for information that is not already stored or does not have an existing memory_id. The system will generate a new memory_id for this information.",
         argument_schema=SaveMemoryArgs # Use Pydantic model
     ),
     ToolDefinition(

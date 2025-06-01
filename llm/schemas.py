@@ -43,6 +43,7 @@ class ToolCallDetails(BaseModel):
     arguments: Dict = Field(..., description="Arguments that were passed to the tool")
     result: str = Field(..., description="Result returned by the tool")
     execution_time: float = Field(..., description="Time taken to execute the tool in seconds")
+    tool_call_id: Optional[str] = Field(default=None, description="The unique ID for the tool call, if available.")
 
 # --- Schema for Tool Selection ---
 class ToolSelectionSchema(BaseModel):

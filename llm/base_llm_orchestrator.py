@@ -1,8 +1,8 @@
 import json
 import asyncio # Import asyncio for sleep
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Tuple # Added Tuple
-from datetime import datetime, timezone # Added datetime and timezone
+from typing import List, Dict, Optional, Tuple
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -11,8 +11,9 @@ from .history_manager import HistoryManager
 from .llm_client import LLMClient
 from .tool_executor import ToolExecutor
 from .error_analyzer import ErrorAnalyzer, ErrorCategory
-from .tool_orchestrator import ToolOrchestrator # Import ToolOrchestrator
+from .tool_orchestrator import ToolOrchestrator, INSTRUCTIONAL_PROMPT_FOR_SCHEMA # Import ToolOrchestrator and INSTRUCTIONAL_PROMPT_FOR_SCHEMA
 from .logging_config import setup_logging, get_logging_manager
+from .schemas import ToolCallDetails # Import ToolCallDetails
 from memory.mongo_handler import MongoHandler
 from tools.tools import find_tool
 
@@ -327,6 +328,63 @@ class BaseLLMOrchestrator(ABC):
         
         return False
 
+    async def _summarize_tool_result_for_final_response(self, tool_name: str, tool_result: str) -> str:
+        """
+        Summarizes a tool's result using an LLM call for a concise, human-readable statement.
+        """
+        if not tool_result:
+            return "The tool returned no specific result."
+
+        # Avoid summarizing very short results with an LLM call.
+        if len(tool_result) < 100 and "\n" not in tool_result:
+            #  Return a simple factual statement.
+            #  Example: "The get_current_time tool indicated: 2024-07-15 10:30:00."
+            #  This avoids overly conversational summaries for simple data.
+            return f"The {tool_name} tool provided the following: {tool_result}"
+
+        prompt_template = (
+            "The following is the raw output from a tool named '{tool_name}':\n"
+            "--- TOOL OUTPUT START ---\n"
+            "{tool_output}\n"
+            "--- TOOL OUTPUT END ---\n"
+            "Briefly summarize this information in a natural, concise, human-readable sentence or two. "
+            "This summary will be used to inform a user about what was found or done. "
+            "Focus on the key outcome or information. Do not say 'The tool output shows...' or 'The summary is...'. "
+            "Just state the fact or action directly. "
+            "For example, if the tool output was a list of files, a good summary might be 'Several files were found in the directory.' "
+            "Or if it was a weather API result, 'The weather forecast is sunny with a high of 25°C.' "
+            "If the tool performed an action like saving a file, 'The file was saved successfully.'"
+        )
+        
+        summarization_prompt_content = prompt_template.format(tool_name=tool_name, tool_output=tool_result)
+        
+        messages_for_summarization = [
+            {'role': 'system', 'content': "You are an expert at summarizing technical tool outputs into natural language facts or action statements."},
+            {'role': 'user', 'content': summarization_prompt_content}
+        ]
+        
+        try:
+            # Use the LLM client to generate the summary.
+            # Assuming generate_final_response can be used with a simple prompt structure.
+            # A more specialized method in LLMClient might be preferable in the long run.
+            summary = await self.llm_client.generate_final_response(
+                messages_for_summarization,
+                personality_prompt="You are a summarizer." # A neutral personality for this task
+            )
+
+            if summary and not summary.startswith("Error:"):
+                # Clean up the summary a bit
+                summary = summary.strip()
+                # Avoid overly verbose "I found out that..." if the summary is already a statement.
+                # The prompt guides the LLM to produce a direct statement.
+                return summary
+            else:
+                self.orchestrator_logger.error(f"LLM summarization failed or returned error for {tool_name}: {summary}")
+                return f"Tool {tool_name} was used. (Result summarization failed, raw result: {self._summarize_for_history(tool_result, 100)})"
+        except Exception as e:
+            self.orchestrator_logger.error(f"Exception during LLM summarization for {tool_name}: {e}", exc_info=True)
+            return f"Tool {tool_name} was used. (Exception during result summarization, raw result: {self._summarize_for_history(tool_result, 100)})"
+
     async def _retrieve_and_add_memory_context(self, query_text: str) -> Optional[str]:
         """
         Retrieves relevant facts from memory based on query_text and returns
@@ -583,13 +641,15 @@ class BaseLLMOrchestrator(ABC):
                     final_mem_status = f"Failed (Execution - {final_mem_retry_count + 1} attempts)"
                 elif final_mem_status == "Success": # Only append if it was actually successful
                      # Append full details dictionary instead of just the name
-                    successful_tool_call_details = {
-                        "tool_name": chosen_tool_name,
-                        "arguments": arguments if arguments is not None else {}, # Ensure args is a dict
-                        "result": tool_result, # Keep full result for this tracked list
-                        "timestamp": datetime.now(timezone.utc).isoformat() # Add timestamp
-                    }
-                    successful_tool_calls.append(successful_tool_call_details)
+                    # Ensure consistent use of ToolCallDetails object
+                    successful_tool_call_details_obj = ToolCallDetails(
+                        tool_name=chosen_tool_name,
+                        arguments=arguments if arguments is not None else {},
+                        result=str(tool_result), # Ensure result is a string
+                        execution_time=0.0, # Placeholder, final memory ops not timed like main tools
+                        tool_call_id=None # Final memory ops don't have an LLM tool_call_id
+                    )
+                    successful_tool_calls.append(successful_tool_call_details_obj)
                     print(f"[{self.__class__.__name__}] Added details for successful final memory op \'{chosen_tool_name}\' call to list.")
 
 
@@ -608,7 +668,9 @@ class BaseLLMOrchestrator(ABC):
             else:
                 print(f"[{self.__class__.__name__}] LLM decided no final memory operation needed.")
         else:
-            print(f"--- Step 5: Final Memory Save/Update Check SKIPPED (due to _should_perform_final_memory_step() returning False) ---")        # 6. Final Response Generation
+            print(f"--- Step 5: Final Memory Save/Update Check SKIPPED (due to _should_perform_final_memory_step() returning False) ---")
+
+        # 6. Final Response Generation
         print(f"--- Step 6: Final Response Generation ---")
         final_history = self.history_manager.get_history() # Get history *after* all tool steps
 
@@ -619,7 +681,7 @@ class BaseLLMOrchestrator(ABC):
             final_message = final_history[-1].get("content", "")
             return final_message, successful_tool_calls # Return both response and list
 
-        # Prepare messages for final response generation
+        # Prepare messages for final response generation with filtered/cleaned history
         messages_for_final_response = []
 
         # Add primary personality (first message from base_system_messages)
@@ -629,17 +691,126 @@ class BaseLLMOrchestrator(ABC):
             # Fallback personality if none provided by subclass
             messages_for_final_response.append({'role': 'system', 'content': "You are a helpful assistant."})
 
-        # Add the rest of the base system messages (excluding the primary personality)
+        # Add the rest of the base system messages (excluding the primary personality and excluding tool schema instructions)
         if len(base_system_messages) > 1:
-             messages_for_final_response.extend(base_system_messages[1:]) # Add other base system messages
+            for msg in base_system_messages[1:]:
+                # Filter out tool schema instructions that were meant for tool selection phase
+                if msg.get('content') != INSTRUCTIONAL_PROMPT_FOR_SCHEMA:
+                    messages_for_final_response.append(msg)
 
         # Add the retrieved facts context *before* the main history, if it exists
         if retrieved_facts_context_string:
             messages_for_final_response.append({'role': 'system', 'content': retrieved_facts_context_string})
             print(f"[{self.__class__.__name__}] Added retrieved facts context to final prompt before history.")
 
-        # Add the main conversation history (user messages, previous assistant replies, tool results)
-        messages_for_final_response.extend(final_history)
+        # Filter and transform the main conversation history
+        print(f"[{self.__class__.__name__}] Filtering and transforming history for final response generation...")
+        
+        # Create a mapping of tool call IDs to summarized results for successful tool calls
+        tool_call_summaries = {}
+        if successful_tool_calls:
+            for tool_call_detail in successful_tool_calls:
+                # Handle both ToolCallDetails objects and dict formats for backward compatibility
+                if hasattr(tool_call_detail, 'tool_call_id'):
+                    tool_call_id = tool_call_detail.tool_call_id
+                    tool_name = tool_call_detail.tool_name
+                    tool_result = tool_call_detail.result
+                elif isinstance(tool_call_detail, dict):
+                    tool_call_id = tool_call_detail.get('tool_call_id')
+                    tool_name = tool_call_detail.get('tool_name', 'unknown_tool')
+                    tool_result = tool_call_detail.get('result', '')
+                else:
+                    continue
+                
+                if tool_call_id and tool_result:
+                    # Generate summary for this tool result
+                    summary = await self._summarize_tool_result_for_final_response(tool_name, str(tool_result))
+                    tool_call_summaries[tool_call_id] = {
+                        'tool_name': tool_name,
+                        'summary': summary
+                    }
+
+        # Process history messages, filtering and transforming as needed
+        filtered_history = []
+        i = 0
+        while i < len(final_history):
+            msg = final_history[i]
+            msg_role = msg.get('role', '')
+            msg_content = msg.get('content', '')
+            
+            # Keep user messages as-is
+            if msg_role == 'user':
+                filtered_history.append(msg)
+                i += 1
+                continue
+            
+            # Handle assistant messages
+            if msg_role == 'assistant':
+                # Check if this assistant message has tool_calls
+                if 'tool_calls' in msg:
+                    # This is an assistant message with tool calls - keep it to show the LLM's plan
+                    filtered_history.append(msg)
+                    
+                    # Look ahead to find corresponding tool results and replace them with summaries
+                    j = i + 1
+                    while j < len(final_history):
+                        next_msg = final_history[j]
+                        if next_msg.get('role') == 'tool':
+                            tool_call_id = next_msg.get('tool_call_id')
+                            if tool_call_id and tool_call_id in tool_call_summaries:
+                                # Replace the raw tool result with a summarized assistant message
+                                summary_info = tool_call_summaries[tool_call_id]
+                                summary_msg = {
+                                    'role': 'assistant',
+                                    'content': f"I found out that {summary_info['summary']}"
+                                }
+                                filtered_history.append(summary_msg)
+                            j += 1
+                        else:
+                            # Stop when we hit a non-tool message
+                            break
+                    
+                    # Skip ahead past the tool messages we just processed
+                    i = j
+                    continue
+                else:
+                    # Regular assistant message without tool calls - keep as-is
+                    filtered_history.append(msg)
+                    i += 1
+                    continue
+            
+            # Handle system messages - filter out tool execution mechanics
+            if msg_role == 'system':
+                # Filter out tool instruction/schema messages
+                if msg_content == INSTRUCTIONAL_PROMPT_FOR_SCHEMA:
+                    i += 1
+                    continue
+                
+                # Filter out tool execution status messages
+                if (msg_content.startswith("System: Calling tool") or
+                    msg_content.startswith("System: Retrying tool") or
+                    msg_content.startswith("System: Tool ") and ("executed successfully" in msg_content or "failed after" in msg_content) or
+                    msg_content.startswith("RETRY CONTEXT") or
+                    msg_content.startswith("ENHANCED RETRY CONTEXT")):
+                    i += 1
+                    continue
+                
+                # Keep other system messages (like memory operation summaries, error messages, etc.)
+                filtered_history.append(msg)
+                i += 1
+                continue
+            
+            # Handle tool role messages - skip them as they're replaced by summaries above
+            if msg_role == 'tool':
+                i += 1
+                continue
+            
+            # For any other message types, keep them
+            filtered_history.append(msg)
+            i += 1
+
+        # Add the filtered history to the final response messages
+        messages_for_final_response.extend(filtered_history)
 
         # Remove the explicit date/time message if present from base_system_messages for BaseLLMOrchestrator
         # This is a more general fix. DiscordLLM specific fix is also applied.
@@ -653,6 +824,7 @@ class BaseLLMOrchestrator(ABC):
         )
         messages_for_final_response.append({'role': 'system', 'content': grounding_instruction})
         print(f"[{self.__class__.__name__}] Added general grounding instruction to final prompt.")
+        print(f"[{self.__class__.__name__}] Final response history contains {len(filtered_history)} messages (filtered from {len(final_history)} original messages)")
 
 
         # Extract original personality prompt (still needed for Gemini adaptation potentially)

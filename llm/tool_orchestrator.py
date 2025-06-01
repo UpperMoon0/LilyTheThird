@@ -727,7 +727,8 @@ class ToolOrchestrator:
                                     tool_name=tool_name,
                                     arguments=arguments,
                                     result=tool_result,
-                                    execution_time=execution_time
+                                    execution_time=execution_time,
+                                    tool_call_id=tool_call_id # Add tool_call_id from action_decision
                                 )
                             )
                             final_tool_status = "success"
