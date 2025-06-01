@@ -674,12 +674,9 @@ class BaseLLMOrchestrator(ABC):
         print(f"--- Step 6: Final Response Generation ---")
         final_history = self.history_manager.get_history() # Get history *after* all tool steps
 
-        # Check if we already have a text response from the main loop
-        # If the last message in history is an assistant message from a direct text response, use it
-        if final_history and final_history[-1].get("role") == "assistant":
-            print(f"[{self.__class__.__name__}] Using existing text response from main loop, skipping final response generation.")
-            final_message = final_history[-1].get("content", "")
-            return final_message, successful_tool_calls # Return both response and list
+        # Always perform final response generation to ensure context cleaning occurs
+        # This removes tool instruction scaffolding and applies proper filtering
+        print(f"[{self.__class__.__name__}] Generating final response with context cleaning...")
 
         # Prepare messages for final response generation with filtered/cleaned history
         messages_for_final_response = []
