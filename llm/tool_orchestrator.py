@@ -1,4 +1,3 @@
-import asyncio
 import json
 import time
 from typing import List, Dict, Optional, Tuple
@@ -10,13 +9,6 @@ from .schemas import ToolCallDetails
 from .logging_config import get_logging_manager
 
 
-# Instructional prompt for LLM regarding tool schema adherence
-INSTRUCTIONAL_PROMPT_FOR_SCHEMA = """You will be provided with a list of available tools, including their names, descriptions, and detailed argument schemas.
-When you decide to use a tool, you MUST strictly adhere to its provided argument schema.
-Ensure all required parameters are included, and all parameter values precisely match the specified types and formats.
-Pay close attention to data types (e.g., string, number, boolean, list, object) and any constraints mentioned in the schema."""
-
-# Constants for retry logic (copied from BaseLLMOrchestrator)
 TOOL_SELECT_RETRY = 5       # Max retries for LLM failing to choose a tool (0=disable, -1=infinite)
 TOOL_EXECUTION_RETRY = 3    # Max retries for tool execution failures
 TOOL_RETRY_DELAY_SECONDS = 2 # Delay between tool retries
@@ -322,6 +314,45 @@ class ToolOrchestrator:
         
         return should_abort
 
+    async def _get_arguments_for_tool(self, tool_name: str, base_system_messages: List[Dict],
+                                      reasoning: Optional[str] = None) -> Optional[Dict]:
+        """
+        Performs a focused LLM call to get arguments for a specific tool.
+        """
+        self.decision_logger.info(f"Step 2: Getting arguments for tool '{tool_name}'")
+        tool_definition = find_tool(tool_name)
+        if not tool_definition:
+            self.error_logger.error(f"Could not find definition for tool '{tool_name}' during argument generation.")
+            return None
+
+        # Create a focused prompt for getting arguments
+        current_history = self.history_manager.get_history()
+        messages_for_args = base_system_messages + current_history
+
+        # Add a system message explaining the task
+        instruction = (
+            f"You have decided to use the tool '{tool_name}'.\n"
+            f"Reasoning: {reasoning or 'Not provided'}\n\n"
+            "Now, provide the correct arguments for this tool based on the conversation history and the tool's schema. "
+            "Adhere strictly to the provided schema."
+        )
+        messages_for_args.append({'role': 'system', 'content': instruction})
+
+        try:
+            # Use the specialized method to get only arguments
+            argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_args)
+
+            if argument_decision and argument_decision.get("action_type") == "tool_arguments":
+                arguments = argument_decision.get("arguments", {})
+                self.decision_logger.info(f"Successfully generated arguments for tool '{tool_name}'", extra={'arguments': arguments})
+                return arguments
+            else:
+                self.error_logger.warning(f"Failed to get arguments for tool '{tool_name}'. LLM did not return valid arguments.", extra={'decision': argument_decision})
+                return None
+        except Exception as e:
+            self.error_logger.error(f"Exception while getting arguments for tool '{tool_name}': {e}", exc_info=True)
+            return None
+
     async def execute_tool_cycle(self,
                                  base_system_messages: List[Dict[str, str]],
                                  max_tool_calls: int,
@@ -329,49 +360,49 @@ class ToolOrchestrator:
                                  retrieved_facts_context_string: Optional[str]
                                  ) -> Tuple[Optional[str], List[Dict]]:
         """
-        OPTIMIZED tool execution cycle - streamlined for maximum efficiency.
-        Reduces verbose logging and eliminates redundant system messages.
+        Executes a two-step tool cycle:
+        1. Decide on a tool to use (or respond with text).
+        2. Get arguments for the chosen tool in a separate, focused call.
         """
         successful_tool_calls_details: List[Dict] = []
         tool_calls_made = 0
 
-        # Get allowed tools efficiently
-        tools_to_exclude = ['fetch_memory', 'save_memory']
-        main_loop_allowed_tool_names = self._get_allowed_tool_names(tools_to_exclude)
-        
-        # Prepare structured tools with minimal processing
+        main_loop_allowed_tool_names = self._get_allowed_tool_names(['fetch_memory', 'save_memory'])
         structured_tools_for_llm = self._prepare_structured_tools(main_loop_allowed_tool_names, context_name)
 
-        for cycle_iteration in range(max_tool_calls):
+        for _ in range(max_tool_calls):
             if tool_calls_made >= max_tool_calls:
                 break
 
-            # STREAMLINED tool selection - single attempt with minimal retry
-            action_decision = await self._get_tool_decision_optimized(
+            # Step 1: Decide next action (text response or select a tool)
+            action_decision = await self._decide_next_action(
                 base_system_messages, structured_tools_for_llm, context_name, retrieved_facts_context_string
             )
             
             if not action_decision:
                 break
             
-            # Handle text response immediately
             if action_decision.get("action_type") == "text_response":
-                text_content = action_decision.get('text', '')
-                # The base orchestrator is now responsible for adding all messages to history.
-                return text_content, successful_tool_calls_details
+                return action_decision.get('text', ''), successful_tool_calls_details
             
-            # Handle tool call
             if action_decision.get("action_type") != "tool_call":
                 break
 
             tool_name = action_decision.get("tool_name")
-            arguments = action_decision.get("tool_args")
+            reasoning = action_decision.get("reasoning") # Assuming the LLM can provide this
             tool_call_id = action_decision.get("tool_call_id")
 
-            if not tool_name or arguments is None:
+            if not tool_name:
+                continue
+
+            # Step 2: Get arguments for the chosen tool
+            arguments = await self._get_arguments_for_tool(tool_name, base_system_messages, reasoning)
+
+            if arguments is None:
+                self.error_logger.error(f"Aborting tool cycle: failed to get arguments for tool '{tool_name}'.")
                 break
 
-            # OPTIMIZED tool execution with minimal logging
+            # Step 3: Execute the tool
             execution_result = await self._execute_tool(
                 tool_name, arguments, tool_call_id, context_name
             )
@@ -379,66 +410,52 @@ class ToolOrchestrator:
             if execution_result:
                 successful_tool_calls_details.append(execution_result)
                 tool_calls_made += 1
+                # Add tool result to history for the next cycle iteration
+                tool_result_message = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": self._summarize_for_history(execution_result.result, MAX_RESULT_SUMMARY_LEN)
+                }
+                self.history_manager.add_message_to_history(tool_result_message)
             else:
                 break  # Stop on execution failure
 
         return None, successful_tool_calls_details
 
-    def _get_allowed_tool_names(self, tools_to_exclude: List[str]) -> List[str]:
-        """Efficiently get allowed tool names."""
-        if self.allowed_tools is not None:
-            return [tool for tool in self.allowed_tools if tool not in tools_to_exclude]
-        else:
-            all_tool_names = self.tool_executor.get_all_tool_names()
-            return [tool for tool in all_tool_names if tool not in tools_to_exclude]
-
-    def _prepare_structured_tools(self, tool_names: List[str], context_name: str) -> List[Dict]:
-        """Prepare structured tools with minimal error handling."""
-        structured_tools = []
-        for tool_name in tool_names:
-            tool_definition = find_tool(tool_name)
-            if tool_definition and hasattr(tool_definition, 'argument_schema') and tool_definition.argument_schema:
-                try:
-                    schema = tool_definition.argument_schema.model_json_schema()
-                    description = getattr(tool_definition, 'description', "No description available.") or "No description available."
-                    
-                    structured_tools.append({
-                        "name": tool_name,
-                        "description": description,
-                        "parameters": schema
-                    })
-                except Exception:
-                    continue  # Skip problematic tools silently
-        return structured_tools
-
-    async def _get_tool_decision_optimized(self, base_system_messages: List[Dict],
-                                         structured_tools: List[Dict],
-                                         context_name: str,
-                                         retrieved_facts_context_string: Optional[str] = None) -> Optional[Dict]:
-        """Optimized tool decision using the new tagged prompt format."""
+    async def _decide_next_action(self, base_system_messages: List[Dict],
+                                     structured_tools: List[Dict],
+                                     context_name: str,
+                                     retrieved_facts_context_string: Optional[str] = None) -> Optional[Dict]:
+        """
+        Step 1 of the tool cycle: Decide whether to respond with text or select a tool.
+        This does NOT generate tool arguments.
+        """
         current_history = self.history_manager.get_history()
-
-        # Extract personality
         personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
         personality_tag = f"<personality_instruction>{personality_prompt}</personality_instruction>"
 
-        # Get current time
         try:
             current_time_str = datetime.now().astimezone().isoformat()
         except Exception:
             current_time_str = "Time not available"
         time_tag = f"<time>{current_time_str}</time>"
 
-        # Format memory
         memory_tag = ""
         if retrieved_facts_context_string:
             memory_tag = f"<retrieved_memory>\n{retrieved_facts_context_string}\n</retrieved_memory>"
 
-        # Format available tools
-        tools_str = json.dumps(structured_tools, indent=2)
+        # Use simplified tools for the decision step
+        simplified_tools = [{"name": tool["name"], "description": tool["description"]} for tool in structured_tools]
+        tools_str = json.dumps(simplified_tools, indent=2)
         tools_tag = f"<available_tools>\n{tools_str}\n</available_tools>"
+        
+        tool_selection_instruction = (
+            "Review the conversation and available tools. Decide if a tool is needed to answer the user's request. "
+            "If a tool is appropriate, select one. If not, provide a direct text response. "
+            "You will be asked for tool arguments in a separate step."
+        )
 
-        # Format conversation history into a flat string without nested tags
         history_str = ""
         for msg in current_history:
             role = msg.get('role')
@@ -447,47 +464,46 @@ class ToolOrchestrator:
                 history_str += f"User: {content}\n"
             elif role == 'assistant':
                 if msg.get('tool_calls'):
-                    # Represent tool calls in a simplified, non-tagged way
                     tool_calls = msg.get('tool_calls', [])
-                    calls_str_list = []
-                    for tc in tool_calls:
-                        if 'function' in tc and 'name' in tc['function'] and 'arguments' in tc['function']:
-                            calls_str_list.append(f"{tc['function']['name']}({tc['function']['arguments']})")
+                    calls_str_list = [f"{tc['function']['name']}(...)" for tc in tool_calls if 'function' in tc]
                     calls_str = ", ".join(calls_str_list)
                     history_str += f"Assistant (tool call): {calls_str}\n"
                 elif content:
                     history_str += f"Assistant: {content}\n"
             elif role == 'tool':
                 tool_name = msg.get('name', 'N/A')
-                # Summarize long tool results for conciseness
-                summary = str(content)
-                if len(summary) > 500:
-                    summary = summary[:500] + "... (truncated)"
+                summary = self._summarize_for_history(content, 200)
                 history_str += f"Tool ({tool_name}) Result: {summary}\n"
         
         history_tag = f"<conversation_history>\n{history_str.strip()}\n</conversation_history>" if history_str.strip() else ""
 
-        # Assemble the final prompt
         final_prompt_content = (
             f"{personality_tag}\n"
             f"{time_tag}\n"
             f"{memory_tag}\n"
             f"{history_tag}\n"
+            f"{tool_selection_instruction}\n"
             f"{tools_tag}"
         ).strip()
 
         messages_for_llm = [{'role': 'user', 'content': final_prompt_content}]
 
-        # Call LLM
+        self.decision_logger.info("Step 1: Deciding next action (text or tool)")
         action_decision = await self.llm_client.get_next_action(
             messages_for_llm,
-            allowed_tools=structured_tools,
+            allowed_tools=structured_tools, # Pass full schema for the client to handle
             context_type=context_name
         )
         
         if action_decision and action_decision.get("action_type") in ["tool_call", "text_response"]:
+            if action_decision.get("action_type") == "tool_call":
+                # We only care about the tool name here. Arguments will be fetched in the next step.
+                self.decision_logger.info(f"LLM decided to use tool: {action_decision.get('tool_name')}")
+                # Clear args to ensure they are not used accidentally
+                action_decision['tool_args'] = {}
             return action_decision
         
+        self.error_logger.warning("LLM failed to decide on a valid next action.", extra={'decision': action_decision})
         return None
 
     async def _execute_tool(self, tool_name: str, arguments: Dict,
