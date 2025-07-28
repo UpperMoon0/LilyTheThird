@@ -357,7 +357,7 @@ class ToolOrchestrator:
             # Handle text response immediately
             if action_decision.get("action_type") == "text_response":
                 text_content = action_decision.get('text', '')
-                await self.history_manager.add_message('assistant', text_content)
+                # The base orchestrator is now responsible for adding all messages to history.
                 return text_content, successful_tool_calls_details
             
             # Handle tool call

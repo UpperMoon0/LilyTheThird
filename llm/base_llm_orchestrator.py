@@ -382,7 +382,8 @@ class BaseLLMOrchestrator(ABC):
         base_system_messages = self._get_base_system_messages(**kwargs)
 
         prepared_user_message = self._prepare_user_message_for_history(user_message, **kwargs)
-        await self.history_manager.add_message('user', prepared_user_message)
+        # History is now added after the response is generated to ensure the entire
+        # user request -> bot response pair is recorded together.
 
         successful_tool_calls = []
         final_message = ""
@@ -409,12 +410,13 @@ class BaseLLMOrchestrator(ABC):
                 
                 final_message = await self._generate_optimized_final_response(base_system_messages, successful_tool_calls)
                 
-                if final_message and not final_message.startswith("Error:"):
-                    await self.history_manager.add_message('assistant', final_message)
         else:
             final_message = await self._generate_optimized_final_response(base_system_messages, successful_tool_calls)
-            if final_message and not final_message.startswith("Error:"):
-                await self.history_manager.add_message('assistant', final_message)
+
+        # Add user message and final assistant response to history
+        await self.history_manager.add_message('user', prepared_user_message)
+        if final_message and not final_message.startswith("Error:"):
+            await self.history_manager.add_message('assistant', final_message)
         
         return final_message, successful_tool_calls
 
