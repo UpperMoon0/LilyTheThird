@@ -120,14 +120,29 @@ class LLMClient:
         """Helper method to log structured request data."""
         if self.request_logger:
             try:
+                # Create a mutable copy of the data for modification.
+                log_data = data.copy()
+
+                # Check if 'request_messages' exists and process it for readability
+                if 'request_messages' in log_data and isinstance(log_data['request_messages'], list):
+                    # Create a new list of messages to avoid modifying the original list in place
+                    new_messages = []
+                    for message in log_data['request_messages']:
+                        new_message = message.copy() # Copy the message dict
+                        if 'content' in new_message and isinstance(new_message['content'], str):
+                            # Split content into a list of lines for better log readability
+                            new_message['content'] = new_message['content'].split('\n')
+                        new_messages.append(new_message)
+                    log_data['request_messages'] = new_messages
+
                 log_entry = {
                     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "log_type": log_type,
                     "provider": self.provider,
                     "model": self.model,
-                    **data
+                    **log_data
                 }
-                self.request_logger.info(json.dumps(log_entry, ensure_ascii=False, indent=2)) # Added indent=2
+                self.request_logger.info(json.dumps(log_entry, ensure_ascii=False, indent=2))
             except Exception as e:
                 # Avoid crashing the main application due to logging errors
                 print(f"Error writing to LLM request log: {e}")
@@ -502,7 +517,7 @@ class LLMClient:
             self._log_request_data("gemini_function_call_request_failure_not_initialized", {"purpose": purpose, "error": error_msg})
             return {"error": error_msg}
 
-        self._log_request_data("gemini_function_call_request", {"purpose": purpose, "request_messages_count": len(messages), "tool_config_present": gemini_tool_config is not None})
+        self._log_request_data("gemini_function_call_request", {"purpose": purpose, "request_messages": messages, "tool_config_present": gemini_tool_config is not None})
         print(f"--- Attempting Gemini {purpose} with function calling ---")
 
         if self.provider != 'gemini':

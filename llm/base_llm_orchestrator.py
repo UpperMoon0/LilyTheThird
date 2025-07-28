@@ -1,36 +1,29 @@
 import json
-import asyncio # Import asyncio for sleep
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
-# Assuming components are in the same directory or adjust imports
 from .history_manager import HistoryManager
 from .llm_client import LLMClient
 from .tool_executor import ToolExecutor
 from .error_analyzer import ErrorAnalyzer, ErrorCategory
-from .tool_orchestrator import ToolOrchestrator, INSTRUCTIONAL_PROMPT_FOR_SCHEMA # Import ToolOrchestrator and INSTRUCTIONAL_PROMPT_FOR_SCHEMA
+from .tool_orchestrator import ToolOrchestrator
 from .logging_config import setup_logging
-from .schemas import ToolCallDetails # Import ToolCallDetails
+from .schemas import ToolCallDetails 
 from memory.mongo_handler import MongoHandler
 from tools.tools import find_tool
 
 load_dotenv()
 
-# Constants for retry logic
-TOOL_SELECT_RETRY = 5       # Max retries for LLM failing to choose a tool (0=disable, -1=infinite)
-TOOL_USE_RETRY = 10         # Max retries for LLM failing argument generation or tool execution error (0=disable, -1=infinite)
-FINAL_MEMORY_RETRY = 10      # Max retries for final save/update memory step (argument/execution error)
-TOOL_RETRY_DELAY_SECONDS = 2 # Delay between tool retries
-
-# Additional constants for enhanced error handling
-MAX_SAME_ERROR_RETRIES = 3   # Max retries for the exact same error pattern
-ESCALATING_DELAY_FACTOR = 1.5  # Increase delay each retry
-MAX_RETRY_DELAY = 10        # Maximum delay between retries
-
-# Constants for history summarization
+TOOL_SELECT_RETRY = 5
+TOOL_USE_RETRY = 10
+FINAL_MEMORY_RETRY = 10
+TOOL_RETRY_DELAY_SECONDS = 2
+MAX_SAME_ERROR_RETRIES = 3
+ESCALATING_DELAY_FACTOR = 1.5
+MAX_RETRY_DELAY = 10
 MAX_ARG_SUMMARY_LEN = 150
 MAX_RESULT_SUMMARY_LEN = 250
 
@@ -42,12 +35,11 @@ class BaseLLMOrchestrator(ABC):
     def __init__(self,
                  provider: Optional[str] = None,
                  model_name: Optional[str] = None,
-                 tool_use_enabled: bool = True,      # New parameter
-                 allowed_tools: Optional[List[str]] = None): # New parameter
+                 tool_use_enabled: bool = True,      
+                 allowed_tools: Optional[List[str]] = None): 
         """
         Initializes common components. Subclasses might override provider/model defaults.
         """
-        # Initialize logging system first
         self.logging_manager = setup_logging()
         self.orchestrator_logger = self.logging_manager.get_logger('tool_orchestrator')
         
@@ -58,38 +50,30 @@ class BaseLLMOrchestrator(ABC):
             'allowed_tools': allowed_tools
         })
         
-        # Initialize shared components
-        self.history_manager = HistoryManager()  # Will set LLM client later
-        self.mongo_handler = MongoHandler() # Needed for ToolExecutor
+        self.history_manager = HistoryManager()
+        self.mongo_handler = MongoHandler()
         if not self.mongo_handler.is_connected():
             self.orchestrator_logger.warning("MongoDB connection failed. Memory tools will not function.")
 
-        # LLMClient handles provider/model logic and client initialization
-        # Subclasses can influence provider/model before calling super().__init__ or pass them here
-        self.llm_client = LLMClient(provider=provider, model_name=model_name)        # Initialize ToolExecutor, passing dependencies
+        self.llm_client = LLMClient(provider=provider, model_name=model_name)
         self.tool_executor = ToolExecutor(mongo_handler=self.mongo_handler, llm_client=self.llm_client)
         
-        # Store tool_use_enabled and allowed_tools
         self.tool_use_enabled = tool_use_enabled
-        self.allowed_tools = allowed_tools # This is the list of tool *names* allowed.
+        self.allowed_tools = allowed_tools
         self.tool_orchestrator = None
 
-        # Initialize ToolOrchestrator if enabled.
-        # ToolOrchestrator itself will handle the case where self.allowed_tools is None (meaning all tools known to ToolExecutor are considered, then filtered by its internal exclusion list).
         if self.tool_use_enabled:
             print(f"[{self.__class__.__name__}] Tool use enabled. Initializing ToolOrchestrator.")
             self._initialize_tool_orchestrator()
         else:
             print(f"[{self.__class__.__name__}] Tool use disabled. ToolOrchestrator not initialized.")
 
-        # Initialize error analyzer for enhanced retry logic
         self.error_analyzer = ErrorAnalyzer()
-        self.recent_errors = []  # Track recent errors for pattern detection
+        self.recent_errors = []
 
         self.provider = self.llm_client.provider
         self.model = self.llm_client.get_model_name()
         
-        # Set the LLM client for history manager summarization
         self.history_manager.set_llm_client(self.llm_client)
         
         print(f"BaseLLMOrchestrator initialized with Provider: {self.provider}, Model: {self.model}")
@@ -115,7 +99,6 @@ class BaseLLMOrchestrator(ABC):
             print(f"[{self.__class__.__name__}] ❌ ToolOrchestrator initialization FAILED (attempt {retry_count + 1}): {e}")
             self.tool_orchestrator = None
             
-            # Retry logic for transient failures
             if retry_count < max_retries:
                 print(f"[{self.__class__.__name__}] Retrying ToolOrchestrator initialization in 1 second...")
                 import time
@@ -123,7 +106,6 @@ class BaseLLMOrchestrator(ABC):
                 self._initialize_tool_orchestrator(retry_count + 1)
             else:
                 print(f"[{self.__class__.__name__}] ❌ CRITICAL: ToolOrchestrator initialization FAILED after {max_retries + 1} attempts. Tool use will be disabled.")
-                # Log the issue for debugging but continue with initialization
 
     def reinitialize_tool_orchestrator(self):
         """
@@ -187,12 +169,11 @@ class BaseLLMOrchestrator(ABC):
             return "N/A"
         try:
             if isinstance(data, (dict, list)):
-                # Compact JSON for dicts/lists
                 s_data = json.dumps(data, separators=(',', ':'))
             else:
                 s_data = str(data)
         except TypeError:
-            s_data = str(data) # Fallback for non-serializable objects
+            s_data = str(data)
         if len(s_data) > max_len:
             return s_data[:max_len-3] + "..."
         return s_data
@@ -218,37 +199,31 @@ class BaseLLMOrchestrator(ABC):
             "timestamp": datetime.now(timezone.utc)
         }
         
-        # Keep only recent errors (last 10)
         self.recent_errors.append(error_record)
         if len(self.recent_errors) > 10:
             self.recent_errors.pop(0)
         
-        # Check for repeated patterns (same tool + same error category)
-        same_pattern_count = sum(1 for error in self.recent_errors 
-                               if error["tool_name"] == tool_name and 
+        same_pattern_count = sum(1 for error in self.recent_errors
+                               if error["tool_name"] == tool_name and
                                   error["error_category"] == error_category)
         
-        return same_pattern_count >= 3  # Consider it a pattern after 3 occurrences
+        return same_pattern_count >= 3
 
     def _generate_enhanced_retry_context(self, tool_name: str, error_message: str, arguments: dict, 
                                        retry_count: int, retrieved_facts: Optional[str] = None) -> str:
         """
         Generate enhanced retry context using error analysis and pattern detection.
         """
-        # Analyze the error
         error_category, specific_guidance = self.error_analyzer.analyze_error(error_message, tool_name, arguments)
         
-        # Track the error pattern
         is_repeated_pattern = self._track_error_pattern(tool_name, error_message, arguments, error_category)
         
-        # Build enhanced context
         base_context = (
             f"RETRY CONTEXT (Attempt {retry_count}): Tool '{tool_name}' failed. "
             f"Error Category: {error_category.value.upper()}\n\n"
             f"SPECIFIC GUIDANCE: {specific_guidance}\n\n"
         )
         
-        # Add pattern-specific warnings
         if is_repeated_pattern:
             base_context += (
                 "⚠️ REPEATED MISTAKE DETECTED: You have made this same type of error multiple times. "
@@ -256,7 +231,6 @@ class BaseLLMOrchestrator(ABC):
                 "before proceeding. Take extra care with the argument format and values.\n\n"
             )
         
-        # Add context for specific error types
         if error_category == ErrorCategory.MEMORY_ID_ERROR and retrieved_facts:
             base_context += (
                 "MEMORY ID REFERENCE: Here are the available memory facts you can update:\n"
@@ -264,7 +238,6 @@ class BaseLLMOrchestrator(ABC):
                 "IMPORTANT: Only use memory_id values that appear in the facts above.\n\n"
             )
         
-        # Add progressive guidance based on retry count
         if retry_count >= 3:
             base_context += (
                 "PROGRESSIVE GUIDANCE: This is your third or later attempt. Consider:\n"
@@ -274,7 +247,6 @@ class BaseLLMOrchestrator(ABC):
                 "4. Review any error-specific guidance provided above\n\n"
             )
         
-        # Add examples for complex tools on repeated failures
         if retry_count >= 2 and tool_name in ["update_memory", "save_memory"]:
             base_context += self._get_tool_examples(tool_name)
         
@@ -305,16 +277,13 @@ class BaseLLMOrchestrator(ABC):
         """
         Determine if retry sequence should be aborted due to futile attempts.
         """
-        # Count exact same error occurrences
-        exact_same_errors = sum(1 for error in self.recent_errors[-5:] 
-                              if error.get("tool_name") == tool_name and 
-                                 error.get("error_message") == error_message)
+        exact_same_errors = sum(1 for error in self.recent_errors[-5:]
+                                  if error.get("tool_name") == tool_name and
+                                     error.get("error_message") == error_message)
         
-        # Abort if we've seen the exact same error too many times
         if exact_same_errors >= MAX_SAME_ERROR_RETRIES:
             return True
         
-        # Abort for certain categories that are unlikely to succeed
         error_category, _ = self.error_analyzer.analyze_error(error_message, tool_name, {})
         non_retryable_on_high_count = [
             ErrorCategory.INVALID_ARGUMENT,
@@ -335,11 +304,7 @@ class BaseLLMOrchestrator(ABC):
         if not tool_result:
             return "The tool returned no specific result."
 
-        # Avoid summarizing very short results with an LLM call.
         if len(tool_result) < 100 and "\n" not in tool_result:
-            #  Return a simple factual statement.
-            #  Example: "The get_current_time tool indicated: 2024-07-15 10:30:00."
-            #  This avoids overly conversational summaries for simple data.
             return f"The {tool_name} tool provided the following: {tool_result}"
 
         prompt_template = (
@@ -364,20 +329,13 @@ class BaseLLMOrchestrator(ABC):
         ]
         
         try:
-            # Use the LLM client to generate the summary.
-            # Assuming generate_final_response can be used with a simple prompt structure.
-            # A more specialized method in LLMClient might be preferable in the long run.
             summary = await self.llm_client.generate_final_response(
                 messages_for_summarization,
-                personality_prompt="You are a summarizer." # A neutral personality for this task
+                personality_prompt="You are a summarizer."
             )
 
             if summary and not summary.startswith("Error:"):
-                # Clean up the summary a bit
-                summary = summary.strip()
-                # Avoid overly verbose "I found out that..." if the summary is already a statement.
-                # The prompt guides the LLM to produce a direct statement.
-                return summary
+                return summary.strip()
             else:
                 self.orchestrator_logger.error(f"LLM summarization failed or returned error for {tool_name}: {summary}")
                 return f"Tool {tool_name} was used. (Result summarization failed, raw result: {self._summarize_for_history(tool_result, 100)})"
@@ -396,14 +354,11 @@ class BaseLLMOrchestrator(ABC):
             return None
 
         try:
-            # Use similarity search based on the query text
-            relevant_facts = self.mongo_handler.retrieve_memories_by_similarity(query_text, limit=3) # Limit to 3 for context space
+            relevant_facts = self.mongo_handler.retrieve_memories_by_similarity(query_text, limit=3)
             if relevant_facts:
                 print(f"[{self.__class__.__name__}] Retrieved {len(relevant_facts)} relevant facts from memory:")
-                # Log the content of each retrieved fact (Corrected indentation)
                 for i, fact in enumerate(relevant_facts):
                     print(f"  Fact {i+1}: {fact}")
-                # Prepare facts context string WITH STRONG INSTRUCTION (Corrected indentation)
                 facts_context = (
                     "CRITICAL INSTRUCTION: The following information was retrieved from memory and is highly relevant to the user's query. "
                     "You MUST prioritize using these facts in your response if they directly answer the query. "
@@ -412,40 +367,31 @@ class BaseLLMOrchestrator(ABC):
                     "\n".join([f"- {fact}" for fact in relevant_facts])
                 )
                 print(f"[{self.__class__.__name__}] Prepared facts context WITH integrated prioritization instruction.")
-                return facts_context # Return the formatted string
+                return facts_context
             else:
-                # Corrected indentation
                 print(f"[{self.__class__.__name__}] No relevant facts found in memory for query: '{query_text[:50]}...'")
-                return None # Return None if no facts found
-        # Added missing except block
+                return None
         except Exception as e:
             print(f"Error retrieving memories by similarity: {e}")
-            return None # Return None on error
+            return None
 
-    # Removed _execute_tool_step as its logic is integrated into _process_message loops
     async def _process_message(self, user_message: str, **kwargs) -> Tuple[str, List[Dict]]:
         """
-        OPTIMIZED Core logic for processing a user message with smart tool usage detection.
-        Dramatically reduces LLM calls by early detection and simplified workflow.
+        Core logic for processing a user message.
         """
-        # 1. Get context-specific base system messages
         base_system_messages = self._get_base_system_messages(**kwargs)
 
-        # 2. Prepare and add user message to history
         prepared_user_message = self._prepare_user_message_for_history(user_message, **kwargs)
         await self.history_manager.add_message('user', prepared_user_message)
 
-        # 3. SMART EARLY DETECTION: Check if tools are likely needed
-        needs_tools = await self._is_tool_needed(user_message)
         successful_tool_calls = []
+        final_message = ""
 
-        if needs_tools and self.tool_use_enabled and self.tool_orchestrator is not None:
-            # 4. Retrieve relevant memories only when tools are needed
+        if self.tool_use_enabled and self.tool_orchestrator is not None:
             retrieved_facts_context_string = await self._retrieve_and_add_memory_context(user_message)
             
-            # 5. Execute streamlined tool cycle (max 2 LLM calls total)
             max_tool_calls = self._get_max_tool_calls()
-            tool_interaction_messages, executed_tool_calls_details = await self.tool_orchestrator.execute_tool_cycle(
+            text_response_from_cycle, executed_tool_calls_details = await self.tool_orchestrator.execute_tool_cycle(
                 base_system_messages=base_system_messages,
                 max_tool_calls=max_tool_calls,
                 context_name=self.context_name,
@@ -454,68 +400,23 @@ class BaseLLMOrchestrator(ABC):
             
             if executed_tool_calls_details:
                 successful_tool_calls.extend(executed_tool_calls_details)
-            
-            # 6. Skip redundant final memory operation if tools already executed
-            if not executed_tool_calls_details and self._should_perform_final_memory_step():
-                await self._execute_final_memory_operation(base_system_messages, retrieved_facts_context_string, successful_tool_calls)
 
-        # 7. ALWAYS generate final response with context cleaning
-        final_message = await self._generate_optimized_final_response(base_system_messages, successful_tool_calls)
-
-        # 8. Add the final assistant message to history
-        if final_message and not final_message.startswith("Error:"):
-            await self.history_manager.add_message('assistant', final_message)
+            if text_response_from_cycle:
+                final_message = text_response_from_cycle
+            else:
+                if not executed_tool_calls_details and self._should_perform_final_memory_step():
+                    await self._execute_final_memory_operation(base_system_messages, retrieved_facts_context_string, successful_tool_calls)
+                
+                final_message = await self._generate_optimized_final_response(base_system_messages, successful_tool_calls)
+                
+                if final_message and not final_message.startswith("Error:"):
+                    await self.history_manager.add_message('assistant', final_message)
+        else:
+            final_message = await self._generate_optimized_final_response(base_system_messages, successful_tool_calls)
+            if final_message and not final_message.startswith("Error:"):
+                await self.history_manager.add_message('assistant', final_message)
         
         return final_message, successful_tool_calls
-
-    async def _is_tool_needed(self, user_message: str) -> bool:
-        """
-        Determines if the user's message likely requires a tool by making a quick,
-        isolated call to the LLM.
-        """
-        if not self.tool_orchestrator:
-            return False
-
-        # 1. Get the list of available tools for the check
-        tools_to_exclude = self._get_tools_to_exclude_from_main_loop()
-        allowed_tool_names = self.tool_orchestrator._get_allowed_tool_names(tools_to_exclude)
-        if not allowed_tool_names:
-            return False
-        
-        structured_tools = self.tool_orchestrator._prepare_structured_tools(allowed_tool_names, self.context_name)
-        if not structured_tools:
-            return False
-
-        # 2. Create a minimal, isolated context for the decision using XML tags.
-        instruction_tag = "<instruction>You are an expert at routing user requests. Based on the user's message below, decide if any of the available tools are relevant and should be used. If a tool is appropriate, call it. If not, respond directly to the user as a helpful assistant.</instruction>"
-        tools_str = json.dumps(structured_tools, indent=2)
-        tools_tag = f"<available_tools>\n{tools_str}\n</available_tools>"
-        user_message_tag = f"<user_message>{user_message}</user_message>"
-
-        prompt_content = (
-            f"{instruction_tag}\n"
-            f"{tools_tag}\n"
-            f"{user_message_tag}"
-        ).strip()
-
-        messages_for_check = [{'role': 'user', 'content': prompt_content}]
-
-        # 3. Call the LLM to see if it chooses a tool
-        action_decision = await self.llm_client.get_next_action(
-            messages=messages_for_check,
-            allowed_tools=structured_tools,
-            context_type=f"{self.context_name}_tool_check" # Use a specific context for logging
-        )
-
-        # 4. Determine the result
-        if action_decision and action_decision.get("action_type") == "tool_call":
-            print(f"[{self.__class__.__name__}] Tool check result: YES (Tool: {action_decision.get('tool_name')})")
-            self.orchestrator_logger.info("Tool check returned: YES", extra={'tool_name': action_decision.get('tool_name')})
-            return True
-        
-        print(f"[{self.__class__.__name__}] Tool check result: NO")
-        self.orchestrator_logger.info("Tool check returned: NO")
-        return False
 
     async def _execute_final_memory_operation(self, base_system_messages: List[Dict],
                                             retrieved_facts_context_string: Optional[str],
@@ -561,16 +462,13 @@ class BaseLLMOrchestrator(ABC):
         """
         final_history = self.history_manager.get_history()
         
-        # Extract personality prompt from base system messages
         personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
 
-        # Find the last user message and prepare history for formatting
         last_user_message = ""
-        history_for_formatting = list(final_history)  # Make a copy
+        history_for_formatting = list(final_history)
         if history_for_formatting and history_for_formatting[-1].get('role') == 'user':
             last_user_message = history_for_formatting.pop().get('content', '')
 
-        # Format conversation history into a simple string, excluding tool calls
         history_str = ""
         for msg in history_for_formatting:
             role = msg.get('role')
@@ -578,20 +476,17 @@ class BaseLLMOrchestrator(ABC):
             if role == 'user':
                 history_str += f"User: {content}\n"
             elif role == 'assistant':
-                # Only include textual responses, not tool calls, for the final prompt
                 if content and not msg.get('tool_calls'):
                     history_str += f"Assistant: {content}\n"
         
         history_tag = f"<conversation_history>\n{history_str.strip()}\n</conversation_history>" if history_str.strip() else ""
 
-        # Get current time with timezone
         try:
             current_time_str = datetime.now().astimezone().isoformat()
         except Exception as e:
             self.orchestrator_logger.error(f"Could not get current time: {e}")
             current_time_str = "Time not available"
 
-        # Construct the new prompt format
         new_prompt_content = (
             f"<user_message>{last_user_message}</user_message>\n"
             f"<personality_instruction>{personality_prompt}</personality_instruction>\n"
@@ -599,38 +494,17 @@ class BaseLLMOrchestrator(ABC):
             f"{history_tag}"
         ).strip()
 
-        # The entire prompt is now a single user message
         messages_for_llm = [{'role': 'user', 'content': new_prompt_content}]
 
-        # The personality_prompt for generate_final_response is now part of the message,
-        # so we pass an empty one to avoid duplication.
         final_message = await self.llm_client.generate_final_response(
             messages_for_llm,
-            personality_prompt="" # Personality is now inside the main prompt
+            personality_prompt=""
         )
 
         if final_message is None or final_message.startswith("Error:"):
             return final_message if final_message else "Sorry, I encountered an error generating the final response."
         
         return final_message
-
-    async def _summarize_tool_result_for_final_response(self, tool_name: str, tool_result: str) -> str:
-        """Generate a concise summary of tool result for final response context."""
-        # Simple rule-based summarization for common tools
-        if tool_name == 'search_web':
-            return f"searched the web and found relevant information"
-        elif tool_name == 'read_file':
-            return f"read file contents"
-        elif tool_name == 'write_file':
-            return f"wrote to file"
-        elif tool_name == 'save_memory':
-            return f"saved information to memory"
-        elif tool_name == 'update_memory':
-            return f"updated stored information"
-        else:
-            # For other tools, create a simple summary
-            result_snippet = tool_result[:100] + "..." if len(tool_result) > 100 else tool_result
-            return f"used {tool_name} and got: {result_snippet}"
 
     def _filter_history_optimally(self, final_history: List[Dict], successful_tool_calls: List[Dict]) -> List[Dict]:
         """
@@ -639,7 +513,6 @@ class BaseLLMOrchestrator(ABC):
         """
         filtered_history = []
         
-        # Create tool summaries for successful calls only
         tool_summaries = {}
         for tool_call_detail in successful_tool_calls:
             if hasattr(tool_call_detail, 'tool_call_id') and tool_call_detail.tool_call_id:
@@ -649,17 +522,14 @@ class BaseLLMOrchestrator(ABC):
             msg_role = msg.get('role', '')
             msg_content = msg.get('content', '')
             
-            # Keep user messages always
             if msg_role == 'user':
                 filtered_history.append(msg)
                 continue
             
-            # Keep clean assistant messages
             if msg_role == 'assistant' and 'tool_calls' not in msg:
                 filtered_history.append(msg)
                 continue
                 
-            # Skip all tool scaffolding and system tool messages
             if (msg_role == 'system' and
                 (msg_content.startswith("System: Calling tool") or
                  msg_content.startswith("System: Tool ") or
@@ -668,11 +538,9 @@ class BaseLLMOrchestrator(ABC):
                  "tool" in msg_content.lower())):
                 continue
                 
-            # Skip tool role messages
             if msg_role == 'tool':
                 continue
                 
-            # Keep other essential system messages (memory summaries, etc.)
             if msg_role == 'system' and not any(skip_word in msg_content.lower()
                                                for skip_word in ['tool', 'retry', 'calling', 'schema']):
                 filtered_history.append(msg)

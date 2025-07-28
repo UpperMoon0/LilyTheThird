@@ -327,7 +327,7 @@ class ToolOrchestrator:
                                  max_tool_calls: int,
                                  context_name: str,
                                  retrieved_facts_context_string: Optional[str]
-                                 ) -> Tuple[List[Dict[str, str]], List[Dict]]:
+                                 ) -> Tuple[Optional[str], List[Dict]]:
         """
         OPTIMIZED tool execution cycle - streamlined for maximum efficiency.
         Reduces verbose logging and eliminates redundant system messages.
@@ -358,7 +358,7 @@ class ToolOrchestrator:
             if action_decision.get("action_type") == "text_response":
                 text_content = action_decision.get('text', '')
                 await self.history_manager.add_message('assistant', text_content)
-                break
+                return text_content, successful_tool_calls_details
             
             # Handle tool call
             if action_decision.get("action_type") != "tool_call":
@@ -382,7 +382,7 @@ class ToolOrchestrator:
             else:
                 break  # Stop on execution failure
 
-        return [], successful_tool_calls_details  # Return empty messages list to reduce context
+        return None, successful_tool_calls_details
 
     def _get_allowed_tool_names(self, tools_to_exclude: List[str]) -> List[str]:
         """Efficiently get allowed tool names."""
