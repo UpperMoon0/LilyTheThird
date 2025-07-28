@@ -348,7 +348,7 @@ class ToolOrchestrator:
 
             # STREAMLINED tool selection - single attempt with minimal retry
             action_decision = await self._get_tool_decision_optimized(
-                base_system_messages, structured_tools_for_llm, context_name
+                base_system_messages, structured_tools_for_llm, context_name, retrieved_facts_context_string
             )
             
             if not action_decision:
@@ -372,7 +372,7 @@ class ToolOrchestrator:
                 break
 
             # OPTIMIZED tool execution with minimal logging
-            execution_result = await self._execute_tool_optimized(
+            execution_result = await self._execute_tool(
                 tool_name, arguments, tool_call_id, context_name
             )
             
@@ -412,12 +412,73 @@ class ToolOrchestrator:
         return structured_tools
 
     async def _get_tool_decision_optimized(self, base_system_messages: List[Dict],
-                                         structured_tools: List[Dict], context_name: str) -> Optional[Dict]:
-        """Optimized tool decision with minimal retry logic."""
+                                         structured_tools: List[Dict],
+                                         context_name: str,
+                                         retrieved_facts_context_string: Optional[str] = None) -> Optional[Dict]:
+        """Optimized tool decision using the new tagged prompt format."""
         current_history = self.history_manager.get_history()
-        messages_for_llm = base_system_messages + current_history
 
-        # Single attempt - no verbose retry logic
+        # Extract personality
+        personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
+        personality_tag = f"<personality_instruction>{personality_prompt}</personality_instruction>"
+
+        # Get current time
+        try:
+            current_time_str = datetime.now().astimezone().isoformat()
+        except Exception:
+            current_time_str = "Time not available"
+        time_tag = f"<time>{current_time_str}</time>"
+
+        # Format memory
+        memory_tag = ""
+        if retrieved_facts_context_string:
+            memory_tag = f"<retrieved_memory>\n{retrieved_facts_context_string}\n</retrieved_memory>"
+
+        # Format available tools
+        tools_str = json.dumps(structured_tools, indent=2)
+        tools_tag = f"<available_tools>\n{tools_str}\n</available_tools>"
+
+        # Format conversation history into a flat string without nested tags
+        history_str = ""
+        for msg in current_history:
+            role = msg.get('role')
+            content = msg.get('content', '')
+            if role == 'user':
+                history_str += f"User: {content}\n"
+            elif role == 'assistant':
+                if msg.get('tool_calls'):
+                    # Represent tool calls in a simplified, non-tagged way
+                    tool_calls = msg.get('tool_calls', [])
+                    calls_str_list = []
+                    for tc in tool_calls:
+                        if 'function' in tc and 'name' in tc['function'] and 'arguments' in tc['function']:
+                            calls_str_list.append(f"{tc['function']['name']}({tc['function']['arguments']})")
+                    calls_str = ", ".join(calls_str_list)
+                    history_str += f"Assistant (tool call): {calls_str}\n"
+                elif content:
+                    history_str += f"Assistant: {content}\n"
+            elif role == 'tool':
+                tool_name = msg.get('name', 'N/A')
+                # Summarize long tool results for conciseness
+                summary = str(content)
+                if len(summary) > 500:
+                    summary = summary[:500] + "... (truncated)"
+                history_str += f"Tool ({tool_name}) Result: {summary}\n"
+        
+        history_tag = f"<conversation_history>\n{history_str.strip()}\n</conversation_history>" if history_str.strip() else ""
+
+        # Assemble the final prompt
+        final_prompt_content = (
+            f"{personality_tag}\n"
+            f"{time_tag}\n"
+            f"{memory_tag}\n"
+            f"{history_tag}\n"
+            f"{tools_tag}"
+        ).strip()
+
+        messages_for_llm = [{'role': 'user', 'content': final_prompt_content}]
+
+        # Call LLM
         action_decision = await self.llm_client.get_next_action(
             messages_for_llm,
             allowed_tools=structured_tools,
@@ -429,7 +490,7 @@ class ToolOrchestrator:
         
         return None
 
-    async def _execute_tool_optimized(self, tool_name: str, arguments: Dict,
+    async def _execute_tool(self, tool_name: str, arguments: Dict,
                                     tool_call_id: str, context_name: str) -> Optional[ToolCallDetails]:
         """Optimized tool execution with minimal logging and retry."""
         tool_definition = find_tool(tool_name)

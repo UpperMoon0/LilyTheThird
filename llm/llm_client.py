@@ -537,13 +537,10 @@ class LLMClient:
                 system_instruction_text = None
                 conversation_messages = []
 
-                if messages and messages[0]["role"] == "system":
-                    system_instruction_text = messages[0]["content"]
-                    conversation_messages = messages[1:]
-                else:
-                    # This case should ideally not happen if get_next_action always prepends a system prompt
-                    print("Warning: No system prompt found at the start of messages for _get_gemini_function_call.")
-                    conversation_messages = messages
+                # The new format passes the full prompt as user messages.
+                # There is no separate system instruction to extract.
+                system_instruction_text = None
+                conversation_messages = messages
                 
                 # Configure safety settings to disable all content filtering (uncensored mode)
                 safety_settings = {
@@ -810,24 +807,10 @@ class LLMClient:
 
             gemini_tool_config = GeminiTool(function_declarations=gemini_function_declarations) if gemini_function_declarations else None
             
-            system_prompt_lines = [
-                "You are an AI assistant. Analyze the conversation and decide if using one of your available functions (tools) is the best way to respond.",
-                "If a function is appropriate, call it with the necessary arguments. Otherwise, respond directly to the user."
-            ]
-            if force_tool_options and choosable_names_for_prompt: # Only add if there are tools to suggest
-                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_names_for_prompt)}.")
-            
-            if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
-                 system_prompt_lines.append(
-                    "IMPORTANT (ChatBox Context - Final Save Check): Review the entire conversation. If you learned any new, specific, and potentially useful facts (e.g., user preferences, project details, key information) that haven't been saved yet, you SHOULD use the 'save_memory' tool now."
-                )
-
-            system_prompt = "\\n".join(system_prompt_lines)
-            
-            request_messages = [{"role": "system", "content": system_prompt}] + messages
-
+            # The ToolOrchestrator now builds the entire prompt with all necessary context.
+            # We pass the messages directly to the Gemini function call handler.
             gemini_response = await self._get_gemini_function_call(
-                messages=request_messages,
+                messages=messages,
                 gemini_tool_config=gemini_tool_config,
                 purpose="Gemini Action Decision"
             )
@@ -872,19 +855,9 @@ class LLMClient:
                         }
                     })
             
-            system_prompt_lines = [
-                "You are an AI assistant. Analyze the conversation and decide if using one of your available functions (tools) is the best way to respond.",
-                "If a function is appropriate, call it with the necessary arguments. Otherwise, respond directly to the user."
-            ]
-            if force_tool_options and choosable_names_for_prompt: # Only add if there are tools to suggest
-                system_prompt_lines.append(f"You are strongly encouraged to use one of the following tools if relevant: {', '.join(choosable_names_for_prompt)}.")
-            
-            if context_type == 'chatbox' and force_tool_options and 'save_memory' in force_tool_options:
-                 system_prompt_lines.append(
-                    "IMPORTANT (ChatBox Context - Final Save Check): Review the entire conversation. If you learned any new, specific, and potentially useful facts (e.g., user preferences, project details, key information) that haven't been saved yet, you SHOULD use the 'save_memory' tool now."
-                )
-            system_prompt = "\\n".join(system_prompt_lines)
-            request_messages = [{"role": "system", "content": system_prompt}] + messages
+            # The ToolOrchestrator now builds the entire prompt with all necessary context.
+            # We pass the messages directly to the OpenAI tool call handler.
+            request_messages = messages
 
             tool_choice_openai = "auto"
             # Use choosable_names_for_prompt for checking if the forced tool is valid in the current context
@@ -1043,14 +1016,9 @@ class LLMClient:
             error_msg = f"LLMClient for {self.provider} not initialized. Cannot generate final response."
             return error_msg
 
-        # Ensure personality prompt is included, followed by the full history
-        final_messages_for_llm = []
-        # Check if the personality_prompt is already the first system message in 'messages'
-        # to avoid duplication.
-        if not (messages and messages[0].get("role") == "system" and messages[0].get("content") == personality_prompt):
-            final_messages_for_llm.append({"role": "system", "content": personality_prompt})
-        
-        final_messages_for_llm.extend(messages)
+        # The orchestrator now provides the complete, formatted prompt in 'messages'.
+        # The personality_prompt is empty as it's already embedded in the tags.
+        final_messages_for_llm = messages
         self._log_request_data("llm_final_request", {"request_messages": final_messages_for_llm})
 
         if self.provider not in self.api_keys or not self.api_keys[self.provider]:
@@ -1133,17 +1101,16 @@ class LLMClient:
         """Handles the actual Gemini API call for message generation, using the provided key."""
         genai.configure(api_key=api_key)
 
+        # With the new tagged format, there's no separate system instruction.
+        # The entire prompt is contained within one or more user/assistant messages.
         system_instruction_text = None
         history_contents = []
 
-        if messages and messages[0]["role"] == "system":
-            system_instruction_text = messages[0]["content"]
-            processed_messages = messages[1:]
-        else:
-            processed_messages = messages
-
-        for msg in processed_messages:
-            role = "user" if msg["role"] == "user" else "model"
+        for msg in messages:
+            # Gemini expects 'user' and 'model' roles.
+            # We map 'system' and 'user' from our format to 'user' for Gemini's context.
+            # 'assistant' maps to 'model'.
+            role = "model" if msg["role"] == "assistant" else "user"
             content_text = msg.get("content", "")
             if not isinstance(content_text, str):
                 content_text = str(content_text)

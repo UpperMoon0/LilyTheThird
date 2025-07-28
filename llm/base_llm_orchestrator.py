@@ -12,7 +12,7 @@ from .llm_client import LLMClient
 from .tool_executor import ToolExecutor
 from .error_analyzer import ErrorAnalyzer, ErrorCategory
 from .tool_orchestrator import ToolOrchestrator, INSTRUCTIONAL_PROMPT_FOR_SCHEMA # Import ToolOrchestrator and INSTRUCTIONAL_PROMPT_FOR_SCHEMA
-from .logging_config import setup_logging, get_logging_manager
+from .logging_config import setup_logging
 from .schemas import ToolCallDetails # Import ToolCallDetails
 from memory.mongo_handler import MongoHandler
 from tools.tools import find_tool
@@ -423,7 +423,6 @@ class BaseLLMOrchestrator(ABC):
             return None # Return None on error
 
     # Removed _execute_tool_step as its logic is integrated into _process_message loops
-
     async def _process_message(self, user_message: str, **kwargs) -> Tuple[str, List[Dict]]:
         """
         OPTIMIZED Core logic for processing a user message with smart tool usage detection.
@@ -437,7 +436,7 @@ class BaseLLMOrchestrator(ABC):
         await self.history_manager.add_message('user', prepared_user_message)
 
         # 3. SMART EARLY DETECTION: Check if tools are likely needed
-        needs_tools = self._smart_tool_detection(user_message)
+        needs_tools = await self._is_tool_needed(user_message)
         successful_tool_calls = []
 
         if needs_tools and self.tool_use_enabled and self.tool_orchestrator is not None:
@@ -462,45 +461,61 @@ class BaseLLMOrchestrator(ABC):
 
         # 7. ALWAYS generate final response with context cleaning
         final_message = await self._generate_optimized_final_response(base_system_messages, successful_tool_calls)
+
+        # 8. Add the final assistant message to history
+        if final_message and not final_message.startswith("Error:"):
+            await self.history_manager.add_message('assistant', final_message)
         
         return final_message, successful_tool_calls
 
-    def _smart_tool_detection(self, user_message: str) -> bool:
+    async def _is_tool_needed(self, user_message: str) -> bool:
         """
-        Smart early detection of whether user message likely needs tools.
-        Prevents unnecessary tool orchestration for simple conversational messages.
+        Determines if the user's message likely requires a tool by making a quick,
+        isolated call to the LLM.
         """
-        # Quick keyword-based detection
-        tool_indicators = [
-            'search', 'find', 'look up', 'get', 'fetch', 'retrieve', 'save', 'remember',
-            'file', 'write', 'create', 'update', 'delete', 'web', 'internet', 'current',
-            'time', 'date', 'weather', 'calculate', 'compute', 'run', 'execute'
-        ]
-        
-        # Question words that often indicate information retrieval needs
-        question_indicators = ['what', 'when', 'where', 'who', 'how', 'why', 'which']
-        
-        message_lower = user_message.lower()
-        
-        # Check for direct tool indicators
-        if any(indicator in message_lower for indicator in tool_indicators):
-            return True
-            
-        # Check for questions that might need tools
-        if any(q in message_lower for q in question_indicators) and ('?' in user_message or len(user_message.split()) > 3):
-            return True
-            
-        # Simple conversational messages likely don't need tools
-        simple_patterns = [
-            'hi', 'hello', 'hey', 'thanks', 'thank you', 'bye', 'goodbye',
-            'ok', 'okay', 'yes', 'no', 'sure', 'sounds good'
-        ]
-        
-        if len(user_message.split()) <= 3 and any(pattern in message_lower for pattern in simple_patterns):
+        if not self.tool_orchestrator:
             return False
-            
-        # Default to needing tools for complex messages
-        return len(user_message.split()) > 5
+
+        # 1. Get the list of available tools for the check
+        tools_to_exclude = self._get_tools_to_exclude_from_main_loop()
+        allowed_tool_names = self.tool_orchestrator._get_allowed_tool_names(tools_to_exclude)
+        if not allowed_tool_names:
+            return False
+        
+        structured_tools = self.tool_orchestrator._prepare_structured_tools(allowed_tool_names, self.context_name)
+        if not structured_tools:
+            return False
+
+        # 2. Create a minimal, isolated context for the decision using XML tags.
+        instruction_tag = "<instruction>You are an expert at routing user requests. Based on the user's message below, decide if any of the available tools are relevant and should be used. If a tool is appropriate, call it. If not, respond directly to the user as a helpful assistant.</instruction>"
+        tools_str = json.dumps(structured_tools, indent=2)
+        tools_tag = f"<available_tools>\n{tools_str}\n</available_tools>"
+        user_message_tag = f"<user_message>{user_message}</user_message>"
+
+        prompt_content = (
+            f"{instruction_tag}\n"
+            f"{tools_tag}\n"
+            f"{user_message_tag}"
+        ).strip()
+
+        messages_for_check = [{'role': 'user', 'content': prompt_content}]
+
+        # 3. Call the LLM to see if it chooses a tool
+        action_decision = await self.llm_client.get_next_action(
+            messages=messages_for_check,
+            allowed_tools=structured_tools,
+            context_type=f"{self.context_name}_tool_check" # Use a specific context for logging
+        )
+
+        # 4. Determine the result
+        if action_decision and action_decision.get("action_type") == "tool_call":
+            print(f"[{self.__class__.__name__}] Tool check result: YES (Tool: {action_decision.get('tool_name')})")
+            self.orchestrator_logger.info("Tool check returned: YES", extra={'tool_name': action_decision.get('tool_name')})
+            return True
+        
+        print(f"[{self.__class__.__name__}] Tool check result: NO")
+        self.orchestrator_logger.info("Tool check returned: NO")
+        return False
 
     async def _execute_final_memory_operation(self, base_system_messages: List[Dict],
                                             retrieved_facts_context_string: Optional[str],
@@ -542,37 +557,61 @@ class BaseLLMOrchestrator(ABC):
     async def _generate_optimized_final_response(self, base_system_messages: List[Dict],
                                                successful_tool_calls: List[Dict]) -> str:
         """
-        Optimized final response generation with smart context cleaning.
-        Reduces context bloat and eliminates tool instruction scaffolding.
+        Generates the final response using a structured user message format, including a simplified conversation history.
         """
         final_history = self.history_manager.get_history()
         
-        # Start with clean messages
-        messages_for_final_response = []
+        # Extract personality prompt from base system messages
+        personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
+
+        # Find the last user message and prepare history for formatting
+        last_user_message = ""
+        history_for_formatting = list(final_history)  # Make a copy
+        if history_for_formatting and history_for_formatting[-1].get('role') == 'user':
+            last_user_message = history_for_formatting.pop().get('content', '')
+
+        # Format conversation history into a simple string, excluding tool calls
+        history_str = ""
+        for msg in history_for_formatting:
+            role = msg.get('role')
+            content = msg.get('content', '')
+            if role == 'user':
+                history_str += f"User: {content}\n"
+            elif role == 'assistant':
+                # Only include textual responses, not tool calls, for the final prompt
+                if content and not msg.get('tool_calls'):
+                    history_str += f"Assistant: {content}\n"
         
-        # Add primary personality only
-        if base_system_messages:
-            messages_for_final_response.append(base_system_messages[0])
-        else:
-            messages_for_final_response.append({'role': 'system', 'content': "You are a helpful assistant."})
+        history_tag = f"<conversation_history>\n{history_str.strip()}\n</conversation_history>" if history_str.strip() else ""
 
-        # Add optimally filtered history
-        filtered_history = self._filter_history_optimally(final_history, successful_tool_calls)
-        messages_for_final_response.extend(filtered_history)
+        # Get current time with timezone
+        try:
+            current_time_str = datetime.now().astimezone().isoformat()
+        except Exception as e:
+            self.orchestrator_logger.error(f"Could not get current time: {e}")
+            current_time_str = "Time not available"
 
-        # Extract personality prompt
-        final_personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
+        # Construct the new prompt format
+        new_prompt_content = (
+            f"<user_message>{last_user_message}</user_message>\n"
+            f"<personality_instruction>{personality_prompt}</personality_instruction>\n"
+            f"<time>{current_time_str}</time>\n"
+            f"{history_tag}"
+        ).strip()
 
+        # The entire prompt is now a single user message
+        messages_for_llm = [{'role': 'user', 'content': new_prompt_content}]
+
+        # The personality_prompt for generate_final_response is now part of the message,
+        # so we pass an empty one to avoid duplication.
         final_message = await self.llm_client.generate_final_response(
-            messages_for_final_response,
-            personality_prompt=final_personality_prompt
+            messages_for_llm,
+            personality_prompt="" # Personality is now inside the main prompt
         )
 
         if final_message is None or final_message.startswith("Error:"):
-            final_message = final_message if final_message else "Sorry, I encountered an error generating the final response."
-        else:
-            await self.history_manager.add_message('assistant', final_message)
-
+            return final_message if final_message else "Sorry, I encountered an error generating the final response."
+        
         return final_message
 
     async def _summarize_tool_result_for_final_response(self, tool_name: str, tool_result: str) -> str:

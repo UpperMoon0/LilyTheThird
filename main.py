@@ -1,4 +1,5 @@
 from kivy.config import Config
+Config.set('kivy', 'log_level', 'debug')
 Config.set('graphics', 'window_state', 'maximized') # Start window maximized
 Config.remove_option('input', 'wm_pen') # Disable problematic touch provider
 Config.remove_option('input', 'wm_touch') # Disable problematic touch provider
