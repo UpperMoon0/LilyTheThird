@@ -43,18 +43,12 @@
             channel_id: root.channel_id
             master_discord_id: root.master_discord_id
             lily_discord_id: root.lily_discord_id
-            selected_provider: root.selected_provider
-            selected_model: root.selected_model
-            llm_providers: root.llm_providers
-            llm_models: root.llm_models
             save_settings_callback: root.save_all_discord_settings
             on_discord_token: root.discord_token = self.discord_token
             on_guild_id: root.guild_id = self.guild_id
             on_channel_id: root.channel_id = self.channel_id
             on_master_discord_id: root.master_discord_id = self.master_discord_id
             on_lily_discord_id: root.lily_discord_id = self.lily_discord_id
-            on_selected_provider: root.selected_provider = self.selected_provider
-            on_selected_model: root.selected_model = self.selected_model
 
     # Save All Settings Button for the entire tab
     BoxLayout:

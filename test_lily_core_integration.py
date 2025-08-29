@@ -13,8 +13,9 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from llm.lily_core_client import LilyCoreChatOrchestrator
-from llm.chatbox_llm_orchestrator import ChatBoxLLMOrchestrator
-from llm.discord_llm_orchestrator import DiscordLLMOrchestrator
+# TODO: Replace with Lily Core equivalents
+# from llm.chatbox_llm_orchestrator import ChatBoxLLMOrchestrator
+# from llm.discord_llm_orchestrator import DiscordLLMOrchestrator
 
 
 async def test_lily_core_direct():

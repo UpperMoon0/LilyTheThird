@@ -12,7 +12,8 @@ from discord_integration.commands.voice.join import JoinCommand
 from discord_integration.commands.voice.play import PlayCommand
 from discord_integration.commands.voice.skip_song import SkipCommand
 
-from llm.discord_llm_orchestrator import DiscordLLMOrchestrator
+# TODO: Replace with Lily Core integration
+# from llm.discord_llm_orchestrator import DiscordLLMOrchestrator
 from models.song_queue import SongQueue
 
 
@@ -33,9 +34,12 @@ class DiscordBot:
         llm_provider = self.config.get('discord_llm_provider', None)
         llm_model = self.config.get('discord_llm_model', None)
 
+        # TODO: Replace with Lily Core client
         try:
             # Pass provider, model, and master_id from config to DiscordLLM constructor
-            self.discordLLM = DiscordLLMOrchestrator(provider=llm_provider, model=llm_model, master_id=self.master_id)
+            # self.discordLLM = DiscordLLMOrchestrator(provider=llm_provider, model=llm_model, master_id=self.master_id)
+            print(f"Discord LLM initialization temporarily disabled - moving to Lily Core")
+            self.discordLLM = None
         except ValueError as e:
             print(f"FATAL: Could not initialize DiscordLLMOrchestrator: {e}")
             self.discordLLM = None
@@ -154,30 +158,22 @@ class DiscordBot:
                 # print("Ignoring message: Not triggered and conversation inactive.") # Optional debug log
                 return
 
-            # Ensure LLM is initialized
+            # Ensure LLM is initialized - temporarily disabled for Lily Core switch
             if not self.discordLLM:
                 print("LLM not initialized, cannot process message.")
-                # Maybe send a message back?
-                # await message.channel.send("Sorry, my brain isn't working right now.")
+                await message.channel.send("Sorry, my brain isn't working right now - switching to Lily Core!")
                 return
 
             # 4. Prepare message for LLM (Use the full message content)
             user_prompt = message.content
 
+            # TODO: Replace with Lily Core integration
             # Indicate bot is thinking
             async with message.channel.typing():
-                # 5. Call LLM
-                try:
-                    print(f"Calling LLM for user {message.author.display_name} ({message.author.id})...")
-                    # Add await here as DiscordLLM.get_response is now async
-                    response, _ = await self.discordLLM.get_response(
-                        user_message=user_prompt,
-                        discord_user_id=message.author.id,
-                        discord_user_name=message.author.display_name # Use display name
-                    )
-                except Exception as e:
-                    print(f"Error getting LLM response: {e}")
-                    response = "Sorry, I encountered an error trying to process that."
+                # Mock response for now while transitioning to Lily Core
+                response = f"I see you said: '{user_prompt}'. Lily is moving to Lily Core, LLM responses coming soon!"
+                print(f"Mock response: {response}")
+                await asyncio.sleep(1)  # Simulate thinking time
 
                 # 6. Send Response (Handle long messages)
                 if response:

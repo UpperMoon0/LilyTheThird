@@ -1,15 +1,37 @@
 from typing import List, Optional, Type
-from pydantic import BaseModel
-# Import the new argument schemas
-from llm.schemas import (
-    GetCurrentTimeArgs,
-    ReadFileArgs,
-    WriteFileArgs,
-    FetchMemoryArgs,
-    UpdateMemoryArgs,
-    SaveMemoryArgs,
-    SearchWebArgs
-)
+from pydantic import BaseModel, Field
+
+# Define argument schemas locally (previously imported from llm.schemas)
+class GetCurrentTimeArgs(BaseModel):
+    """No arguments needed for getting current time"""
+    pass
+
+class ReadFileArgs(BaseModel):
+    """Arguments for reading a file"""
+    file_path: str = Field(..., description="Path to the file to read")
+
+class WriteFileArgs(BaseModel):
+    """Arguments for writing to a file"""
+    file_path: str = Field(..., description="Path to the file to write")
+    content: str = Field(..., description="Content to write to the file")
+
+class FetchMemoryArgs(BaseModel):
+    """Arguments for fetching memory"""
+    query: str = Field(..., description="Query to search memory")
+    limit: Optional[int] = Field(3, description="Maximum number of results to return")
+
+class UpdateMemoryArgs(BaseModel):
+    """Arguments for updating memory"""
+    memory_id: str = Field(..., description="ID of the memory item to update")
+    new_content: str = Field(..., description="New content for the memory item")
+
+class SaveMemoryArgs(BaseModel):
+    """Arguments for saving memory"""
+    content: str = Field(..., description="Content to save to memory")
+
+class SearchWebArgs(BaseModel):
+    """Arguments for web search"""
+    query: str = Field(..., description="Query to search on web")
 
 
 class ToolDefinition:

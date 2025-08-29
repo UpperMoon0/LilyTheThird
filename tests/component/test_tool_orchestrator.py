@@ -5,8 +5,9 @@ Tests the integration between ToolOrchestrator and ErrorAnalyzer.
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from llm.tool_orchestrator import ToolOrchestrator
-from llm.error_analyzer import ErrorCategory
+# TODO: Update for Lily Core
+# from llm.tool_orchestrator import ToolOrchestrator
+# from llm.error_analyzer import ErrorCategory
 
 
 class TestToolOrchestratorIntegration:

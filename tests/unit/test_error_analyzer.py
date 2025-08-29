@@ -4,7 +4,8 @@ Tests the error categorization and guidance generation functionality.
 """
 
 import pytest
-from llm.error_analyzer import ErrorAnalyzer, ErrorCategory
+# TODO: Update for Lily Core
+# from llm.error_analyzer import ErrorAnalyzer, ErrorCategory
 
 
 class TestErrorAnalyzer:

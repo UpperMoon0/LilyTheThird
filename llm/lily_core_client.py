@@ -81,23 +81,24 @@ class LilyCoreClient:
         Raises:
             Exception: On request failure
         """
-        if self.session is None:
-            await self.initialize()
-
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
 
-        try:
-            async with self.session.request(method, url, **kwargs) as response:
-                if response.status >= 400:
-                    error_text = await response.text()
-                    raise Exception(f"Lily-Core API error {response.status}: {error_text}")
+        # Use context manager to ensure session cleanup
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=self.timeout)
+        ) as session:
+            try:
+                async with session.request(method, url, **kwargs) as response:
+                    if response.status >= 400:
+                        error_text = await response.text()
+                        raise Exception(f"Lily-Core API error {response.status}: {error_text}")
 
-                return await response.json()
+                    return await response.json()
 
-        except aiohttp.ClientError as e:
-            raise Exception(f"Failed to connect to Lily-Core at {url}: {str(e)}")
-        except Exception as e:
-            raise Exception(f"Lily-Core request failed: {str(e)}")
+            except aiohttp.ClientError as e:
+                raise Exception(f"Failed to connect to Lily-Core at {url}: {str(e)}")
+            except Exception as e:
+                raise Exception(f"Lily-Core request failed: {str(e)}")
 
     async def health_check(self) -> Dict[str, Any]:
         """

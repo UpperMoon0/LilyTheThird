@@ -26,38 +26,31 @@
         valign: 'top'
         text_size: self.width - dp(20), None # Allow wrapping within padding
 
-    # Horizontal container for TTS and LLM settings
+    # TTS Settings Group
     BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: dp(180) 
-        spacing: dp(10)
+        orientation: 'vertical'
+        size_hint_x: 0.4
+        size_hint_y: 1
+        spacing: dp(5)
+        padding: dp(5)
+        canvas.before:
+            Color:
+                rgba: 0.3, 0.3, 0.3, 1 # Border color for the group
+            Line:
+                rectangle: self.x, self.y, self.width, self.height
+                width: 1
+        Label:
+            text: "TTS Settings"
+            size_hint_y: None
+            height: self.texture_size[1]
+            font_size: '15sp'
+            bold: True
+            halign: 'left'
+            valign: 'top'
+            text_size: self.width - dp(10), None
+            padding: [dp(5), dp(2)]
 
-        # TTS Settings Group
-        BoxLayout:
-            orientation: 'vertical'
-            size_hint_x: 0.4
-            size_hint_y: 1 
-            spacing: dp(5)
-            padding: dp(5)
-            canvas.before:
-                Color:
-                    rgba: 0.3, 0.3, 0.3, 1 # Border color for the group
-                Line:
-                    rectangle: self.x, self.y, self.width, self.height
-                    width: 1
-            Label:
-                text: "TTS Settings"
-                size_hint_y: None
-                height: self.texture_size[1]
-                font_size: '15sp'
-                bold: True
-                halign: 'left'
-                valign: 'top'
-                text_size: self.width - dp(10), None
-                padding: [dp(5), dp(2)]
-
-            # TTS Checkbox Row
+        # TTS Checkbox Row
             BoxLayout:
                 size_hint_y: None
                 height: dp(30)
@@ -113,21 +106,6 @@
                     valign: 'middle'
                     on_text_validate: root.selected_tts_speaker = int(self.text) if self.text else 1 # Update property when Enter is pressed or focus is lost (if not multiline)
                     # Consider adding on_focus to update if text changed and focus lost without Enter
-
-        # LLM Selector Component
-        LLMSelector:
-            id: llm_selector_in_settings
-            size_hint_x: 0.6 
-            llm_providers: root.llm_providers
-            llm_models: root.llm_models
-            selected_provider: root.selected_provider
-            selected_model: root.selected_model
-            on_selected_provider:
-                root.selected_provider = self.selected_provider
-                root.dispatch('on_llm_provider_changed_event', root.selected_provider)
-            on_selected_model:
-                root.selected_model = self.selected_model
-                root.dispatch('on_llm_model_changed_event', root.selected_model)
 
     # Enable Tool Use Checkbox Row
     BoxLayout:
