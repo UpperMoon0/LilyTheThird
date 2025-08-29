@@ -264,6 +264,63 @@ class ToolOrchestrator:
         }
         return examples.get(tool_name, "")
 
+    def _get_allowed_tool_names(self, tools_to_exclude: Optional[List[str]] = None) -> List[str]:
+        """
+        Determines the list of tool names that can be used in the main loop.
+        It starts with the context-specific allowed tools and removes any
+        that are designated for exclusion.
+        """
+        tools_to_exclude = tools_to_exclude or []
+        
+        if self.allowed_tools is None:
+            self.orchestrator_logger.warning("`self.allowed_tools` is None. No tools will be available for the main loop.")
+            all_available_tools = []
+        else:
+            all_available_tools = self.allowed_tools
+            
+        main_loop_tools = [tool for tool in all_available_tools if tool not in tools_to_exclude]
+        
+        self.orchestrator_logger.info("Determined main loop tools", extra={
+            'initial_allowed_tools': self.allowed_tools,
+            'tools_to_exclude': tools_to_exclude,
+            'final_main_loop_tools': main_loop_tools
+        })
+        
+        return main_loop_tools
+
+    def _prepare_structured_tools(self, tool_names: List[str], context_name: str) -> List[Dict]:
+        """
+        Prepares the detailed, structured tool definitions for the LLM prompt
+        based on a list of tool names.
+        """
+        structured_tools = []
+        for tool_name in tool_names:
+            tool_definition = find_tool(tool_name)
+            if tool_definition and tool_definition.argument_schema:
+                try:
+                    schema = tool_definition.argument_schema.model_json_schema()
+                    
+                    if 'title' in schema:
+                        del schema['title']
+                    
+                    structured_tools.append({
+                        "name": tool_definition.name,
+                        "description": tool_definition.description,
+                        "parameters": schema
+                    })
+                except Exception as e:
+                    self.error_logger.error(f"Failed to generate schema for tool '{tool_name}' in context '{context_name}': {e}", exc_info=True)
+            elif tool_definition:
+                 structured_tools.append({
+                        "name": tool_definition.name,
+                        "description": tool_definition.description,
+                        "parameters": {"type": "object", "properties": {}}
+                    })
+            else:
+                self.error_logger.warning(f"Tool '{tool_name}' defined in allowed_tools for context '{context_name}' not found.")
+        
+        return structured_tools
+
     def _should_abort_retry(self, tool_name: str, error_message: str, retry_count: int) -> bool:
         """Determine if retry should be aborted based on error analysis."""
         # First, analyze the error to check for code-level issues
@@ -314,102 +371,85 @@ class ToolOrchestrator:
         
         return should_abort
 
-    async def _get_arguments_for_tool(self, tool_name: str, base_system_messages: List[Dict],
-                                      reasoning: Optional[str] = None) -> Optional[Dict]:
-        """
-        Performs a focused LLM call to get arguments for a specific tool.
-        """
-        self.decision_logger.info(f"Step 2: Getting arguments for tool '{tool_name}'")
-        tool_definition = find_tool(tool_name)
-        if not tool_definition:
-            self.error_logger.error(f"Could not find definition for tool '{tool_name}' during argument generation.")
-            return None
-
-        # Create a focused prompt for getting arguments
-        current_history = self.history_manager.get_history()
-        messages_for_args = base_system_messages + current_history
-
-        # Add a system message explaining the task
-        instruction = (
-            f"You have decided to use the tool '{tool_name}'.\n"
-            f"Reasoning: {reasoning or 'Not provided'}\n\n"
-            "Now, provide the correct arguments for this tool based on the conversation history and the tool's schema. "
-            "Adhere strictly to the provided schema."
-        )
-        messages_for_args.append({'role': 'system', 'content': instruction})
-
-        try:
-            # Use the specialized method to get only arguments
-            argument_decision = await self.llm_client.get_tool_arguments(tool_definition, messages_for_args)
-
-            if argument_decision and argument_decision.get("action_type") == "tool_arguments":
-                arguments = argument_decision.get("arguments", {})
-                self.decision_logger.info(f"Successfully generated arguments for tool '{tool_name}'", extra={'arguments': arguments})
-                return arguments
-            else:
-                self.error_logger.warning(f"Failed to get arguments for tool '{tool_name}'. LLM did not return valid arguments.", extra={'decision': argument_decision})
-                return None
-        except Exception as e:
-            self.error_logger.error(f"Exception while getting arguments for tool '{tool_name}': {e}", exc_info=True)
-            return None
-
     async def execute_tool_cycle(self,
                                  base_system_messages: List[Dict[str, str]],
                                  max_tool_calls: int,
                                  context_name: str,
                                  retrieved_facts_context_string: Optional[str]
-                                 ) -> Tuple[Optional[str], List[Dict]]:
+                                 ) -> Tuple[Optional[str], List[ToolCallDetails]]:
         """
-        Executes a two-step tool cycle:
-        1. Decide on a tool to use (or respond with text).
-        2. Get arguments for the chosen tool in a separate, focused call.
+        Executes a streamlined, single-call tool cycle using native tool calling.
         """
-        successful_tool_calls_details: List[Dict] = []
+        successful_tool_calls_details: List[ToolCallDetails] = []
         tool_calls_made = 0
 
+        # Exclude memory tools which are handled separately
         main_loop_allowed_tool_names = self._get_allowed_tool_names(['fetch_memory', 'save_memory'])
         structured_tools_for_llm = self._prepare_structured_tools(main_loop_allowed_tool_names, context_name)
 
         for _ in range(max_tool_calls):
             if tool_calls_made >= max_tool_calls:
+                self.orchestrator_logger.info("Max tool calls reached.", extra={'count': max_tool_calls})
                 break
 
-            # Step 1: Decide next action (text response or select a tool)
-            action_decision = await self._decide_next_action(
-                base_system_messages, structured_tools_for_llm, context_name, retrieved_facts_context_string
+            current_history = self.history_manager.get_history()
+            messages_for_llm = base_system_messages + current_history
+            
+            if retrieved_facts_context_string:
+                messages_for_llm.append({'role': 'system', 'content': retrieved_facts_context_string})
+
+            # Single call to decide action (text or tool) and get arguments
+            action_decision = await self.llm_client.get_next_action(
+                messages=messages_for_llm,
+                allowed_tools=structured_tools_for_llm,
+                context_type=context_name
             )
-            
-            if not action_decision:
+
+            if not action_decision or action_decision.get("action_type") == "error":
+                error_detail = action_decision.get('error', 'No decision from LLM') if action_decision else 'No decision from LLM'
+                self.error_logger.error("Aborting tool cycle due to error in action decision.", extra={'error': error_detail})
                 break
-            
+
             if action_decision.get("action_type") == "text_response":
+                self.decision_logger.info("LLM decided to respond with text, ending tool cycle.")
                 return action_decision.get('text', ''), successful_tool_calls_details
-            
+
             if action_decision.get("action_type") != "tool_call":
+                self.error_logger.warning(f"Unknown action type received: {action_decision.get('action_type')}. Aborting.")
                 break
 
             tool_name = action_decision.get("tool_name")
-            reasoning = action_decision.get("reasoning") # Assuming the LLM can provide this
-            tool_call_id = action_decision.get("tool_call_id")
+            arguments = action_decision.get("tool_args", {})
+            tool_call_id = f"call_{tool_name}_{int(time.time())}" # Create a unique ID
 
             if not tool_name:
+                self.error_logger.warning("Tool call action received without a tool name.")
                 continue
 
-            # Step 2: Get arguments for the chosen tool
-            arguments = await self._get_arguments_for_tool(tool_name, base_system_messages, reasoning)
+            # Add the assistant's decision to call the tool to history
+            assistant_message = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": json.dumps(arguments)
+                    }
+                }]
+            }
+            self.history_manager.add_message_to_history(assistant_message)
 
-            if arguments is None:
-                self.error_logger.error(f"Aborting tool cycle: failed to get arguments for tool '{tool_name}'.")
-                break
-
-            # Step 3: Execute the tool
+            # Execute the tool
             execution_result = await self._execute_tool(
                 tool_name, arguments, tool_call_id, context_name
             )
-            
+
             if execution_result:
                 successful_tool_calls_details.append(execution_result)
                 tool_calls_made += 1
+                
                 # Add tool result to history for the next cycle iteration
                 tool_result_message = {
                     "role": "tool",
@@ -419,138 +459,80 @@ class ToolOrchestrator:
                 }
                 self.history_manager.add_message_to_history(tool_result_message)
             else:
-                break  # Stop on execution failure
+                # Add a tool result message indicating failure
+                error_result_message = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": "Tool execution failed."
+                }
+                self.history_manager.add_message_to_history(error_result_message)
+                self.error_logger.error(f"Tool execution failed for '{tool_name}'. Aborting cycle.")
+                break
 
         return None, successful_tool_calls_details
 
-    async def _decide_next_action(self, base_system_messages: List[Dict],
-                                     structured_tools: List[Dict],
-                                     context_name: str,
-                                     retrieved_facts_context_string: Optional[str] = None) -> Optional[Dict]:
-        """
-        Step 1 of the tool cycle: Decide whether to respond with text or select a tool.
-        This does NOT generate tool arguments.
-        """
-        current_history = self.history_manager.get_history()
-        personality_prompt = base_system_messages[0]['content'] if base_system_messages else "You are a helpful assistant."
-        personality_tag = f"<personality_instruction>{personality_prompt}</personality_instruction>"
-
-        try:
-            current_time_str = datetime.now().astimezone().isoformat()
-        except Exception:
-            current_time_str = "Time not available"
-        time_tag = f"<time>{current_time_str}</time>"
-
-        memory_tag = ""
-        if retrieved_facts_context_string:
-            memory_tag = f"<retrieved_memory>\n{retrieved_facts_context_string}\n</retrieved_memory>"
-
-        # Use simplified tools for the decision step
-        simplified_tools = [{"name": tool["name"], "description": tool["description"]} for tool in structured_tools]
-        tools_str = json.dumps(simplified_tools, indent=2)
-        tools_tag = f"<available_tools>\n{tools_str}\n</available_tools>"
-        
-        tool_selection_instruction = (
-            "Review the conversation and available tools. Decide if a tool is needed to answer the user's request. "
-            "If a tool is appropriate, select one. If not, provide a direct text response. "
-            "You will be asked for tool arguments in a separate step."
-        )
-
-        history_str = ""
-        for msg in current_history:
-            role = msg.get('role')
-            content = msg.get('content', '')
-            if role == 'user':
-                history_str += f"User: {content}\n"
-            elif role == 'assistant':
-                if msg.get('tool_calls'):
-                    tool_calls = msg.get('tool_calls', [])
-                    calls_str_list = [f"{tc['function']['name']}(...)" for tc in tool_calls if 'function' in tc]
-                    calls_str = ", ".join(calls_str_list)
-                    history_str += f"Assistant (tool call): {calls_str}\n"
-                elif content:
-                    history_str += f"Assistant: {content}\n"
-            elif role == 'tool':
-                tool_name = msg.get('name', 'N/A')
-                summary = self._summarize_for_history(content, 200)
-                history_str += f"Tool ({tool_name}) Result: {summary}\n"
-        
-        history_tag = f"<conversation_history>\n{history_str.strip()}\n</conversation_history>" if history_str.strip() else ""
-
-        final_prompt_content = (
-            f"{personality_tag}\n"
-            f"{time_tag}\n"
-            f"{memory_tag}\n"
-            f"{history_tag}\n"
-            f"{tool_selection_instruction}\n"
-            f"{tools_tag}"
-        ).strip()
-
-        messages_for_llm = [{'role': 'user', 'content': final_prompt_content}]
-
-        self.decision_logger.info("Step 1: Deciding next action (text or tool)")
-        action_decision = await self.llm_client.get_next_action(
-            messages_for_llm,
-            allowed_tools=structured_tools, # Pass full schema for the client to handle
-            context_type=context_name
-        )
-        
-        if action_decision and action_decision.get("action_type") in ["tool_call", "text_response"]:
-            if action_decision.get("action_type") == "tool_call":
-                # We only care about the tool name here. Arguments will be fetched in the next step.
-                self.decision_logger.info(f"LLM decided to use tool: {action_decision.get('tool_name')}")
-                # Clear args to ensure they are not used accidentally
-                action_decision['tool_args'] = {}
-            return action_decision
-        
-        self.error_logger.warning("LLM failed to decide on a valid next action.", extra={'decision': action_decision})
-        return None
-
     async def _execute_tool(self, tool_name: str, arguments: Dict,
                                     tool_call_id: str, context_name: str) -> Optional[ToolCallDetails]:
-        """Optimized tool execution with minimal logging and retry."""
-        tool_definition = find_tool(tool_name)
-        if not tool_definition:
-            return None
+        """Executes a tool with retry logic and detailed error handling."""
+        for i in range(TOOL_EXECUTION_RETRY):
+            retry_count = i + 1
+            try:
+                tool_start_time = time.monotonic()
+                tool_result = await self.tool_executor.execute(tool_name, arguments)
+                execution_time = time.monotonic() - tool_start_time
 
-        try:
-            tool_start_time = time.monotonic()
-            tool_result = await self.tool_executor.execute(tool_name, arguments)
-            execution_time = time.monotonic() - tool_start_time
-            
-            # Only retry once for errors, and only for specific error types
-            if isinstance(tool_result, str) and tool_result.startswith("Error:"):
-                error_category, _ = self.error_analyzer.analyze_error(tool_result, tool_name, arguments)
-                
-                # Only retry for argument errors, not code errors
-                if error_category in [ErrorCategory.INVALID_ARGUMENT, ErrorCategory.MISSING_ARGUMENT]:
-                    # Single retry attempt with new arguments
-                    current_history = self.history_manager.get_history()
-                    messages_for_retry = current_history[-10:]  # Use only recent history
-                    
-                    retry_action = await self.llm_client.get_next_action(
-                        messages_for_retry,
-                        allowed_tools=[{"name": tool_name, "description": tool_definition.description,
-                                      "parameters": tool_definition.argument_schema.model_json_schema()}],
-                        context_type=context_name
+                if not (isinstance(tool_result, str) and tool_result.startswith("Error:")):
+                    self.execution_logger.info("Tool executed successfully", extra={
+                        'tool_name': tool_name, 'arguments': arguments, 'execution_time': execution_time
+                    })
+                    return ToolCallDetails(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=tool_result,
+                        execution_time=execution_time,
+                        tool_call_id=tool_call_id
                     )
-                    
-                    if retry_action and retry_action.get("action_type") == "tool_call":
-                        new_arguments = retry_action.get("tool_args", arguments)
-                        tool_result = await self.tool_executor.execute(tool_name, new_arguments)
-                        arguments = new_arguments  # Update arguments for result tracking
 
-            # Return result only if successful
-            if not (isinstance(tool_result, str) and tool_result.startswith("Error:")):
-                return ToolCallDetails(
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    result=tool_result,
-                    execution_time=execution_time,
-                    tool_call_id=tool_call_id
-                )
+                # --- Error Handling & Retry Logic ---
+                error_message = tool_result
+                self.error_logger.warning(f"Tool execution failed (attempt {retry_count})", extra={
+                    'tool_name': tool_name, 'error': error_message, 'arguments': arguments
+                })
+
+                if self._should_abort_retry(tool_name, error_message, retry_count):
+                    self.error_logger.error(f"Aborting retries for tool '{tool_name}' due to non-recoverable error or max retries.", extra={'tool_name': tool_name})
+                    return None
+
+                # Generate enhanced context for the next attempt
+                retry_context = self._generate_retry_message(tool_name, error_message, arguments, retry_count)
                 
-        except Exception:
-            pass  # Silently handle exceptions to avoid verbose error logging
-            
+                # Add retry context to history
+                self.history_manager.add_message_to_history({'role': 'system', 'content': retry_context})
+                
+                # Get new arguments from LLM for the retry
+                current_history = self.history_manager.get_history()
+                messages_for_retry = base_system_messages + current_history
+                
+                structured_tools_for_llm = self._prepare_structured_tools([tool_name], context_name)
+
+                new_action = await self.llm_client.get_next_action(
+                    messages=messages_for_retry,
+                    allowed_tools=structured_tools_for_llm,
+                    context_type=context_name,
+                    force_tool_options=[tool_name] # Force the same tool
+                )
+
+                if new_action and new_action.get("action_type") == "tool_call":
+                    arguments = new_action.get("tool_args", {}) # Update arguments for next loop
+                    self.retry_logger.info(f"Retrying tool '{tool_name}' with new arguments.", extra={'new_arguments': arguments})
+                else:
+                    self.error_logger.error(f"Failed to get new arguments for retry on tool '{tool_name}'. Aborting.", extra={'decision': new_action})
+                    return None
+
+            except Exception as e:
+                self.error_logger.critical(f"Unhandled exception during tool execution: {e}", exc_info=True)
+                return None
+        
+        self.error_logger.error(f"Tool '{tool_name}' failed after {TOOL_EXECUTION_RETRY} retries.")
         return None
