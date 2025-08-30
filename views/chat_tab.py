@@ -9,8 +9,11 @@ from kivy.lang import Builder
 from settings_manager import load_chat_settings, save_chat_settings
 # Lily Core integration
 from llm.lily_core_client import LilyCoreChatOrchestrator
-from tts import generate_speech_from_provider  # Import the TTS function
+from tts import generate_speech_from_lily_core  # Use new Lily-Core WebSocket TTS function
 import os
+
+# Import the new status component
+from views.components.lily_core_status import LilyCoreStatus
 
 # Load the KV string for ChatTab
 Builder.load_file('views/chat_tab.kv')
@@ -137,8 +140,12 @@ class ChatTab(BoxLayout):
         # Add initial status message
         self.add_message("System", self.initialization_status, scroll=False)
 
-        # Start Lily Core connection in background
+                # Start Lily Core connection in background
         threading.Thread(target=self._connect_to_lily_core, daemon=True).start()
+
+        # Initialize TTS WebSocket client
+        threading.Thread(target=self._initialize_tts_websocket, daemon=True).start()
+
 
     def _connect_to_lily_core(self):
         """Connect to Lily Core in background thread."""
@@ -213,8 +220,61 @@ class ChatTab(BoxLayout):
             status_message = error_message or "Failed to connect to Lily Core"
             print(f"ChatTab: Lily Core connection failed: {status_message}")
 
-        # Update status message
+        # Update initialization status property (this will update the status component)
+        self.initialization_status = status_message
+
+        # Update status message in chat
         self.add_message("System", status_message, replace_last=True)
+
+    def _initialize_tts_websocket(self):
+        """Initialize TTS WebSocket connection to Lily-Core."""
+        try:
+            from tts import get_lily_core_tts_client
+            client = get_lily_core_tts_client()
+
+            # Create event loop and initialize connection
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                # Connect to Lily-Core
+                if loop.run_until_complete(client._connect()):
+                    print("ChatTab: ✅ TTS WebSocket connected to Lily-Core")
+
+                    # Start message handling loop
+                    message_thread = threading.Thread(target=self._run_tts_message_loop, daemon=True)
+                    message_thread.start()
+
+                    # Send initial settings
+                    settings = self.load_function()
+                    if settings.get('tts_provider_enabled', False):
+                        loop.run_until_complete(client.update_settings(
+                            speaker=int(settings.get('selected_tts_speaker', 1)),
+                            model=settings.get('selected_tts_model', 'edge')
+                        ))
+
+                else:
+                    print("ChatTab: ❌ Failed to connect TTS WebSocket to Lily-Core")
+            finally:
+                loop.close()
+
+        except Exception as e:
+            print(f"ChatTab: TTS WebSocket initialization error: {e}")
+
+    def _run_tts_message_loop(self):
+        """Run the TTS WebSocket message handling loop."""
+        try:
+            from tts import get_lily_core_tts_client
+            client = get_lily_core_tts_client()
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(client.start_message_loop())
+            finally:
+                loop.close()
+
+        except Exception as e:
+            print(f"ChatTab: TTS message loop error: {e}")
 
     def _finish_orchestrator_reinit(self, new_instance):
         """Complete orchestrator reinitialization."""
@@ -311,12 +371,15 @@ class ChatTab(BoxLayout):
     def _run_tts_async(self, text_to_speak: str):
         """Run TTS in background thread."""
         try:
-            asyncio.run(generate_speech_from_provider(
+            success = asyncio.run(generate_speech_from_lily_core(
                 text_to_speak,
                 speaker=int(self.selected_tts_speaker),
                 model=self.selected_tts_model
             ))
-            print(f"ChatTab: TTS completed for: {text_to_speak[:50]}...")
+            if success:
+                print(f"ChatTab: TTS request sent successfully for: {text_to_speak[:50]}...")
+            else:
+                print(f"ChatTab: TTS request failed for: {text_to_speak[:50]}...")
         except Exception as e:
             print(f"ChatTab: TTS error: {e}")
 

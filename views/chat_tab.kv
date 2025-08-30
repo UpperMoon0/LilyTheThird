@@ -22,7 +22,7 @@
         id: row_a
         orientation: 'horizontal'
         size_hint_y: None
-        height: dp(320) 
+        height: dp(360)
         spacing: dp(10)
 
         # Column 1: Avatar (Using AnchorLayout for robust centering)
@@ -40,23 +40,26 @@
                 # Calculate height based on parent's height minus padding
                 # Note: parent is now AnchorLayout, height calculation remains similar conceptually
                 # Let's tie it directly to the fixed height row_a minus padding for stability
-                height: root.ids.row_a.height - dp(40) # row_a height - top/bottom padding of AnchorLayout - top/bottom padding of row_a
+                height: root.ids.row_a.height - dp(80) # Increased padding to account for status component
                 width: self.height # Make it square
                 # pos_hint no longer needed due to AnchorLayout
 
-        # Column 2: Controls (Chat Controls + LLM Selector)
+        # Column 2: Controls (Status + Chat Settings)
         BoxLayout:
             id: col_2_controls
             orientation: 'vertical'
             size_hint_x: 0.5
-            # Make height wrap content instead of filling row_a
-            size_hint_y: None
-            height: self.minimum_height
-            pos_hint: {'center_y': 0.5} # Center vertically in the row_a space
             spacing: dp(10)
             padding: dp(10) # Padding for the outer controls column
 
-            # Chat settings component
+            #:import LilyCoreStatus views.components.lily_core_status.LilyCoreStatus
+            # Top row: Lily Core Status
+            LilyCoreStatus:
+                id: lily_core_status
+                status_text: root.initialization_status
+                is_connected: root.backend_initialized
+
+            # Bottom row: Chat settings component
             ChatBoxSettings:
                 id: chat_controls
                 # Pass down TTS related properties
