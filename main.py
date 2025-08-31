@@ -19,6 +19,7 @@ from kivy.lang import Builder
 
 from views.chat_tab import ChatTab
 from views.discord_tab import DiscordTab
+from views.monitor_tab import MonitorTab
 
 Builder.load_file('main_layout.kv')
 
@@ -39,6 +40,12 @@ class MainAppLayout(BoxLayout):
         # Set Chat Tab as the default selected tab
         tab_panel.default_tab = chat_tab_item # Set this AFTER adding the chat tab
         self.chat_tab_item = chat_tab_item # Store reference
+
+        # --- Create Monitor Tab Item (Placeholder) ---
+        monitor_tab_item = TabbedPanelItem(text='Monitor')
+        monitor_tab_item.add_widget(Label(text='Loading Monitor...')) # Placeholder
+        tab_panel.add_widget(monitor_tab_item)
+        self.monitor_tab_item = monitor_tab_item # Store reference
 
         # --- Create Discord Tab Item (Placeholder) ---
         discord_tab_item = TabbedPanelItem(text='Discord')
@@ -66,6 +73,7 @@ class MainAppLayout(BoxLayout):
         """Creates and adds the content for each tab on the main thread."""
         print("MainAppLayout: Creating tab content on main thread.")
         self._create_tab_content(self.chat_tab_item, ChatTab)
+        self._create_tab_content(self.monitor_tab_item, MonitorTab)
         self._create_tab_content(self.discord_tab_item, DiscordTab)
         self._create_tab_content(self.vtube_tab_item, VTubeTab)
 
