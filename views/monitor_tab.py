@@ -24,11 +24,6 @@ class MonitorTab(BoxLayout):
     connection_status = StringProperty("Unknown")
     is_connected = BooleanProperty(False)
     
-    # System metrics
-    cpu_usage = StringProperty("0%")
-    memory_usage = StringProperty("0 MB")
-    response_time = StringProperty("0 ms")
-    
     # Service statuses
     lily_core_status = StringProperty("Unknown")
     tts_provider_status = StringProperty("Unknown")
@@ -93,14 +88,6 @@ class MonitorTab(BoxLayout):
             # Wait before next update
             time.sleep(10)  # Check every 10 seconds
             
-    def _update_monitoring_data(self, status, cpu, memory, response):
-        """Update monitoring data on the UI."""
-        self.connection_status = status
-        self.is_connected = status == "Connected"
-        self.cpu_usage = cpu
-        self.memory_usage = memory
-        self.response_time = response
-        
     def _add_event(self, event):
         """Add a new event to the recent events list."""
         from datetime import datetime
@@ -156,32 +143,32 @@ class MonitorTab(BoxLayout):
             return {"status": "down", "details": str(e)}
             
     def _fetch_tts_provider_status(self):
-        """Fetch TTS Provider monitoring status."""
-        try:
-            # Default URL - in a real implementation, this would come from config
-            tts_provider_url = "http://localhost:8001/monitoring"
-            
-            response = requests.get(tts_provider_url, timeout=5)
-            if response.status_code == 200:
-                return response.json()
-            else:
-                return {"status": "error", "details": f"HTTP {response.status_code}"}
-        except Exception as e:
-            return {"status": "down", "details": str(e)}
+        """Fetch TTS Provider monitoring status through Lily Core."""
+        # Get status from Lily Core which aggregates all service statuses
+        lily_core_data = self._fetch_lily_core_status()
+        
+        # Extract TTS Provider status from Lily Core data
+        if "services" in lily_core_data:
+            for service in lily_core_data["services"]:
+                if service.get("name") == "TTS-Provider":
+                    return service
+        
+        # If not found, return unknown status
+        return {"status": "unknown", "details": "Service status not available through Lily Core"}
             
     def _fetch_web_scout_status(self):
-        """Fetch Web Scout monitoring status."""
-        try:
-            # Default URL - in a real implementation, this would come from config
-            web_scout_url = "http://localhost:8002/monitoring"
-            
-            response = requests.get(web_scout_url, timeout=5)
-            if response.status_code == 200:
-                return response.json()
-            else:
-                return {"status": "error", "details": f"HTTP {response.status_code}"}
-        except Exception as e:
-            return {"status": "down", "details": str(e)}
+        """Fetch Web Scout monitoring status through Lily Core."""
+        # Get status from Lily Core which aggregates all service statuses
+        lily_core_data = self._fetch_lily_core_status()
+        
+        # Extract Web Scout status from Lily Core data
+        if "services" in lily_core_data:
+            for service in lily_core_data["services"]:
+                if service.get("name") == "Web-Scout":
+                    return service
+        
+        # If not found, return unknown status
+        return {"status": "unknown", "details": "Service status not available through Lily Core"}
             
     def _update_service_statuses(self, lily_core_data, tts_provider_data, web_scout_data):
         """Update service statuses on the UI."""
@@ -211,18 +198,6 @@ class MonitorTab(BoxLayout):
             self.connection_status = "Disconnected"
             self.is_connected = False
         
-        # Update system metrics from Lily Core (primary service)
-        metrics = lily_core_data.get("metrics", {})
-        if metrics:
-            cpu = metrics.get("cpu_usage")
-            memory = metrics.get("memory_usage")
-            disk = metrics.get("disk_usage")
-            
-            self.cpu_usage = f"{cpu:.1f}%" if cpu is not None else "N/A"
-            self.memory_usage = f"{memory:.1f}%" if memory is not None else "N/A"
-            # For response time, we'll use a placeholder for now
-            self.response_time = "N/A"
-            
     def _add_status_events(self, lily_core_data, tts_provider_data, web_scout_data):
         """Add events based on service status changes."""
         # Add events for any service that is not healthy

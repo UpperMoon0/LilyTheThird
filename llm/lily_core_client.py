@@ -25,24 +25,21 @@ class LilyCoreClient:
 
     def __init__(self,
                  base_url: Optional[str] = None,
-                 timeout: int = 30,
-                 use_agent_loop: bool = False):
+                 timeout: int = 30):
         """
         Initialize Lily-Core client.
 
         Args:
             base_url: Base URL for Lily-Core service. Defaults to env var or localhost.
             timeout: Request timeout in seconds. Default 30.
-            use_agent_loop: Whether to use advanced agent loop system. Default False.
         """
         self.base_url = base_url or os.getenv('LILY_CORE_URL', 'http://localhost:8000')
         self.base_url = self.base_url.rstrip('/')
         self.timeout = timeout
-        self.use_agent_loop = use_agent_loop
         self.session: Optional[aiohttp.ClientSession] = None
 
         print(f"LilyCoreClient initialized. Base URL: {self.base_url}")
-        print(f"Agent loop enabled: {self.use_agent_loop}")
+        print("Agent loop enabled by default")
 
     async def __aenter__(self):
         """Async context manager entry"""
@@ -112,7 +109,6 @@ class LilyCoreClient:
     async def chat(self,
                    message: str,
                    user_id: str,
-                   use_agent_loop: Optional[bool] = None,
                    metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Send chat message to Lily-Core.
@@ -120,7 +116,6 @@ class LilyCoreClient:
         Args:
             message: User message
             user_id: Unique user identifier
-            use_agent_loop: Override default agent loop setting
             metadata: Additional metadata for the request
 
         Returns:
@@ -134,16 +129,11 @@ class LilyCoreClient:
         if metadata:
             request_data['metadata'] = metadata
 
-        # Use agent loop setting
-        agent_loop = use_agent_loop if use_agent_loop is not None else self.use_agent_loop
-        params = {'use_agent_loop': 'true'} if agent_loop else {}
-
-        # Make the request
+        # Make the request (agent loop is always enabled)
         response = await self._request(
             'POST',
             'chat',
-            json=request_data,
-            params=params
+            json=request_data
         )
 
         # Add tool_used flag for compatibility
@@ -212,9 +202,6 @@ class LilyCoreClient:
         """
         return await self._request('GET', 'agent-loop/status')
 
-    def set_agent_loop_enabled(self, enabled: bool):
-        """Enable or disable agent loop for subsequent requests."""
-        self.use_agent_loop = enabled
 
 
 class LilyCoreChatOrchestrator:
@@ -224,17 +211,15 @@ class LilyCoreChatOrchestrator:
 
     def __init__(self,
                  base_url: Optional[str] = None,
-                 use_agent_loop: bool = False,
                  personality: Optional[str] = None):
         """
         Initialize the Lily-Core chat orchestrator.
 
         Args:
             base_url: Lily-Core service URL
-            use_agent_loop: Enable advanced agent loop system
             personality: Personality/system prompt (will be handled by Lily-Core)
         """
-        self.client = LilyCoreClient(base_url=base_url, use_agent_loop=use_agent_loop)
+        self.client = LilyCoreClient(base_url=base_url)
         self.personality = personality or "You are a helpful AI assistant."
         self.initialized = False
 

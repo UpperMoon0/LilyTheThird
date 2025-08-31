@@ -25,7 +25,6 @@ async def test_lily_core_direct():
     try:
         orchestrator = LilyCoreChatOrchestrator(
             base_url="http://localhost:8000",
-            use_agent_loop=False,
             personality="You are a helpful test assistant."
         )
 
@@ -37,7 +36,8 @@ async def test_lily_core_direct():
             user_id="test_user"
         )
 
-        print("✅ Direct client test successful!"        print(f"   Response: {response[:100]}...")
+        print("✅ Direct client test successful!")
+        print(f"   Response: {response[:100]}...")
         print(f"   Tools used: {len(tools)}")
 
         await orchestrator.close()
@@ -64,7 +64,8 @@ async def test_chatbox_orchestrator():
             "Hi there! This is a test message."
         )
 
-        print("✅ ChatBox orchestrator test successful!"        print(f"   Response: {response[:100]}...")
+        print("✅ ChatBox orchestrator test successful!")
+        print(f"   Response: {response[:100]}...")
         print(f"   Tools used: {len(tools)}")
 
         await orchestrator.close()
@@ -93,7 +94,8 @@ async def test_discord_orchestrator():
             discord_user_name="TestUser"
         )
 
-        print("✅ Discord orchestrator test successful!"        print(f"   Response: {response[:100]}...")
+        print("✅ Discord orchestrator test successful!")
+        print(f"   Response: {response[:100]}...")
         print(f"   Tools returned: {tools}")
 
         await orchestrator.close()

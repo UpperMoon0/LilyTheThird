@@ -28,15 +28,28 @@ def test_lily_core_monitoring():
         return False
 
 def test_tts_provider_monitoring():
-    """Test TTS Provider monitoring endpoint."""
+    """Test TTS Provider monitoring endpoint through Lily Core."""
     try:
-        response = requests.get("http://localhost:8001/monitoring", timeout=5)
+        # Get TTS Provider status through Lily Core
+        response = requests.get("http://localhost:8000/monitoring", timeout=5)
         if response.status_code == 200:
             data = response.json()
-            print("✅ TTS Provider Monitoring Test Passed")
-            print(f"   Status: {data.get('status')}")
-            print(f"   Service: {data.get('service_name')}")
-            return True
+            # Extract TTS Provider status from services list
+            tts_status = None
+            if "services" in data:
+                for service in data["services"]:
+                    if service.get("name") == "TTS-Provider":
+                        tts_status = service
+                        break
+            
+            if tts_status:
+                print("✅ TTS Provider Monitoring Test Passed")
+                print(f"   Status: {tts_status.get('status')}")
+                print(f"   Service: TTS-Provider")
+                return True
+            else:
+                print("❌ TTS Provider Monitoring Test Failed: Service not found in Lily Core response")
+                return False
         else:
             print(f"❌ TTS Provider Monitoring Test Failed: HTTP {response.status_code}")
             return False
@@ -45,15 +58,28 @@ def test_tts_provider_monitoring():
         return False
 
 def test_web_scout_monitoring():
-    """Test Web Scout monitoring endpoint."""
+    """Test Web Scout monitoring endpoint through Lily Core."""
     try:
-        response = requests.get("http://localhost:8002/monitoring", timeout=5)
+        # Get Web Scout status through Lily Core
+        response = requests.get("http://localhost:8000/monitoring", timeout=5)
         if response.status_code == 200:
             data = response.json()
-            print("✅ Web Scout Monitoring Test Passed")
-            print(f"   Status: {data.get('status')}")
-            print(f"   Service: {data.get('service_name')}")
-            return True
+            # Extract Web Scout status from services list
+            web_scout_status = None
+            if "services" in data:
+                for service in data["services"]:
+                    if service.get("name") == "Web-Scout":
+                        web_scout_status = service
+                        break
+            
+            if web_scout_status:
+                print("✅ Web Scout Monitoring Test Passed")
+                print(f"   Status: {web_scout_status.get('status')}")
+                print(f"   Service: Web-Scout")
+                return True
+            else:
+                print("❌ Web Scout Monitoring Test Failed: Service not found in Lily Core response")
+                return False
         else:
             print(f"❌ Web Scout Monitoring Test Failed: HTTP {response.status_code}")
             return False

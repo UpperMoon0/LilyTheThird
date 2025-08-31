@@ -112,7 +112,7 @@ class ChatTab(BoxLayout):
         print(f"ChatTab: Tool use enabled changed to: {value}")
         self._save_chat_settings()
         if self.backend_initialized:
-            print("ChatTab: Restarting Lily Core with new agent loop setting...")
+            print("ChatTab: Restarting Lily Core...")
             threading.Thread(target=self._reinitialize_orchestrator, daemon=True).start()
 
     def _post_init(self, dt):
@@ -153,12 +153,10 @@ class ChatTab(BoxLayout):
         error_message = None
 
         try:
-            print(f"ChatTab: Connecting to Lily Core with agent loop: {self.tool_use_enabled_for_llm}")
+            print("ChatTab: Connecting to Lily Core")
 
             # Create Lily Core orchestrator
-            instance = LilyCoreChatOrchestrator(
-                use_agent_loop=self.tool_use_enabled_for_llm
-            )
+            instance = LilyCoreChatOrchestrator()
 
             # Initialize the connection (this is async, so we need to use asyncio)
             loop = asyncio.new_event_loop()
@@ -183,9 +181,7 @@ class ChatTab(BoxLayout):
 
         try:
             # Create new orchestrator
-            new_instance = LilyCoreChatOrchestrator(
-                use_agent_loop=self.tool_use_enabled_for_llm
-            )
+            new_instance = LilyCoreChatOrchestrator()
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
